@@ -81,9 +81,18 @@ Point elsewhere with the `SOURCE_DATA_DIR` environment variable if you keep asse
 The full USLCI zip that `setup/00` parses ships as a prebuilt table already, so `00` needs no asset
 unless you rebuild it. The electricity baseline is sourced automatically: `setup/03b` downloads the
 version-pinned library from the Federal LCA Commons GitHub and verifies its SHA256 before use (pass
-`--no-fetch` to require a local copy, or `--library` to point at your own). That leaves just the
-USLCI process bundles to assemble by hand from [LCA Commons](https://www.lcacommons.gov) — process
-selection is left to your discretion by design.
+`--no-fetch` to require a local copy, or `--library` to point at your own).
+
+That leaves the **USLCI process bundles**, which you download by hand from
+[LCA Commons](https://www.lcacommons.gov). Pick each unit process you want to analyze and download it
+as an openLCA JSON-LD export — the Commons packages each process together with its full upstream
+supply chain, so one download gives you the process *plus* everything it draws on. Drop the bundle
+zip(s) in `source_data/`; `setup/03` imports whatever it finds there. You then run LCA on the
+processes you imported this way.
+
+> **Workflow note.** The intended workflow today is per-process: download the specific unit
+> processes you need. Pointing the engine at a single whole-USLCI database and running *any* process
+> out of it — no per-process downloads — is a **work-in-progress feature** (see [Roadmap](#roadmap)).
 
 ### 3. Build the brightway databases (once per machine)
 
@@ -101,7 +110,7 @@ python setup/03_import_uslci.py                  # USLCI processes
 ### 4. Run an analysis
 
 ```bash
-# A USLCI background process, by UUID:
+# A USLCI process you imported in Step 2, by UUID:
 python general/04_run_lca.py --uuid <USLCI-process-UUID>
 
 # ...or your own foreground system from a CSV inventory:
@@ -126,14 +135,9 @@ path arguments resolve against your current directory.
 The numbers are established by a rigorous, **apples-to-apples** comparison against openLCA: identical
 USLCI JSON-LD fed to both engines, so any difference is attributable to the pipeline, not to
 data-version drift. Across four locked test cases (petroleum refining, corn, Portland cement, steel
-billets), **all 40 category × process cells validate within 5%**, and 35 of 40 within ±1%.
-
-A governing principle keeps that honest: **validate, don't fit** — the harness is a neutral observer
-with no knowledge of the expected answers; discrepancies are diagnosed to root cause, never tuned
-away. The full write-up — method, per-process results, and the technical appendix — is in
-[`VALIDATION_REPORT.md`](VALIDATION_REPORT.md). The validation harness itself and the running
-provenance log (per-file SHA256s and dataset versions) live in the private parent project this
-engine was extracted from.
+billets), **all 40 category × process cells validate within 5%**, and 35 of 40 within ±1%. The full
+write-up — method, per-process results, and the technical appendix — is in
+[`VALIDATION_REPORT.md`](VALIDATION_REPORT.md).
 
 ---
 
@@ -143,7 +147,6 @@ engine was extracted from.
 |------|---------|
 | [`DEVLOG.md`](DEVLOG.md) | Engine design decisions and the bugs fixed to reach validation — read before changing any script |
 | [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) | The openLCA validation write-up — method, results, and technical appendix |
-| [`CLAUDE.md`](CLAUDE.md) | Environment, conventions, and pipeline status |
 
 ---
 
@@ -157,8 +160,6 @@ engine was extracted from.
 - **Data assets:** external LCA Commons / openLCA files live in `source_data/` (override with
   `SOURCE_DATA_DIR`). See "Getting started" above.
 - **Platform:** macOS
-
-See [`CLAUDE.md`](CLAUDE.md) for conventions and pipeline status.
 
 ---
 
