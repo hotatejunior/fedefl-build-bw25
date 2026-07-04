@@ -6,10 +6,9 @@ This is a reusable, code-first LCA engine built on a fully open, EPA-aligned dat
 clean, reproducible recipe for doing US-context LCA in code — something that does not currently exist
 in the public domain in published form.
 
-> **Provenance.** This pipeline was extracted from the [`asphalt-lca-bw25`](https://github.com/hotatejunior/asphalt-lca-bw25)
-> project, where it began as the background-inventory engine for an asphalt dynamic-LCA study and
-> grew into a general-purpose pipeline. That origin repo retains the full exploratory history and the
-> complete openLCA validation study; this repo is the extracted, streamlined engine.
+> **Provenance.** This pipeline spun out of a larger (private) LCA project, where it began as the
+> background-inventory engine for an asphalt dynamic-LCA study and grew into a general-purpose
+> pipeline. This repo is the extracted, streamlined engine.
 
 ---
 
@@ -134,8 +133,8 @@ A governing principle keeps that honest: **validate, don't fit** — the harness
 with no knowledge of the expected answers; discrepancies are diagnosed to root cause, never tuned
 away. The full write-up — method, per-process results, and the technical appendix — is in
 [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md). The validation harness itself and the running
-provenance log (`VALIDATION_LOG.md`, with per-file SHA256s and dataset versions) live in the origin
-repo, [`asphalt-lca-bw25`](https://github.com/hotatejunior/asphalt-lca-bw25).
+provenance log (per-file SHA256s and dataset versions) live in the private parent project this
+engine was extracted from.
 
 ---
 

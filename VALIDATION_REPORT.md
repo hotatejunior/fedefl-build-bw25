@@ -110,19 +110,26 @@ Both engines and all data sources, pinned to the versions used for these results
 | US Electricity Baseline | `v1.2025-06.0` (openLCA library package — the version openLCA computed against) |
 | FEDEFL biosphere | 332,133 flows, keyed by UUID |
 
-Per-file SHA-256 hashes are pinned in `VALIDATION_LOG.md`, in the origin repo
-[`asphalt-lca-bw25`](https://github.com/hotatejunior/asphalt-lca-bw25), which also holds the
-validation harness (`validation/05`, `validation/06`) and the openLCA reference exports.
+Per-file SHA-256 hashes are pinned in the `VALIDATION_LOG.md` of the private parent project this
+engine was extracted from, which also holds the validation harness (`validation/05`, `validation/06`)
+and the openLCA reference exports.
 
 ## B. Data-input parity (unit-process metadata + exchange counts)
 
-Both engines ingest the same JSON-LD. This table shows what each process *is*, and how its
-exchanges map from the raw file into brightway. "Cutoffs" are inputs with no producer process in
-USLCI — openLCA drops these identically (verified: a provider-resolution audit over all 1,707
-technosphere links found **0** ambiguous resolutions, and of 262 flows with no in-bundle producer,
-only 1 exists anywhere in full USLCI, and openLCA cuts it off too at ~1e-6).
+Both engines ingest the same JSON-LD. This table is **not** a brightway-vs-openLCA count comparison —
+it audits how each process's exchanges map from the raw USLCI file into brightway, showing the import
+is lossless except for cutoffs. The invariant to read across the columns is:
 
-| Process | Ref product (native) | Alloc | Loc | Raw tech-in / elem / out | brightway tech / bio | Cutoffs |
+> **brightway = USLCI file − cutoffs**, and openLCA drops the *identical* cutoffs.
+
+So all three engines see the same surviving exchanges. "Cutoffs" are inputs with no producer process
+in USLCI; openLCA drops these identically (verified: a provider-resolution audit over all 1,707
+technosphere links found **0** ambiguous resolutions, and of 262 flows with no in-bundle producer,
+only 1 exists anywhere in full USLCI, and openLCA cuts it off too at ~1e-6). The `product-out` column
+is the reference/co-product outputs, which are not stored as brightway exchanges (see the note below),
+so it has no brightway counterpart by design.
+
+| Process | Ref product (native) | Alloc | Loc | USLCI file: tech-in / elem / product-out | brightway: tech / bio | Cutoffs (= file − bw) |
 |---|---|---|---|---|---|---|
 | Petroleum refining | Diesel, 0.2523 L | PHYSICAL | US | 16 / 276 / 9 | 15 / 275 | 1 tech, 1 elem |
 | Corn; whole plant | Corn, 1.0 kg | ECONOMIC | US | 12 / 62 / 2 | 11 / 62 | 1 tech |
@@ -250,8 +257,8 @@ emissions versus its upstream supply chain.
 
 Setup and the practitioner steps run in **this** repo. The validation harness itself
 (`validation/05`, `validation/06_visualize_validation`) and the openLCA reference exports live in
-the origin repo [`asphalt-lca-bw25`](https://github.com/hotatejunior/asphalt-lca-bw25) — that is
-where the Appendix E/F numbers and the hero chart are regenerated.
+the private parent project this engine was extracted from — that is where the Appendix E/F numbers
+and the hero chart are regenerated.
 
 ```
 # one-time setup, per machine — THIS repo
@@ -262,7 +269,7 @@ general/04_run_lca.py --uuid <UUID> --contributions contrib_<name>.csv   # ×4, 
                                                                          #  → lca_contributions.csv
 general/06_visualize.py          # → charts/general/*.png
 
-# validation scores + hero chart (Appendix E, F) — ORIGIN repo (asphalt-lca-bw25)
+# validation scores + hero chart (Appendix E, F) — PARENT project (private)
 validation/05_validate_uslci.py  # VALIDATION_MODE = "full_chain" → validation_full_chain_results.csv
 validation/06_visualize_validation.py   # → charts/validation/*.png
 ```

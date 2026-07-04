@@ -1,10 +1,11 @@
 # Development Log — fedefl-build-bw25
 
-> **Provenance.** Split from `asphalt-lca-bw25` at commit `0cf0229`, 2026-07-04. The origin repo
-> holds the full chronological history — including the openLCA validation study, the per-run parity
-> debugging, and two disproven theories (the "USLCI trace-metal vintage" gap and the "electricity
-> baseline Vanadium ~3.7×" mystery). This log is the curated engine provenance: the design decisions
-> and the bugs that had to be fixed to reach validation. It will be expanded over time.
+> **Provenance.** This engine was extracted, 2026-07-04, from a larger (private) LCA project — an
+> asphalt dynamic-LCA study whose background-inventory needs it originally served. That project holds
+> the full chronological history: the openLCA validation study, the per-run parity debugging, and two
+> disproven theories (the "USLCI trace-metal vintage" gap and the "electricity baseline Vanadium
+> ~3.7×" mystery). This log is the curated engine provenance — the design decisions and the bugs that
+> had to be fixed to reach validation. It will be expanded over time.
 
 ---
 
@@ -42,7 +43,7 @@ engine). See CLAUDE.md for the script table and run order.
 
 ## Engine bugs fixed to reach validation
 
-Condensed; the full diagnostic narrative for each is in the origin repo's DEVLOG.
+Condensed; the full diagnostic narrative for each lives in the parent project's history.
 
 - **TRACI 2.2 spatial CF inflation.** Spatially-resolved characterization factors were being summed
   across locations; the fix selects the generic (non-located) variant to match openLCA. Same issue,

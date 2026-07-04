@@ -1,7 +1,7 @@
 # CLAUDE.md — fedefl-build-bw25 (open USLCI · FEDEFL · TRACI brightway pipeline)
 
-Extracted from the origin project `asphalt-lca-bw25`, which retains the full exploratory history,
-the validation harness, and the running provenance log. This repo is the streamlined general engine.
+Extracted from a larger (private) LCA project, which retains the full exploratory history, the
+validation harness, and the running provenance log. This repo is the streamlined general engine.
 
 ## Environment
 
@@ -50,7 +50,7 @@ All four locked test cases (petroleum, corn, cement, steel) validate against ope
 categories — every one of the 40 category × process cells lands within ±5%, 35 of 40 within ±1%.
 Max deviation is petroleum's ecotox/cancer/non-cancer at ~1.027, within tolerance. Full write-up
 (method, results, appendix) in `VALIDATION_REPORT.md`; the harness and per-file provenance live in
-the origin repo `asphalt-lca-bw25`.
+the private parent project.
 
 ## Conventions
 
