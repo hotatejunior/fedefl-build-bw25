@@ -1,0 +1,46 @@
+# environment.yml — reproducible conda environment for the brightway·USLCI·FEDEFL·TRACI pipeline.
+#
+# Create it with:
+#     conda env create -f environment.yml
+#     conda activate fedefl-build-bw25
+#
+# Versions are pinned to the exact combination the validation study was run and
+# passed against (all 40 category x process cells within tolerance). Relax the
+# pins at your own risk — brightway25, numpy 2.x, and pandas 3.x move fast.
+#
+# This file recreates the PYTHON ENVIRONMENT only. It does not fetch the external
+# data assets (USLCI bundles, TRACI json, the openLCA electricity-baseline
+# library, openLCA reference exports) — those live in the folder pointed to by
+# the SOURCE_DATA_DIR env var. See README "Getting started" for how to
+# assemble that folder.
+
+name: fedefl-build-bw25
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+
+  # Scientific stack (conda-forge). openpyxl is a runtime dependency of
+  # pandas.read_excel — validation/05 reads the openLCA .xlsx reference exports.
+  - numpy=2.4.6
+  - scipy=1.17.1
+  - pandas=3.0.3
+  - matplotlib=3.11.0
+  - seaborn=0.13.2
+  - openpyxl=3.1.5
+
+  - pip
+
+  # brightway25 engine + EPA open-data packages, installed via pip.
+  # The EPA packages (fedelemflowlist, lciafmt) are NOT on PyPI — they install
+  # only from EPA's GitHub. Pinned to the exact commits the validation study ran
+  # against (the versions they report — 1.3.1 / 1.2.0 — are not unique release
+  # tags, so a commit pin is the only reproducible reference).
+  - pip:
+      - bw2data==4.7
+      - bw2calc==2.5.0
+      - bw2io==0.9.17
+      - git+https://github.com/USEPA/fedelemflowlist.git@d2d690fb5585101080b2e7ca492a0822ba11846d
+      - git+https://github.com/USEPA/lciaformatter.git@48d19af11965994378e9febe0cca2d5822a0776d

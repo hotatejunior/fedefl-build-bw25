@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Generated outputs — re-created by running the pipeline
+lca_results.csv
+lca_contributions.csv
+
+# External data assets — assembled locally, not tracked (see README "Getting started")
+source_data/
+National_Renewable_Energy_Laboratory-USLCI_Database_Public.zip
