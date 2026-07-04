@@ -20,7 +20,7 @@ Life-cycle assessment today forces a trade-off between *open* and *programmable*
 - **Commercial tools + ecoinvent** (SimaPro, GaBi) are programmable-ish but require expensive licenses and closed data.
 - **brightway** is a powerful, programmable LCA engine in Python — but there is no published, reproducible path to load the specific open US stack (USLCI background + FEDEFL flows + TRACI 2.2 methods) into it. The obvious route, `bw2io`'s `JSONLDImporter`, has known bugs with USLCI's `isInput` field that silently misclassify exchanges.
 
-This project closes that gap: an open, EPA-aligned, **code-first** LCA pipeline you can automate, parameterize, and run at speed — with correctness verified against openLCA so it can be trusted.
+This project closes that gap: an open, EPA-aligned, **code-first** LCA pipeline you can automate — with correctness verified against openLCA so it can be trusted.
 
 ### Why this way (design choices)
 
@@ -28,7 +28,6 @@ This project closes that gap: an open, EPA-aligned, **code-first** LCA pipeline 
 - **Custom JSON-LD parser, not `bw2io`.** Full control over exchange-direction detection avoids the `isInput` misclassification bugs.
 - **FEDEFL UUIDs as the universal key.** Every biosphere flow — in the brightway DB, the TRACI method, and the USLCI data — is keyed by FEDEFL UUID. Linking is deterministic; no fragile name-matching.
 - **openLCA library interoperability.** `olca_library.py` decodes openLCA's pre-aggregated *library* (matrix) packages (e.g. the US Electricity Baseline) — a format brightway cannot otherwise read — so their pre-solved background can be injected directly.
-- **Speed is a hard requirement.** Matrix-based, batched, programmatic computation that aims to outperform openLCA on equivalent queries — the foundation that makes *dynamic* (time-resolved, scenario-swept) LCA tractable at scale.
 
 ---
 
