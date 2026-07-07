@@ -68,6 +68,34 @@ data completeness all check out identical to openLCA (details in the appendix). 
 in a long feedback loop specific to petroleum's supply chain and is within tolerance, so I've left
 it documented rather than chased further. It does not affect the other three processes.
 
+## How the numbers got here — the debugging arc
+
+The headline agreement was *reached*, not assumed. It's worth seeing how, because the process is the
+real evidence that these numbers were validated rather than fit.
+
+Petroleum's toxicity categories did not start near 1.0. In the first full-chain run they sat at
+roughly **2.0×** openLCA (human-health cancer 2.03, non-cancer 2.13, ecotoxicity 2.11). Rather than
+tune the output, the gap was traced to genuine bugs in the importer:
+
+1. **Co-product allocation factor.** A multi-output process consumed through a *co-product* exchange
+   was being built on the *reference* product's allocation factor (0.219) instead of the co-product's
+   own native factor (0.052) — inflating everything reached through that path. Fixed by applying each
+   exchange's own target-product allocation factor.
+2. **Causal allocation flattened.** The remaining petroleum residual was a `CAUSAL_ALLOCATION`
+   process being collapsed to a mass fraction, over-attributing a forest-residue feedstock by 1.83×.
+   Fixed by honoring each exchange's own causal factor.
+
+Those two fixes moved petroleum from **2.0× to ~1.03**. Equally important, **two comfortable
+explanations were disproven and kept on the record**: an early "petroleum trace-metal vintage" story
+and an "electricity-Vanadium" mystery both turned out to be *setup* artifacts, not pipeline bugs, and
+that reversal is logged rather than erased. The governing rule throughout was **VALIDATE, do not
+FIT** — a change landed only if it was a first-principles correctness fix that applies to any dataset,
+never a tweak to make these four processes agree.
+
+The full chronological trace — every run, wrong theory, and fix — is in
+[`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md); the engineering narrative is in
+[`DEVLOG.md`](DEVLOG.md).
+
 ## Honest scope
 
 This is a *validation in progress*, not a finished certification.
@@ -76,6 +104,11 @@ This is a *validation in progress*, not a finished certification.
   the pipeline logic is process-agnostic (it special-cases nothing about these four). But the
   strongest guard against "the code was fit to these examples" is more examples — the plan is to
   pull additional processes from other manufacturing sectors and re-run this same check.
+- **Steel is a direct-mode case, not a fourth full-chain one.** The steel billets bundle contains a
+  **single process with no upstream supply chain**, so for steel full-chain ≡ direct: it validates
+  the LCIA math and biosphere mapping but exercises **none** of the technosphere solve (parser,
+  allocation, provider linking). Genuine full-chain coverage rests on petroleum, corn, and cement.
+  Re-pulling steel as a full-chain bundle is on the roadmap.
 - **One residual above 1%** (petroleum, ~2.7%), understood well enough to be confident it's not a
   general bug.
 - **Electricity boundary matters.** Both engines were run with the US Electricity Baseline mounted
@@ -105,14 +138,17 @@ Both engines and all data sources, pinned to the versions used for these results
 | `fedelemflowlist` (FEDEFL) | 1.3.1 |
 | `olca-schema` | 2.4.0 |
 | pandas / numpy / scipy | 3.0.3 / 2.4.6 / 1.17.1 |
-| Python | 3.11.14 (conda env `asphalt-lca`) |
+| Python | 3.11.15 (canonical conda env `fedefl-build-bw25` per `environment.yml`; the locked results were computed in a legacy-named build env, `asp-lca-bw25` — same pinned package set) |
 | TRACI 2.2 method | file `v1.2.0`; method object `1.4.0`; `@id 52ce6d64-…`; 10 categories |
 | US Electricity Baseline | `v1.2025-06.0` (openLCA library package — the version openLCA computed against) |
 | FEDEFL biosphere | 332,133 flows, keyed by UUID |
 
-Per-file SHA-256 hashes are pinned in the `VALIDATION_LOG.md` of the private parent project this
-engine was extracted from, which also holds the validation harness (`validation/05`, `validation/06`)
-and the openLCA reference exports.
+Per-file SHA-256 hashes for every input are pinned in
+[`validation/README.md`](validation/README.md) and [`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md),
+alongside the validation harness (`validation/05_validate_uslci.py`, `validation/06_visualize_validation.py`)
+and the locked result CSVs — all in **this** repo. The bulky openLCA reference exports (~130 MB of
+xlsx) are hash-pinned there but not yet redistributed with the repo (hosting decision pending); a
+replicator can regenerate them in openLCA 2.6 by following `VALIDATION_LOG.md`.
 
 ## B. Data-input parity (unit-process metadata + exchange counts)
 
@@ -255,21 +291,25 @@ emissions versus its upstream supply chain.
 
 ## Reproducing this
 
-Setup and the practitioner steps run in **this** repo. The validation harness itself
-(`validation/05`, `validation/06_visualize_validation`) and the openLCA reference exports live in
-the private parent project this engine was extracted from — that is where the Appendix E/F numbers
-and the hero chart are regenerated.
+Everything below runs in **this** repo — setup, the practitioner steps, and the validation harness
+that regenerates the Appendix E/F numbers and the hero chart. See
+[`validation/README.md`](validation/README.md) for the full replication guide and the SHA256-pinned
+asset manifest.
 
 ```
-# one-time setup, per machine — THIS repo
+# one-time setup, per machine
 setup/00_build_flow_conversion_table.py → 01 → 02 → 03b → 03
 
-# contribution data for the practitioner charts (Appendix G), one run per process — THIS repo
+# contribution data for the practitioner charts (Appendix G), one run per process
 general/04_run_lca.py --uuid <UUID> --contributions contrib_<name>.csv   # ×4, then concatenate
                                                                          #  → lca_contributions.csv
 general/06_visualize.py          # → charts/general/*.png
 
-# validation scores + hero chart (Appendix E, F) — PARENT project (private)
+# validation scores + hero chart (Appendix E, F)
 validation/05_validate_uslci.py  # VALIDATION_MODE = "full_chain" → validation_full_chain_results.csv
+                                 #   an empty `git diff` on that CSV IS the byte-for-byte parity check
 validation/06_visualize_validation.py   # → charts/validation/*.png
 ```
+
+The openLCA reference exports the harness diffs against are hash-pinned in `validation/README.md`;
+until a hosting decision is made they are assembled locally (or regenerated in openLCA 2.6).

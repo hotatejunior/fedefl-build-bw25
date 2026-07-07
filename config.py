@@ -21,7 +21,7 @@ from pathlib import Path
 # Paths given explicitly on the command line still resolve against the CWD.
 REPO_ROOT = Path(__file__).resolve().parent
 
-PROJECT_NAME = "asphalt-lca"
+PROJECT_NAME = "fedefl-build-bw25"
 BIOSPHERE_DB = "biosphere-fedefl"
 USLCI_DB = "uslci-subset"
 ELECTRICITY_BASELINE_DB = "electricity-baseline"

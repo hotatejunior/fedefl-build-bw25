@@ -130,25 +130,85 @@ path arguments resolve against your current directory.
 
 ---
 
-## Trust — validated against openLCA
+## Trust — engine parity with openLCA
 
-The numbers are established by a rigorous, **apples-to-apples** comparison against openLCA: identical
-USLCI JSON-LD fed to both engines, so any difference is attributable to the pipeline, not to
-data-version drift. Across four locked test cases (petroleum refining, corn, Portland cement, steel
-billets), **all 40 category × process cells validate within 5%**, and 35 of 40 within ±1%. The full
-write-up — method, per-process results, and the technical appendix — is in
-[`VALIDATION_REPORT.md`](VALIDATION_REPORT.md).
+What's established here is **engine parity**: on *identical* inputs, this pipeline reproduces the
+numbers openLCA computes. It is a check on the mechanics — the JSON-LD parser, allocation, provider
+linking, and the LCIA solve — not a validation of any study's real-world results. The comparison is
+deliberately apples-to-apples: identical USLCI JSON-LD is fed to both engines, so any difference is
+attributable to the pipeline, not to data-version drift.
+
+Across four locked test cases (petroleum refining, corn, Portland cement, steel billets), **all 40
+category × process cells reproduce openLCA within 5%**, and 35 of 40 within ±1%. (One caveat: the
+steel bundle is a single process with no upstream, so for steel full-chain ≡ direct — it exercises
+the LCIA math but not the technosphere solve. Full-chain coverage rests on petroleum, corn, and
+cement.)
+
+**What this does *not* cover** stays with the practitioner: whether the allocation choices, system
+boundary, cutoffs, and data vintage are appropriate for *your* study is a modeling judgment the
+engine can't make for you. Parity means the arithmetic is trustworthy; the science of the study is
+still yours to defend.
+
+The full write-up — method, per-process results, the debugging arc that reached parity, and the
+technical appendix — is in [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md), with the reproducible
+harness and running provenance log in [`validation/`](validation/).
 
 ---
+
+## Provenance & how this was built
+
+This engine was built with heavy AI assistance and it's worth being direct about that, because the
+trust case here does **not** rest on who typed the code.
+
+- **AI-assisted development, stated plainly.** Most of the implementation code was written by Claude
+  (Anthropic), working under close human direction. The trickiest logic — the JSON-LD parser, the
+  co-product allocation handling, the openLCA-library matrix decoder — was AI-authored.
+- **Human accountability, stated plainly.** A human (the maintainer) made the method decisions
+  (allocation approach, electricity-boundary control, generic-vs-regional CF selection), ran every
+  openLCA reference session by hand, directed the debugging, and audited each script against
+  [`QC_PROTOCOL.md`](QC_PROTOCOL.md) — a module-by-module read-through, assumption inventory, and
+  risk resolution pass. Where AI-generated work was accepted without proportionate review, that is
+  tracked openly in the "under-review ledger" of the release plan rather than hidden.
+- **The governing principle: VALIDATE, do not FIT.** Discrepancies against openLCA were root-caused,
+  never tuned away. The code is general and data-driven — no hardcoded per-dataset constants, no
+  special-casing of the four test processes. Two comfortable-sounding explanations for early
+  discrepancies (a petroleum "trace-metal vintage" story and an electricity-Vanadium mystery) were
+  *disproven* during debugging and are kept on the record in
+  [`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md), not quietly deleted.
+- **The debugging arc is the real trust artifact.** Petroleum's toxicity categories started at
+  **2.0×** openLCA. That gap was traced to the importer applying a multi-output process's *reference*
+  product allocation factor to a *co-product* exchange, then to a causal-allocation factor being
+  flattened to a mass fraction — two genuine correctness bugs. Fixing them (not fitting them) brought
+  the residual to **~1.03**. The full trace lives in [`DEVLOG.md`](DEVLOG.md) and the chronological
+  `VALIDATION_LOG.md`.
+
+**Why provenance is orthogonal to correctness here.** The evidence chain is *pinned inputs →
+reproducible harness → locked outputs*. Anyone can re-run the harness from [`validation/`](validation/)
+against the SHA256-pinned inputs and check the locked result CSVs byte-for-byte. That chain doesn't
+depend on who — or what — typed the code. The place AI-authored code most warrants independent
+scrutiny is the causal co-product **consumption** path in `setup/03`, which is currently exercised by
+zero validation cells; it is flagged as such in `validation/README.md` and the release plan's ledger.
 
 ## Documentation
 
 | File | Purpose |
 |------|---------|
 | [`DEVLOG.md`](DEVLOG.md) | Engine design decisions and the bugs fixed to reach validation — read before changing any script |
-| [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) | The openLCA validation write-up — method, results, and technical appendix |
+| [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) | The openLCA parity write-up — method, results, and technical appendix |
+| [`validation/`](validation/) | The reproducible parity harness, the locked result CSVs, and `VALIDATION_LOG.md` (the running provenance log — every run, disproven theory, and fix, in order). See [`validation/README.md`](validation/README.md) to replicate |
+| [`QC_PROTOCOL.md`](QC_PROTOCOL.md) | The per-script human audit process each script was reviewed against |
 
 ---
+
+## Maintainer, citation & reporting issues
+
+- **Maintainer:** Harrison Watson.
+- **Report a discrepancy or bug:** open a
+  [GitHub issue](https://github.com/hotatejunior/fedefl-build-bw25/issues). Parity results and
+  bug reports are especially welcome — the trust case here is built on independent scrutiny.
+- **License:** [MIT](LICENSE) — free to use, modify, and redistribute; no warranty.
+- **Citing this work:** see [`CITATION.cff`](CITATION.cff) (GitHub renders a "Cite this repository"
+  button from it).
 
 ## Environment
 
@@ -156,7 +216,7 @@ write-up — method, per-process results, and the technical appendix — is in
   Core stack: brightway25 (`bw2data` 4.7, `bw2calc` 2.5), the EPA open-data packages `fedelemflowlist`
   and `lciafmt` (git installs), and `pandas` / `numpy` / `scipy` / `matplotlib` / `seaborn` /
   `openpyxl`. All versions are pinned to the validated combination.
-- **Brightway project:** `asphalt-lca`
+- **Brightway project:** `fedefl-build-bw25`
 - **Data assets:** external LCA Commons / openLCA files live in `source_data/` (override with
   `SOURCE_DATA_DIR`). See "Getting started" above.
 - **Platform:** macOS
