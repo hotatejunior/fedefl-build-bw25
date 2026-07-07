@@ -30,17 +30,32 @@ any individual result they compute, not just the four locked test cases.
 > (empty `git diff`), confirming the project name is non-load-bearing (logged in
 > `validation/README.md`). Items 1 (LICENSE — MIT, © 2026 Harrison Watson) and 2 (CITATION.cff +
 > "Maintainer, citation & reporting issues" README section, GitHub Issues as contact) DONE. Item 3
-> (reference-data hosting for the ~130 MB openLCA exports) remains an open decision.
+> (reference-data hosting) DECIDED — peers regenerate in their own openLCA; hosted files are an
+> optional GitHub Release mirror; regeneration guide written; hash semantics clarified. **All of
+> Phase 1 is now complete except uploading the release-asset mirror at tag time (Phase 5).**
 
 1. **LICENSE** (blocker — without it peers legally can't touch the code). Leading candidate for an
    openly-shared scientific tool: BSD-3-Clause or MIT; check license compatibility notes for
    fedelemflowlist/lciafmt (both EPA/public-domain-ish) before choosing.
 2. **CITATION.cff + named maintainer/contact** in README ("report discrepancies here").
-3. **Reference-data hosting decision** for the ~130 MB of openLCA exports: Git LFS vs GitHub
-   release asset vs Zenodo deposit (Zenodo also mints a DOI — strongest scientific-provenance
-   option, and citable). Until then the xlsx stay local-only with pinned hashes.
-   - Related: `validation/Petroleum_refining__at_refinery___US_kg_basis.xlsx` (33 MB) currently
-     sits in a tracked directory — do NOT commit it before this decision is made.
+3. **Reference-data hosting — DECIDED 2026-07-07.** The peer group will **regenerate** the openLCA
+   exports in their own openLCA 2.6, so the hosted files are a *convenience mirror*, not the
+   canonical object. Decision:
+   - **Regeneration is the primary path.** Wrote `validation/REGENERATING_REFERENCE_EXPORTS.md`
+     (openLCA session steps + the exact sheet/cell format `05` parses, distilled from
+     `VALIDATION_LOG.md`).
+   - **Optional mirror = GitHub Release asset** attached to `v0.1.0-beta` (free, no client tooling,
+     tag-locked). Not yet uploaded; do at tag time (Phase 5).
+   - **Zenodo/DOI reserved for a citable release of the whole tool later**, not for these data files.
+     **Git LFS rejected** (recurring cost + client-side `git lfs` friction for files nobody needs in
+     the working tree).
+   - **Hash semantics clarified** (`validation/README.md`): input hashes are a `shasum -c` replication
+     gate; openLCA-export hashes pin only the maintainer's distributed copy and are **not**
+     reproducible by regeneration (openLCA bakes in timestamps/ordering) — the harness tolerance
+     check is the real openLCA-side gate.
+   - The xlsx are now **git-ignored** (`validation/*.xlsx` in `.gitignore`); the 33 MB
+     `validation/Petroleum_refining__at_refinery___US_kg_basis.xlsx` is no longer at risk of being
+     committed.
 4. **Scrub lurking `asphalt-lca` references** (inventory as of 2026-07-04):
    - `config.py` → `PROJECT_NAME = "asphalt-lca"` (the brightway project name).
    - `QC_PROTOCOL.md` title ("Asphalt LCA Pipeline").

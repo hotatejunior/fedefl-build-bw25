@@ -17,6 +17,7 @@ harness was re-run **from this repo** and reproduced the locked results **byte-f
 | `validation_full_chain_results.csv` | **Locked** full-chain results (the 40-cell table in the report) |
 | `validation_direct_results.csv` | **Locked** direct-mode results (LCIA-math-only layer, petroleum) |
 | `VALIDATION_LOG.md` | The running provenance log: validation design, environment pins, asset SHA256s, and the full chronological results record — including the failed runs and disproven theories that preceded the passing state |
+| `REGENERATING_REFERENCE_EXPORTS.md` | How to reproduce the openLCA reference exports in your own openLCA 2.6 — the intended path, since the exports are not shipped in the repo |
 | `Petroleum_refining__at_refinery___US_kg_basis.xlsx` | openLCA reference export for **direct** mode (kg-basis, "Direct impact contributions" sheet) |
 
 The openLCA reference exports for **full-chain** mode live in `source_data/` at the repo root
@@ -52,6 +53,17 @@ All SHA256s below were verified at port time (2026-07-04) against the pins recor
 no prior pins, so their hashes were **first recorded here at port time** from the files the locked
 results were computed against.
 
+> **What the two kinds of hash mean — they are not the same check.**
+> - **Inputs** (USLCI bundles, electricity baseline, full USLCI zip): the hash **is** a replication
+>   gate. Both engines must ingest these exact bytes, so `shasum -c` against the pins below is a
+>   real go/no-go — a mismatch means you are not running the validated comparison.
+> - **openLCA reference exports** (the `.xlsx`): the hash pins only the maintainer's **distributed
+>   copy**, for download integrity. It is **not** something you can reproduce. openLCA bakes
+>   timestamps, row ordering, and formatting into each file, so regenerating these in your own
+>   openLCA (the intended path — see [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md))
+>   yields a **different hash even when the numbers are identical**. The replication gate for the
+>   openLCA side is the **harness agreeing within tolerance**, not a byte match.
+
 ### USLCI supply-chain bundles (→ `source_data/`)
 
 | Test case | Bundle | SHA256 |
@@ -69,6 +81,9 @@ results were computed against.
 | `National_Renewable_Energy_Laboratory-USLCI_Database_Public.zip` (full USLCI; feeds `setup/00`) | `e0ad4ff560fc4ddce7b7b8645a94efb24e4ec342fd593fb243617def70a8281e` |
 
 ### openLCA reference exports (hashes first pinned 2026-07-04)
+
+These hashes identify the maintainer's distributed copies only; see the boxed note above — a peer
+regenerating in openLCA will not (and is not expected to) reproduce them byte-for-byte.
 
 | Export | Mode | SHA256 |
 |---|---|---|
@@ -88,10 +103,15 @@ results were computed against.
 
 ## Known limitations of this package (honest scope)
 
-- The four openLCA reference exports (~100 MB of xlsx) are not yet distributed with the repo —
-  hashes above pin them, but hosting (Git LFS / release asset / Zenodo) is an open decision. Until
-  resolved, an external replicator can verify everything except the openLCA-side numbers, which
-  they can regenerate themselves in openLCA 2.6 following `VALIDATION_LOG.md`.
+- The openLCA reference exports (~130 MB of xlsx) are **not committed** to the repo (they are
+  git-ignored; see `.gitignore`). The intended replication path is that a peer **regenerates them in
+  their own openLCA 2.6** — a step-by-step guide is in
+  [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md). The maintainer's copies
+  may additionally be attached as a **GitHub Release asset** (a convenience mirror / fast path for
+  running the harness without a full openLCA session), but that is optional — the reference numbers
+  are meant to be reproduced, not downloaded and trusted. (A Zenodo DOI is reserved for a citable
+  release of the whole tool later, not for these data files; Git LFS was rejected — cost + client
+  tooling for files nobody needs in the working tree.)
 - The steel test case is a 1-process bundle: it exercises LCIA math and biosphere mapping but not
   the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.
 - Direct mode currently covers petroleum only, and mode switching requires editing a constant.
