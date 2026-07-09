@@ -129,8 +129,16 @@ WITHIN_FP = {
 _WITHIN_FP_LOWER = {k.lower(): v for k, v in WITHIN_FP.items()}
 
 # Accumulates unit strings not found in _WITHIN_FP_LOWER during import.
-# Reported after the main loop — add missing units to WITHIN_FP and rerun.
+# Enforced before the DB is written — add missing units to WITHIN_FP and rerun.
 UNKNOWN_UNITS: set = set()
+
+# Unknown-unit policy (ledger #7). An unrecognized unit string is passed through
+# at face value in normalize() -- a silent wrong number ("a wrong number wearing a
+# plausible one's clothes"). By DEFAULT the build now HARD-STOPS if any unknown unit
+# was encountered, checked before '{USLCI_DB}' is written. Set ALLOW_UNIT_PASSTHROUGH=1
+# to permit passthrough with a loud warning instead (exploratory imports only).
+ALLOW_UNIT_PASSTHROUGH = os.environ.get(
+    "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
@@ -188,11 +196,34 @@ if BIOSPHERE_DB not in bd.databases:
 # =============================================================================
 # LOAD ALL PROCESSES AND FLOWS FROM ZIPS
 # =============================================================================
-# Sort oldest-first by file modification time so newer zips overwrite older ones
-# when the same process UUID appears in multiple exports (e.g. a corrected re-download).
+# When the same process UUID appears in multiple exports (e.g. a corrected
+# re-download), precedence is decided by the process's OWN embedded dataset
+# version + lastChange timestamp -- NOT by file modification time (ledger #5).
+# mtime does not survive copies/clones, so two users with identical bundles could
+# otherwise build different databases; version/lastChange live inside the JSON and
+# are identical on every machine. Zips are iterated in a deterministic filename
+# order purely so the "equal version" tie-break is reproducible too.
+def _parse_version(v):
+    """'00.01.014' -> (0, 1, 14); non-numeric parts -> 0; missing -> () (lowest)."""
+    if not v:
+        return ()
+    parts = []
+    for part in str(v).split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+def _proc_precedence(data):
+    """Sort key for choosing between two copies of the same process UUID. Higher =
+    newer: primarily the dataset version, then the lastChange timestamp (ISO-8601
+    Zulu strings sort chronologically)."""
+    return (_parse_version(data.get("version")), data.get("lastChange") or "")
+
 zip_files = sorted(
     BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
-    key=lambda p: p.stat().st_mtime
+    key=lambda p: p.name
 )
 if not zip_files:
     raise SystemExit(
@@ -203,8 +234,9 @@ if not zip_files:
 print(f"Found {len(zip_files)} process zip(s).")
 
 all_processes = {}  # proc_uuid -> process dict
+_proc_keys    = {}  # proc_uuid -> precedence key of the copy currently kept
 all_flows     = {}  # flow_uuid -> flow dict
-overwritten_processes = set()  # UUIDs resolved by newer zip winning
+version_resolved = set()  # UUIDs where copies differed in version/lastChange
 
 for zpath in zip_files:
     with zipfile.ZipFile(zpath) as z:
@@ -212,10 +244,17 @@ for zpath in zip_files:
             if name.startswith("processes/") and name.endswith(".json"):
                 data = json.loads(z.read(name))
                 uid = data.get("@id")
-                if uid:
-                    if uid in all_processes:
-                        overwritten_processes.add(uid)
-                    all_processes[uid] = data
+                if not uid:
+                    continue
+                key = _proc_precedence(data)
+                if uid in all_processes:
+                    if key == _proc_keys[uid]:
+                        continue  # identical version — benign duplicate, keep first-seen
+                    version_resolved.add(uid)
+                    if key < _proc_keys[uid]:
+                        continue  # incoming copy is older — keep the newer incumbent
+                all_processes[uid] = data
+                _proc_keys[uid]    = key
             elif name.startswith("flows/") and name.endswith(".json"):
                 data = json.loads(z.read(name))
                 uid = data.get("@id")
@@ -223,9 +262,10 @@ for zpath in zip_files:
                     all_flows[uid] = data
 
 print(f"  {len(all_processes)} unique processes, {len(all_flows)} unique flows.")
-if overwritten_processes:
-    print(f"  NOTE: {len(overwritten_processes)} process UUID(s) appeared in multiple zips "
-          f"— kept data from the newest file (by modification time).")
+if version_resolved:
+    print(f"  NOTE: {len(version_resolved)} process UUID(s) appeared in multiple zips with "
+          f"differing versions — kept the highest dataset version / lastChange "
+          f"(deterministic across machines).")
 print()
 
 # =============================================================================
@@ -736,6 +776,20 @@ for proc_uuid, proc in all_processes.items():
         "exchanges": exchanges,
     }
 
+# Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
+# means silently wrong exchange amounts; refuse to build a database that contains
+# them unless the operator has explicitly opted into passthrough.
+if UNKNOWN_UNITS and not ALLOW_UNIT_PASSTHROUGH:
+    raise RuntimeError(
+        f"{len(UNKNOWN_UNITS)} unrecognized unit string(s) encountered — build STOPPED before "
+        f"writing '{USLCI_DB_NAME}'.\n"
+        f"  These exchanges would be passed through WITHOUT unit conversion, i.e. silently wrong "
+        f"amounts. Add each unit to WITHIN_FP (with its factor to the flow-property reference unit) "
+        f"and rerun, or set ALLOW_UNIT_PASSTHROUGH=1 to import anyway with a warning (NOT "
+        f"recommended for study use):\n"
+        + "\n".join(f'    "{u}"' for u in sorted(UNKNOWN_UNITS))
+    )
+
 bd.Database(USLCI_DB_NAME).write(db_data)
 
 print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes.")
@@ -779,9 +833,10 @@ if skipped_multipliers:
     for puuid, fuuid in skipped_multipliers[:5]:
         print(f"    process {puuid}, flow {fuuid}")
 if UNKNOWN_UNITS:
+    # Only reachable when ALLOW_UNIT_PASSTHROUGH=1 (otherwise the build raised above).
     print(f"\n  WARNING: {len(UNKNOWN_UNITS)} unrecognized unit string(s) encountered during import.")
-    print(f"  These exchanges were passed through without unit conversion — amounts may be wrong.")
-    print(f"  Add the following to WITHIN_FP and rerun:")
+    print(f"  ALLOW_UNIT_PASSTHROUGH is set, so these were passed through WITHOUT unit conversion")
+    print(f"  — amounts may be silently wrong. Add the following to WITHIN_FP and rerun without the flag:")
     for u in sorted(UNKNOWN_UNITS):
         print(f"    \"{u}\": <conversion_factor>")
 

@@ -123,6 +123,29 @@ any individual result they compute, not just the four locked test cases.
 
 ## Phase 4 — Engineering hardening (parallel with Phase 3; all items are code edits, deliberately deferred from the 2026-07-04 session)
 
+> **Progress — 2026-07-07 session (UNCOMMITTED, on branch `release-prep-phase1-2`).** Items 4.1,
+> 4.2, 4.3, 4.5 DONE and verified; 4.4 paused at a scope decision (see handoff note below). After the
+> setup/02 + setup/03 edits, the full setup chain was rebuilt and the harness re-run —
+> `validation_full_chain_results.csv` still reproduces **byte-for-byte**, so all changes are
+> behavior-preserving.
+> - **4.1 pytest suite** — DONE. New `tests/` (18 tests, all pass): `test_foreground_importer.py`
+>   (12 pure-unit validation tests, no brightway), `test_olca_library.py` (5 decode self-checks vs
+>   the real baseline, data-gated), `test_validation_cement.py` (cement full-chain cell vs locked
+>   CSV, data-gated). `pytest.ini` added; `pytest` added to `environment.yml` as a dev dep. Scoped
+>   to NOT refactor the validated `setup/03` (decision: normalize()/_allocation_for() unit tests
+>   deferred — they'd need setup/03 made import-safe). CI not yet wired.
+> - **4.2 enforce TRACI CF hash** (`setup/02`) — DONE (closes ledger #4). Pins + enforces SHA256 of
+>   both CF source files (base `traci_2.1.xlsx`, eutro file); hard-raises on mismatch. Also fixed a
+>   latent bug: provenance logging looked up the wrong base-file cache name so it always printed
+>   "not yet cached".
+> - **4.3 content/version zip precedence** (`setup/03`) — DONE (closes ledger #5). Replaced mtime
+>   with per-process `(version, lastChange)` precedence (100% present in USLCI JSON); zips iterated
+>   in deterministic filename order. Verified the 2 colliding UUIDs still resolve to the same copy.
+> - **4.5 unit-passthrough hard stop** (`setup/03`) — DONE (closes ledger #7). Unknown units now
+>   hard-stop before the DB write (batched, reports all); opt-in `ALLOW_UNIT_PASSTHROUGH=1` to
+>   permit with a warning. Current validated build hits zero unknown units, so default is safe.
+> - **4.4 per-run auditability** (`general/04`) — NOT STARTED, paused at scope decision. See handoff.
+
 1. **pytest suite** wrapping the harness: cheapest first test = cement full-chain cell vs locked
    CSV; plus pure-unit tests for `normalize()`, `_allocation_for()`, `foreground_importer`
    validation, and `olca_library` decode self-checks. Then CI (GitHub Actions; unit tests always,
@@ -171,10 +194,10 @@ has either verified it against evidence or replaced the claim with a tested one.
 | 1 | **Causal co-product consumption path** (`setup/03`, `_allocation_for` + link-site re-basis) | Most intricate code in the repo; written by Claude with confident comments; exercised by **zero** validation cells (no bundle consumes a causal co-product) | OPEN — Phase 3.1: add a covering test case; until then treat path as unvalidated |
 | 2 | **Petroleum 2.7% residual** | Accepted as "long feedback loop, within tolerance" without a proven mechanism | OPEN — Phase 3.2 experiment (joint-solve vs M-injection) |
 | 3 | **Steel framed as a full-chain case** | 1-process bundle ⇒ full-chain ≡ direct; report presents 4 full-chain cases | Disclosure DONE — `validation/README.md` (2026-07-04) + `VALIDATION_REPORT.md` Honest-scope (2026-07-07). Full-chain re-pull still OPEN (Phase 3.1) |
-| 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | OPEN — Phase 4.2 |
-| 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | OPEN — Phase 4.3 |
+| 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | DONE 2026-07-07 (uncommitted) — both CF source files' SHA256 pinned + hard-enforced, mirroring `03b` |
+| 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | DONE 2026-07-07 (uncommitted) — precedence now by per-process `(version, lastChange)`, deterministic across machines |
 | 6 | **"Validated" language** | Report/README language drifted from "engine parity" to "can be trusted" without the distinction being challenged | ADDRESSED 2026-07-07 — reworded to "engine parity on identical inputs" in README/VALIDATION_REPORT/CLAUDE.md; practitioner responsibility stated explicitly. Confirm wording holds on next read-through |
-| 7 | **Unknown-unit passthrough** (`setup/03` `normalize()`) | "Never crash on import" default accepted without weighing silent-wrong-number risk for study use | OPEN — Phase 4.5 |
+| 7 | **Unknown-unit passthrough** (`setup/03` `normalize()`) | "Never crash on import" default accepted without weighing silent-wrong-number risk for study use | DONE 2026-07-07 (uncommitted) — hard-stops before DB write by default; `ALLOW_UNIT_PASSTHROUGH=1` opt-in |
 | 8 | **Harness ergonomics** (`validation/05`) | Mode switch requires editing a constant; direct mode covers petroleum only; accepted as-is | OPEN — Phase 3.3 |
 | 9 | **Per-result completeness** (`general/04`) | Import-time diagnostics exist, but nothing at run time tells a user how complete *their* result is; gap not noticed until external critique | OPEN — Phase 4.4 |
 | 10 | **Report environment table accuracy** | Appendix A says Python 3.11.14 / conda `asphalt-lca`; actual replication env is 3.11.15 / `asp-lca-bw25` | ADDRESSED 2026-07-07 — Appendix A now reads Python 3.11.15, canonical env `fedefl-build-bw25`, with the legacy build env `asp-lca-bw25` noted (both records kept) |
@@ -185,3 +208,43 @@ Reviewed and CLOSED items (keep for the record):
 |---|---|---|
 | C1 | Port integrity of validation package | All asset hashes match VALIDATION_LOG pins; harness + charts reproduce byte-for-byte from this repo (2026-07-04) |
 | C2 | Config drift between parent and public repo | `config.py` verified byte-identical (2026-07-04) |
+
+---
+
+## Session handoff — 2026-07-07 (pick up here)
+
+**Branch:** `release-prep-phase1-2` (pushed to origin; PR not yet opened — user will handle the PR).
+
+**Committed this session (2 commits on the branch):**
+- `17171cc` — Phase 1/2: rename to `fedefl-build-bw25`, LICENSE/CITATION, validation package port, honest-parity docs.
+- `1f26435` — Phase 1.3 hosting decision: `validation/REGENERATING_REFERENCE_EXPORTS.md` + clarified hash semantics.
+
+**UNCOMMITTED working-tree changes (Phase 4 work — verify + commit next session):**
+- `setup/02_setup_traci22.py` — 4.2 TRACI CF hash enforcement (+ provenance base-file bug fix).
+- `setup/03_import_uslci.py` — 4.3 version/lastChange zip precedence; 4.5 unit-passthrough hard stop.
+- `environment.yml` — added `pytest` (dev dep).
+- `pytest.ini`, `tests/` (new) — 4.1 suite, 18 tests passing.
+- `RELEASE_PLAN.md` — this progress record (ledger #4/#5/#7 marked DONE-uncommitted).
+
+**Verification already done:** full setup chain rebuilt under the new project name + harness re-run →
+`validation/validation_full_chain_results.csv` reproduces **byte-for-byte** (empty `git diff`). All 18
+pytest tests pass (`pytest -q`). Env: use `/opt/miniconda3/envs/asp-lca-bw25/bin/python` (the working
+env is `asp-lca-bw25`, not the documented `fedefl-build-bw25` — see the local-conda-env memory).
+
+**NEXT STEP — resolve the paused 4.4 scope decision, then implement:**
+4.4 = per-run auditability in `general/04` (emit `validation_manifest.json`). Paused because "bundle
+version" and "unlinked/unmatched counts *for the solved system*" are NOT stored today (computed at
+import in `setup/03`, then discarded; USLCI activities carry no `version`; DB metadata only gives a
+`modified` timestamp + activity count). Three options were on the table:
+- **(A, recommended) Run manifest now, self-contained in `general/04`:** target id/name/scenario/unit,
+  project, DB activity counts + `modified` timestamps, the 10 methods, package versions, solved-system
+  size (supply-chain activity count, biosphere-flow count, nonzero-contribution count), and the 10
+  scores. No `setup/03` change; honest about what it can/can't attest.
+- **(B) Full:** also add a `setup/03` DB-provenance sidecar (per-process bundle versions, import-time
+  unlinked/unmatched counts, DB hash) that `general/04` folds in. Matches the plan's letter; larger
+  cross-script change; re-verify byte-identical after.
+- **(C) Defer 4.4.**
+
+**Also still open:** commit the Phase 4 work; wire CI (Phase 4.1 tail — GitHub Actions, unit tests
+always, validation job data-gated); Phase 3 items need openLCA operator sessions (not codeable here)
+except 3.3 (promote `VALIDATION_MODE` to a CLI flag, closes ledger #8).

@@ -52,6 +52,20 @@ if BIOSPHERE_DB not in bd.databases:
         f"'{BIOSPHERE_DB}' not found. Run setup/01_setup_biosphere_fedefl.py first."
     )
 
+# Known-good SHA256 of the two upstream TRACI 2.2 CF source files lciafmt fetches.
+# These are ENFORCED, not just logged (ledger #4): a changed hash means EPA silently
+# updated the source file, which invalidates the locked validation — the build stops
+# so results are re-validated before use. Same guard pattern as setup/03b's baseline
+# fetch. If an upstream change is intentional, re-run the validation harness and, once
+# it still passes, update the pinned hash here.
+#
+# lciafmt caches the base TRACI file under a fixed internal name ("traci_2.1.xlsx",
+# hardcoded in lciafmt/traci.py) that does NOT match method_meta['file']; the eutro
+# file is cached under method_meta['eutro_file'].
+TRACI_BASE_CACHE_NAME = "traci_2.1.xlsx"
+TRACI_BASE_SHA256     = "a1f61b5f3dc6d11de2662335f0af48bec39882da89d5fcbc6bb7c35f1de142fc"
+TRACI_EUTRO_SHA256    = "651f08ce6ab39b954fce698e88907ea96a637d53bd219ba1e8b3f3d5555eb82c"
+
 def _file_sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -59,10 +73,42 @@ def _file_sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
+def _enforce_cf_hashes(method_meta):
+    """Verify the downloaded TRACI 2.2 CF source files against the pinned SHA256s and
+    STOP the build on any mismatch or missing file. Call AFTER lciafmt.get_method()
+    has populated the cache. Mirrors setup/03b's baseline hash guard."""
+    expected = {
+        TRACI_BASE_CACHE_NAME:        TRACI_BASE_SHA256,
+        method_meta["eutro_file"]:    TRACI_EUTRO_SHA256,
+    }
+    for cache_name, want in expected.items():
+        path = lciafmt_cache.get_path(cache_name)
+        if not os.path.isfile(path):
+            raise RuntimeError(
+                f"Expected TRACI CF source '{cache_name}' not found in the lciafmt cache "
+                f"({path}).\n  lciafmt may have changed how it downloads or names CF files. "
+                f"Re-verify the CF provenance before trusting results."
+            )
+        got = _file_sha256(path)
+        if got != want:
+            raise RuntimeError(
+                f"TRACI 2.2 CF source file hash mismatch — build STOPPED.\n"
+                f"  file:     {cache_name}\n"
+                f"  expected: {want}\n"
+                f"  got:      {got}\n"
+                f"  The upstream EPA CF file changed. The locked validation was computed against "
+                f"the expected file, so results may no longer be valid. Re-run the validation "
+                f"harness; if the new file is correct and still passes, update the pinned hash "
+                f"(TRACI_BASE_SHA256 / TRACI_EUTRO_SHA256) at the top of this script."
+            )
+    print("  ✓ TRACI CF source files verified against pinned SHA256.")
+
 def _log_cf_provenance(method_meta):
     base_file  = method_meta.get("file", "unknown")
     eutro_file = method_meta.get("eutro_file")
-    base_path  = lciafmt_cache.get_path(base_file)
+    # lciafmt caches the base file under a fixed internal name, not method_meta['file']
+    # (see TRACI_BASE_CACHE_NAME) — look it up there or the hash never prints.
+    base_path  = lciafmt_cache.get_path(TRACI_BASE_CACHE_NAME)
     # Record these hashes after each run. A changed hash on a subsequent run means
     # EPA silently updated the source file — re-validate before using new results.
     print(f"\n--- TRACI CF provenance ---")
@@ -96,8 +142,9 @@ def _log_cf_provenance(method_meta):
 print("Fetching TRACI 2.2 from lciafmt...")
 method      = lciafmt.Method.TRACI2_2
 method_meta = method.get_metadata()
-_log_cf_provenance(method_meta)
-traci_raw = lciafmt.get_method(method)
+traci_raw = lciafmt.get_method(method)   # downloads + caches the CF source files
+_log_cf_provenance(method_meta)          # now the cached files exist → real hashes print
+_enforce_cf_hashes(method_meta)          # STOP the build if either CF file changed (ledger #4)
 print(f"  {len(traci_raw)} raw characterization factors retrieved.")
 
 # map_flows() is required — it replaces raw source flow names with FEDEFL UUIDs.

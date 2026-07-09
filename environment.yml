@@ -31,6 +31,10 @@ dependencies:
   - seaborn=0.13.2
   - openpyxl=3.1.5
 
+  # Test/dev only (not needed to run the pipeline). Unpinned — the tests in
+  # tests/ don't depend on pytest internals.
+  - pytest
+
   - pip
 
   # brightway25 engine + EPA open-data packages, installed via pip.
