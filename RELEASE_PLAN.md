@@ -146,6 +146,37 @@ any individual result they compute, not just the four locked test cases.
 >   permit with a warning. Current validated build hits zero unknown units, so default is safe.
 > - **4.4 per-run auditability** (`general/04`) — NOT STARTED, paused at scope decision. See handoff.
 
+> **Progress — 2026-07-09 session (UNCOMMITTED, on branch `release-prep-phase1-2`).** 4.4
+> IMPLEMENTED, resolving the paused scope decision toward **option B+** (the full per-*result*
+> completeness view, not just DB-level totals). Closes ledger #9 pending human end-to-end run.
+> - **`setup/03`** now persists per-process import diagnostics (bio matched/unmatched, tech
+>   linked/external/unlinked/ambiguous, + `version`/`lastChange`) to `uslci_db_provenance.json`.
+>   **Strictly additive** — it never touches `db_data`, so the harness must stay byte-for-byte
+>   (mirrors the existing global counters into a per-process dict + one file write after the DB write).
+> - **`general/04`** emits `validation_manifest.json` alongside the results: target + scenario,
+>   package versions, DB identity (activity count + `modified`, with a stale-sidecar warning), the 10
+>   methods/units, solved-system size, the 10 scores, and a **per-result completeness** block that
+>   crosses this result's solved supply chain (`lca.dicts.activity`) against the sidecar. Aggregated
+>   background (electricity baseline) is counted but flagged as not per-exchange auditable, not
+>   penalized. `--manifest` / `--no-manifest` control it.
+> - **New pure module `general/run_manifest.py`** holds the completeness + assembly logic (no
+>   brightway import) so it unit-tests without a built DB. **`tests/test_run_manifest.py`** (7 tests)
+>   passes; full suite still green.
+> - **NOT YET VERIFIED END-TO-END** (this machine has no `source_data/`): the byte-for-byte harness
+>   re-run and a real `general/04` manifest emission must be done on the data machine. Because the
+>   `setup/03` change is additive-only, byte-identical is expected — but must be *shown*.
+
+> **Progress — 2026-07-13 session (data machine, UNCOMMITTED).** 4.4 verification completed:
+> harness re-run → `validation_full_chain_results.csv` byte-for-byte (empty `git diff`), closing
+> ledger #9. Along the way a real UX failure surfaced: a fresh petroleum `general/04` run reads
+> ~849× the locked values because the process's reference unit is m³, not kg (the locked validation
+> is kg-basis; 849 kg/m³ is exactly the harness's `DENSITY_KG_M3` pin) — the author initially read
+> the per-m³ numbers as wrong. Fix: the functional unit ("1 m3") is now stated in `general/04`'s
+> console target block and results header, written as a `functional_unit` column in both
+> `lca_results.csv` and `lca_contributions.csv`, recorded in the manifest's `target` block, and
+> rendered in every `general/06` chart title/axis/legend (older CSVs without the column still plot).
+> Verified: 25/25 pytest, end-to-end petroleum run + chart regeneration.
+
 1. **pytest suite** wrapping the harness: cheapest first test = cement full-chain cell vs locked
    CSV; plus pure-unit tests for `normalize()`, `_allocation_for()`, `foreground_importer`
    validation, and `olca_library` decode self-checks. Then CI (GitHub Actions; unit tests always,
@@ -199,8 +230,9 @@ has either verified it against evidence or replaced the claim with a tested one.
 | 6 | **"Validated" language** | Report/README language drifted from "engine parity" to "can be trusted" without the distinction being challenged | ADDRESSED 2026-07-07 — reworded to "engine parity on identical inputs" in README/VALIDATION_REPORT/CLAUDE.md; practitioner responsibility stated explicitly. Confirm wording holds on next read-through |
 | 7 | **Unknown-unit passthrough** (`setup/03` `normalize()`) | "Never crash on import" default accepted without weighing silent-wrong-number risk for study use | DONE 2026-07-07 (uncommitted) — hard-stops before DB write by default; `ALLOW_UNIT_PASSTHROUGH=1` opt-in |
 | 8 | **Harness ergonomics** (`validation/05`) | Mode switch requires editing a constant; direct mode covers petroleum only; accepted as-is | OPEN — Phase 3.3 |
-| 9 | **Per-result completeness** (`general/04`) | Import-time diagnostics exist, but nothing at run time tells a user how complete *their* result is; gap not noticed until external critique | OPEN — Phase 4.4 |
+| 9 | **Per-result completeness** (`general/04`) | Import-time diagnostics exist, but nothing at run time tells a user how complete *their* result is; gap not noticed until external critique | DONE 2026-07-13 — end-to-end on the data machine: harness re-run reproduced `validation_full_chain_results.csv` **byte-for-byte** (empty `git diff`) with the 4.4 `setup/03` changes in place, and a real petroleum `general/04` run emitted `validation_manifest.json` with the per-result completeness block populated from `uslci_db_provenance.json` (93 bio-unmatched / 409 tech-unlinked honestly reported for petroleum's solved chain) |
 | 10 | **Report environment table accuracy** | Appendix A says Python 3.11.14 / conda `asphalt-lca`; actual replication env is 3.11.15 / `asp-lca-bw25` | ADDRESSED 2026-07-07 — Appendix A now reads Python 3.11.15, canonical env `fedefl-build-bw25`, with the legacy build env `asp-lca-bw25` noted (both records kept) |
+| 11 | **`environment.yml` never installed as written** | The AI-authored env file pinned `fedelemflowlist@<commit>` on its own line *and* listed `lciafmt`, whose metadata declares an unpinned `fedelemflowlist` git URL. pip refuses two different direct-URL refs for one package, so `conda env create` fails with `ResolutionImpossible`. The "reproducible env" claim (and README Step 1) was never exercised end-to-end; the working env on the build machine was assembled another way. Release-blocker — a peer can't build the env from the repo. | FIXED 2026-07-09 (Claude-found, this session) — pin only `lciafmt`; `fedelemflowlist` pulled transitively, still lands `d2d690fb` (== current default-branch HEAD, so byte-identical to the validated build today). Two-pass hard-pin documented in `environment.yml` for when HEAD drifts. Verified: `lciafmt`-alone resolves cleanly to `d2d690fb` via `pip --dry-run` in a clean venv. CLOSED 2026-07-13 — `conda env create -f environment.yml` run from scratch on the data machine (fresh env name, hand-assembled env untouched): completed cleanly, `pip freeze` shows `fedelemflowlist @ d2d690fb` / `lciafmt @ 48d19af1` / exact bw2* pins, and the full 25-test pytest suite passes from the new env. (First attempt failed only on a full disk — machine-state, not the yml.) |
 
 Reviewed and CLOSED items (keep for the record):
 

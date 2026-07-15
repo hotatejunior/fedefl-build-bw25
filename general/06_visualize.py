@@ -154,6 +154,22 @@ def _proc_legend(name, width=46):
     return name if len(name) <= width else name[:width - 1] + "…"
 
 
+def _fu_map(df):
+    """scenario → functional-unit string (e.g. '1 m3'). 04 emits a
+    functional_unit column; CSVs from before it existed simply lack it."""
+    if "functional_unit" not in df.columns:
+        return {}
+    sub = df.dropna(subset=["functional_unit"])
+    return sub.groupby("scenario")["functional_unit"].first().to_dict()
+
+
+def _scen_label(scenario, fu_map, short=False):
+    """Scenario display label with its functional unit, when known."""
+    base = _proc_short(scenario) if short else scenario
+    fu = fu_map.get(scenario)
+    return f"{base} (per {fu})" if fu else base
+
+
 def _save(fig, name):
     dest = out_dir / GENERAL_SUBDIR
     dest.mkdir(parents=True, exist_ok=True)
@@ -184,13 +200,17 @@ def plot_impact_profile(df: pd.DataFrame) -> None:
               f"Use scenario_comparison for multi-scenario view.")
     sub = _sort_cats(df[df["scenario"] == scenarios[0]].copy(), "method")
     sub["label"] = sub["method"].map(_short)
+    fu_map = _fu_map(df)
 
     palette = sns.color_palette("Blues_d", len(sub))
     fig, ax = plt.subplots(figsize=(9, 5))
     bars = ax.barh(sub["label"], sub["score"].abs(), color=palette[::-1], edgecolor="none")
     ax.set_xscale("log")
-    ax.set_xlabel("Impact score (log scale, native units)")
-    ax.set_title(f"LCIA impact profile — {scenarios[0]}", fontsize=11, pad=10)
+    fu = fu_map.get(scenarios[0])
+    ax.set_xlabel(f"Impact score per {fu} (log scale, native units)" if fu
+                  else "Impact score (log scale, native units)")
+    ax.set_title(f"LCIA impact profile — {_scen_label(scenarios[0], fu_map)}",
+                 fontsize=11, pad=10)
     ax.invert_yaxis()
 
     for bar, (_, row) in zip(bars, sub.iterrows()):
@@ -219,6 +239,7 @@ def plot_scenario_comparison(df: pd.DataFrame) -> None:
 
     df = _sort_cats(df.copy(), "method")
     df["label"] = df["method"].map(_short)
+    fu_map = _fu_map(df)
     baseline = scenarios[0]
     baseline_vals = df[df["scenario"] == baseline].set_index("method")["score"]
 
@@ -239,12 +260,13 @@ def plot_scenario_comparison(df: pd.DataFrame) -> None:
         sub = df[df["scenario"] == scenario]
         offsets = x + (i - n / 2 + 0.5) * width
         ax.bar(offsets, sub["pct"].values, width * 0.92,
-               label=scenario, color=palette[i], alpha=0.88, edgecolor="none")
+               label=_scen_label(scenario, fu_map), color=palette[i],
+               alpha=0.88, edgecolor="none")
 
     ax.axhline(100, color="#444", linewidth=0.9, linestyle="--")
     ax.set_xticks(x)
     ax.set_xticklabels(cats, rotation=30, ha="right", fontsize=9)
-    ax.set_ylabel(f"% of baseline ('{baseline}')")
+    ax.set_ylabel(f"% of baseline ('{_scen_label(baseline, fu_map)}')")
     ax.set_title("Scenario comparison — TRACI 2.2", fontsize=11, pad=10)
     ax.legend(fontsize=9, framealpha=0.75)
     fig.tight_layout()
@@ -264,6 +286,7 @@ def plot_normalized_profile(df: pd.DataFrame) -> None:
 
     cats = [c for c in CATEGORY_ORDER if c in NORMALIZATION_REF]
     labels = [_short(c) for c in cats]
+    fu_map = _fu_map(df)
     scenarios = df["scenario"].unique()
     x = np.arange(len(cats))
     n = len(scenarios)
@@ -279,13 +302,14 @@ def plot_normalized_profile(df: pd.DataFrame) -> None:
             vals.append(score / NORMALIZATION_REF[cat])
         offsets = x + (i - n / 2 + 0.5) * width
         ax.bar(offsets, vals, width * 0.92,
-               label=scenario, color=palette[i], alpha=0.88, edgecolor="none")
+               label=_scen_label(scenario, fu_map), color=palette[i],
+               alpha=0.88, edgecolor="none")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
     ax.set_ylabel("Person-equivalents\n(score ÷ US per-capita annual reference)")
     ax.set_title("Normalized LCIA profile — TRACI 2.2 / US per-capita reference", fontsize=11, pad=10)
-    if n > 1:
+    if n > 1 or fu_map:
         ax.legend(fontsize=9, framealpha=0.75)
     fig.tight_layout()
     _save(fig, "normalized_profile")
@@ -299,6 +323,7 @@ def plot_normalized_profile(df: pd.DataFrame) -> None:
 # Negative contributions (system expansion credits) are shown below zero.
 # =============================================================================
 def plot_contribution_analysis(df: pd.DataFrame, top_n: int = TOP_N_PROCESSES) -> None:
+    fu_map = _fu_map(df)
     for scenario in df["scenario"].unique():
         sdf = df[df["scenario"] == scenario]
 
@@ -356,7 +381,8 @@ def plot_contribution_analysis(df: pd.DataFrame, top_n: int = TOP_N_PROCESSES) -
         ax.set_xticks(x)
         ax.set_xticklabels(cat_labels, rotation=30, ha="right", fontsize=9)
         ax.set_ylabel("% contribution to impact-category total")
-        ax.set_title(f"Process contribution — {_proc_short(scenario)}", fontsize=12, pad=10)
+        ax.set_title(f"Process contribution — {_scen_label(scenario, fu_map, short=True)}",
+                     fontsize=12, pad=10)
         # Legend outside the plot (right) so it never covers the bars.
         ax.legend(handles=handles, fontsize=8, loc="center left",
                   bbox_to_anchor=(1.01, 0.5), framealpha=0.9,
@@ -374,6 +400,7 @@ def plot_contribution_analysis(df: pd.DataFrame, top_n: int = TOP_N_PROCESSES) -
 # One output file per scenario in FOREGROUND_BG_SCENARIOS.
 # =============================================================================
 def plot_foreground_background(df: pd.DataFrame) -> None:
+    fu_map = _fu_map(df)
     scenarios = [s for s in FOREGROUND_BG_SCENARIOS if s in df["scenario"].unique()]
     if not scenarios:
         scenarios = list(df["scenario"].unique())
@@ -409,7 +436,8 @@ def plot_foreground_background(df: pd.DataFrame) -> None:
         ax.set_xticklabels(cat_labels, rotation=30, ha="right", fontsize=9)
         ax.set_ylabel("% of impact-category total")
         ax.set_ylim(0, 105)
-        ax.set_title(f"Foreground vs background — {_proc_short(scenario)}", fontsize=12, pad=10)
+        ax.set_title(f"Foreground vs background — {_scen_label(scenario, fu_map, short=True)}",
+                     fontsize=12, pad=10)
         ax.legend(fontsize=9, loc="lower right", framealpha=0.9)
         fig.tight_layout()
         fname = "foreground_background_" + _proc_short(scenario).lower().replace(" ", "_")

@@ -5,6 +5,8 @@ __pycache__/
 # Generated outputs — re-created by running the pipeline
 lca_results.csv
 lca_contributions.csv
+validation_manifest.json
+uslci_db_provenance.json
 
 # External data assets — assembled locally, not tracked (see README "Getting started")
 source_data/

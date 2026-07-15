@@ -40,9 +40,10 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `setup/02_setup_traci22.py` | Loads TRACI 2.2 CFs mapped to FEDEFL UUIDs |
 | `setup/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
 | `setup/03b_import_electricity_baseline.py` | Injects the US electricity baseline into brightway as aggregated background activities, discovered per-bundle; auto-fetches + hash-verifies the library |
-| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway |
-| `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV |
+| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway. Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
+| `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV. Also emits `validation_manifest.json` (per-run audit manifest: provenance + per-result completeness); `--no-manifest` to skip |
 | `general/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
+| `general/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness. Unit-tested by `tests/test_run_manifest.py` |
 | `general/06_visualize.py` | Reads CSVs from `general/04`, produces general-use charts |
 | `validation/05_validate_uslci.py` | Parity harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports; overwrites `validation/validation_full_chain_results.csv` (an empty `git diff` on it is the byte-for-byte parity check). Mode set by `VALIDATION_MODE` constant |
 | `validation/06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
