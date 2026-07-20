@@ -90,6 +90,12 @@ supply chain, so one download gives you the process *plus* everything it draws o
 zip(s) in `source_data/`; `setup/03` imports whatever it finds there. You then run LCA on the
 processes you imported this way.
 
+> **Keep the original filename.** `setup/03` discovers bundles by their download naming pattern,
+> `<process-uuid>_<hash>.zip` (e.g. `1cbbcd09-…-2cf42efe26ba_a900b507….zip`). Do **not** rename the
+> zips — a renamed bundle is skipped, and the import prints a WARNING naming any zip it skipped on
+> naming grounds. If a process you expected is missing at run time (`general/04` reports it not
+> found in the database), a renamed bundle is the first thing to check.
+
 > **Workflow note.** The intended workflow today is per-process: download the specific unit
 > processes you need. Pointing the engine at a single whole-USLCI database and running *any* process
 > out of it — no per-process downloads — is a **work-in-progress feature** (see [Roadmap](#roadmap)).

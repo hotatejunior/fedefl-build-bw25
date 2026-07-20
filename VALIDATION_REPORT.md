@@ -71,13 +71,18 @@ reference export. Root-caused 2026-07-17: **the gap is in the reference, not the
   1.06 (*"this electricity value has been updated from the original report inventory due to an
   error"*, per the exchange note). brightway charges exactly 0.1584.
 - The openLCA reference calculation charged the **pre-correction value** (0.1584/1.06), even though
-  its own database stores the corrected one — the export was computed from stale product-system
-  state.
+  its own database stores the corrected one.
 
 So on this input brightway is *more* current than the locked reference. The locked CSVs stay as-is
-(verbatim history); regenerating the openLCA export from a freshly rebuilt product system
-([procedure](validation/REGENERATING_REFERENCE_EXPORTS.md)) is expected to move petroleum to ~1.000
-and is the standing exit criterion. Evidence chain: `validation/VALIDATION_LOG.md`, 2026-07-17.
+(verbatim history). **Update 2026-07-20:** the freshly rebuilt product system was re-exported and
+tested — it reproduced the stale calculation *numerically identically* (all sheets agree to
+float noise, pre-correction electricity charge included). That disproves the initial "stale cached
+product-system state" explanation: whatever charges the pre-correction value is live, reproducible
+state in that openLCA database, surviving a product-system rebuild. The engine-side verdict is
+unchanged (it rests on the export's own contribution tabs), but the openLCA-side mechanism is an
+open question; the next discriminating test is regenerating in a brand-new openLCA database
+([procedure](validation/REGENERATING_REFERENCE_EXPORTS.md)). Evidence chain:
+`validation/VALIDATION_LOG.md`, 2026-07-17 and 2026-07-20 entries.
 
 ## How the numbers got here — the debugging arc
 
@@ -122,7 +127,8 @@ This is a *validation in progress*, not a finished certification.
   Re-pulling steel as a full-chain bundle is on the roadmap.
 - **One residual above 1%** (petroleum, ~2.7%). Root-caused: the openLCA reference charged the
   crude-oil processes' electricity at a pre-correction USLCI value; the engine's inputs are correct.
-  Closes with a reference re-export (see "What to make of the petroleum residual" above).
+  A first re-export (2026-07-20) reproduced the stale calculation identically, so closing it now
+  waits on a fresh-database regeneration (see "What to make of the petroleum residual" above).
 - **Electricity boundary matters.** Both engines were run with the US Electricity Baseline mounted
   and the US-average grid provider linked; a mismatch there would confound the comparison (see
   appendix).

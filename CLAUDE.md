@@ -58,7 +58,9 @@ All four locked test cases (petroleum, corn, cement, steel) validate against ope
 categories — every one of the 40 category × process cells lands within ±5%, 35 of 40 within ±1%.
 Max deviation is petroleum's ecotox/cancer/non-cancer at ~1.027, within tolerance — root-caused
 (2026-07-17) to the openLCA reference export charging a pre-correction USLCI electricity value on the
-crude-oil processes; the engine is correct, and the residual closes with a reference re-export. Full write-up
+crude-oil processes; the engine is correct. A first re-export (2026-07-20) reproduced the stale
+calculation identically, so closing the residual waits on a fresh-database regeneration on the
+openLCA side (see VALIDATION_LOG 2026-07-20). Full write-up
 (method, results, appendix) in `VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file
 provenance (`VALIDATION_LOG.md`, SHA256-pinned asset manifest) live in `validation/`.
 

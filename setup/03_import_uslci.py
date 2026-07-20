@@ -102,13 +102,19 @@ WITHIN_FP = {
     # Volume → m3
     "m3": 1.0,   "l": 1e-3,    "ml": 1e-6,
     "gal": 3.78541e-3,  "gal (us liq)": 3.78541e-3,  "gal (us fl)": 3.78541e-3,
+    "gal (imp)": 4.54609e-3,
     "cu ft": 0.0283168,  "ft3": 0.0283168,
     # Energy → MJ
     "mj": 1.0,   "kj": 1e-3,   "gj": 1e3,    "kwh": 3.6,
     "btu": 1.05506e-3,
     "mmbtu": 1055.06,   "mm btu": 1055.06,   "mmBtu": 1055.06,
-    # Transport → t*km
+    # Transport (freight) → t*km
     "t*km": 1.0, "tkm": 1.0,   "t*mi": 1.60934,  "kg*km": 1e-3,
+    # Transport (passenger) → p*km (person-kilometre; already reference unit)
+    "p*km": 1.0,
+    # Duration → h (USLCI service flows, e.g. chainsawing/skidding, are defined
+    # and consumed as "1 h of <service>"; h is their reference unit)
+    "h": 1.0,
     # Area → m2
     "m2": 1.0,
     # Area × time → m2*a (land use; already reference unit)
@@ -130,19 +136,19 @@ WITHIN_FP = {
 # in WITHIN_FP (e.g. "mmbtu") are already correct.
 _WITHIN_FP_LOWER = {k.lower(): v for k, v in WITHIN_FP.items()}
 
-# Accumulates unit strings not found in _WITHIN_FP_LOWER during import.
+# Accumulates unit strings not found in _WITHIN_FP_LOWER during import, mapped to
+# the flow UUIDs seen carrying them (so the hard-stop message can say WHERE).
 # Enforced before the DB is written — add missing units to WITHIN_FP and rerun.
-UNKNOWN_UNITS: set = set()
+UNKNOWN_UNITS: dict = {}   # unit string -> set of flow UUIDs
 
 # Unknown-unit policy (ledger #7). An unrecognized unit string is passed through
 # at face value in normalize() -- a silent wrong number ("a wrong number wearing a
-# plausible one's clothes"). By DEFAULT the build now HARD-STOPS if any unknown unit
-# was encountered, checked before '{USLCI_DB}' is written. Set ALLOW_UNIT_PASSTHROUGH=1
-# to permit passthrough with a loud warning instead (exploratory imports only).
-ALLOW_UNIT_PASSTHROUGH = 1
-
-# os.environ.get(
-#     "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
+# plausible one's clothes"). By DEFAULT the build HARD-STOPS if any unknown unit
+# was encountered, checked before '{USLCI_DB}' is written. Set the
+# ALLOW_UNIT_PASSTHROUGH=1 environment variable to permit passthrough with a loud
+# warning instead (exploratory imports only — never for results you intend to use).
+ALLOW_UNIT_PASSTHROUGH = os.environ.get(
+    "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
@@ -164,7 +170,7 @@ def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
     """
     within = _WITHIN_FP_LOWER.get(unit.lower() if unit else "")
     if within is None:
-        UNKNOWN_UNITS.add(unit)
+        UNKNOWN_UNITS.setdefault(unit, set()).add(flow_uuid)
         return amount, unit   # unrecognised unit — pass through
 
     if not cross_property:
@@ -229,10 +235,36 @@ zip_files = sorted(
     BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
     key=lambda p: p.name
 )
+
+# Guard against silently ignored bundles: a zip that LOOKS like a JSON-LD process
+# export (has openlca.json + processes/) but whose filename doesn't match the
+# required <uuid>_<hash>.zip pattern would otherwise vanish without a trace — the
+# operator thinks their process imported when it didn't. Renamed downloads are the
+# usual cause; keep the original LCA Commons filename. The full-DB zip (named in
+# the conversion table's _meta) is a build-time source, not a bundle — excluded.
+_full_db_zip = _meta.get("source_zip", "")
+for _zp in sorted(BUNDLE_DIR.glob("*.zip")):
+    if _zp in zip_files or _zp.name == _full_db_zip:
+        continue
+    try:
+        with zipfile.ZipFile(_zp) as _z:
+            _names = _z.namelist()
+            if "openlca.json" in _names and any(n.startswith("processes/") for n in _names):
+                print(
+                    f"WARNING: {_zp.name} looks like a process bundle but does NOT match the "
+                    f"required '<uuid>_<hash>.zip' naming pattern — it will be IGNORED.\n"
+                    f"  Restore the original LCA Commons filename (the process UUID + export hash) "
+                    f"if you want it imported."
+                )
+    except zipfile.BadZipFile:
+        pass
+
 if not zip_files:
     raise SystemExit(
         f"No process zip files found in {BUNDLE_DIR}. Download per-process exports "
-        f"from LCA Commons and place them there (same dir 03b scans)."
+        f"from LCA Commons and place them there (same dir 03b scans). Bundle zips "
+        f"must keep their original '<uuid>_<hash>.zip' filenames (see WARNINGs above, "
+        f"if any, for zips that were skipped on naming grounds)."
     )
 
 print(f"Found {len(zip_files)} process zip(s).")
@@ -714,6 +746,19 @@ if _empty_consumed:
         + "\n".join(f"    {p}  {f}" for p, f in _empty_consumed)
     )
 
+def _unknown_units_detail():
+    """One line per unknown unit, with up to 3 example flows so the operator can
+    see WHERE the unit occurs and judge whether it touches their target."""
+    lines = []
+    for u in sorted(UNKNOWN_UNITS):
+        flows = sorted(UNKNOWN_UNITS[u])
+        examples = ", ".join(
+            f"'{all_flows.get(f, {}).get('name', '?')}' ({f})" for f in flows[:3]
+        )
+        more = f" (+{len(flows) - 3} more flows)" if len(flows) > 3 else ""
+        lines.append(f'    "{u}" — e.g. {examples}{more}')
+    return "\n".join(lines)
+
 # Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
 # means silently wrong exchange amounts; refuse to build a database that contains
 # them unless the operator has explicitly opted into passthrough.
@@ -723,9 +768,9 @@ if UNKNOWN_UNITS and not ALLOW_UNIT_PASSTHROUGH:
         f"writing '{USLCI_DB_NAME}'.\n"
         f"  These exchanges would be passed through WITHOUT unit conversion, i.e. silently wrong "
         f"amounts. Add each unit to WITHIN_FP (with its factor to the flow-property reference unit) "
-        f"and rerun, or set ALLOW_UNIT_PASSTHROUGH=1 to import anyway with a warning (NOT "
-        f"recommended for study use):\n"
-        + "\n".join(f'    "{u}"' for u in sorted(UNKNOWN_UNITS))
+        f"and rerun, or set the ALLOW_UNIT_PASSTHROUGH=1 environment variable to import anyway "
+        f"with a warning (NOT recommended for study use):\n"
+        + _unknown_units_detail()
     )
 
 bd.Database(USLCI_DB_NAME).write(db_data)
@@ -810,8 +855,7 @@ if UNKNOWN_UNITS:
     print(f"\n  WARNING: {len(UNKNOWN_UNITS)} unrecognized unit string(s) encountered during import.")
     print(f"  ALLOW_UNIT_PASSTHROUGH is set, so these were passed through WITHOUT unit conversion")
     print(f"  — amounts may be silently wrong. Add the following to WITHIN_FP and rerun without the flag:")
-    for u in sorted(UNKNOWN_UNITS):
-        print(f"    \"{u}\": <conversion_factor>")
+    print(_unknown_units_detail())
 
 # =============================================================================
 # SUMMARY

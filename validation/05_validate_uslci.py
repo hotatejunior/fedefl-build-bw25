@@ -4,13 +4,13 @@
 --------------------
 Validates LCIA scores computed by brightway against openLCA reference exports.
 
-VALIDATION_MODE = "full_chain"
+--mode direct
     Compares only the direct biosphere exchanges of each target process,
     isolating FEDEFL flow mapping and TRACI 2.2 CFs from technosphere logic.
     Reference: "Direct impact contributions" sheet in the kg-basis xlsx.
     BW scores are normalized to per-kg using the production exchange at runtime.
 
-VALIDATION_MODE = "full_chain"
+--mode full_chain (default)
     Compares full supply-chain LCIA scores.
     Reference: "Impacts" sheet in the standard openLCA xlsx. These exports are
     standardized to "Amount: 1.0 kg" of the reference product (check each
@@ -23,6 +23,7 @@ provides the electricity baseline background that these full-chain reference
 exports were computed with).
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -40,7 +41,16 @@ TEMP_DB_NAME  = "_direct_validation_temp"
 # =============================================================================
 # CONFIG
 # =============================================================================
-VALIDATION_MODE = "full_chain"   # "direct" or "full_chain"
+# Mode is a CLI flag so replicators don't edit source (ledger #8 / Phase 3.3).
+_parser = argparse.ArgumentParser(
+    description="Validate brightway LCIA scores against openLCA reference exports."
+)
+_parser.add_argument(
+    "--mode", choices=("full_chain", "direct"), default="full_chain",
+    help="full_chain (default): full supply-chain LCIA vs the standard openLCA "
+         "export. direct: direct biosphere exchanges only vs the kg-basis export.",
+)
+VALIDATION_MODE = _parser.parse_args().mode
 
 # Defaults to source_data/ at the repo root; override with the SOURCE_DATA_DIR
 # env var to point at your own checkout instead of editing this file.

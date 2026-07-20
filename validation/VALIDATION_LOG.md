@@ -582,3 +582,32 @@ total-upstream impacts against the export's own tabs.
 **Verdict: brightway is correct; the ~1.027 is a reference-side vintage artifact.** Locked CSVs are
 unchanged (verbatim history). **Exit criterion:** rebuild the petroleum product system fresh in
 openLCA and re-export (`REGENERATING_REFERENCE_EXPORTS.md`); petroleum expected → ~1.000.
+
+### 2026-07-20 — July re-export tested: NUMERICALLY IDENTICAL to the stale export, exit criterion NOT met
+
+Ran the harness against the operator's fresh export
+(`Petroleum_refining__at_refinery___US___1kg_diesel___July_run.xlsx`, SHA256
+`b0b62e2caab5abf06633b8104f8153fcd5505ac1cbe8aa0b4e004c93866a905b`, product system
+"…1kg diesel-- July run", calculation dated 2026-07-17 16:36, same setup: Diesel; at refinery,
+1.0 kg, TRACI 2.2, process defaults, no cutoff). Result: petroleum ratios unchanged
+(ecotox/cancer/non-cancer still ~1.026–1.027).
+
+Cell-wise comparison of the July export against the 2026-07-02 `US_AVG_ELEC_SELECTION` export:
+`Impacts` (10 cells), `Total upstream impacts` (8,294 cells across all 1,129 nodes), `Inventory`
+(4,491 cells), and `Impact contributions by flow` are **identical to float-serialization noise**
+(max rel diff ~3e-15); the only larger deltas are adjacent-row ordering swaps of identical data.
+A new product system, recalculated 15 days later, byte-reproduced the stale result — including the
+pre-correction 0.1494 MJ/kg electricity charge on the crude-oil processes.
+
+Implication: the 2026-07-17 "stale product-system state" mechanism is **disproven** — whatever
+charges the pre-correction value is live, reproducible state in that openLCA database, surviving a
+product-system rebuild (while `TBL_EXCHANGES` and the process editor show the corrected 0.1584).
+The engine-correct verdict stands (it rests on the export's own upstream tabs, not the mechanism),
+but ledger #2's openLCA-side mechanism is reopened. Next discriminating tests (operator): (1) in
+the July product system's model graph, read the electricity input amount actually linked on the
+four crude-oil extraction processes; (2) repeat in a **brand-new openLCA database** built only from
+the bundle imports per `REGENERATING_REFERENCE_EXPORTS.md`; (3) re-check for duplicate crude-oil
+process copies in that database.
+
+Repo state: harness re-pointed back at the locked `US_AVG_ELEC_SELECTION` export; re-run confirms
+`validation_full_chain_results.csv` byte-for-byte (empty `git diff`). Locked baseline unchanged.

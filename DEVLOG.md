@@ -81,9 +81,13 @@ Outcome: all 40 category × process cells validate within 5% of openLCA (35/40 w
 engine bug.** The entire electricity over-draw sits on the four crude-oil extraction processes.
 Their JSON declares 0.1584 MJ electricity/kg — a value USLCI corrected "due to an error" (per the
 exchange's own note) — and brightway charges exactly that, while the openLCA reference calculation
-charged the pre-correction 0.1584/1.06: it ran on stale process state (the openLCA database on disk
-already stores the corrected value). No code change; closes with an openLCA re-export, petroleum
-expected at ~1.000. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 entry).
+charged the pre-correction 0.1584/1.06 (the openLCA database on disk already stores the corrected
+value). No code change; engine verdict rests on the export's own contribution tabs.
+**Update 2026-07-20:** a fresh product system, rebuilt and re-exported per the exit criterion,
+reproduced the stale calculation numerically identically — pre-correction charge included — so the
+"stale cached product-system state" mechanism is disproven; the stale charge is live, reproducible
+state in that openLCA database. Residual closure now waits on regeneration in a brand-new openLCA
+database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07-20 entries).
 
 ## Quality-of-life / reproducibility
 
@@ -96,3 +100,23 @@ expected at ~1.000. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 e
 - **Auto-fetched electricity baseline** — `setup/03b` downloads the version-pinned baseline library
   from the Federal LCA Commons GitHub and verifies its SHA256 before use, removing a manual
   onboarding step. `--no-fetch` requires a local copy; `--library` points at your own.
+- **New-process protocol hardening (2026-07-20)** — worked example: adding "Corn; at field" on a
+  fresh machine hard-stopped on `p*km`, then (with passthrough toggled) `general/04` failed with
+  `UnknownObject`. Root causes and fixes, all in `setup/03`:
+  (1) a renamed bundle zip (`corn_at_field_<uuid>_<hash>.zip`) silently fails the
+  `<uuid>_<hash>.zip` discovery glob — the target never imports and the first symptom is
+  `UnknownObject` at run time. Now: any zip that looks like a bundle (openlca.json + `processes/`)
+  but fails the naming pattern gets a loud WARNING at import; README documents "keep the original
+  LCA Commons filename".
+  (2) `p*km` (person-kilometre, passenger transport) was missing from `WITHIN_FP` — added as a
+  reference unit (factor 1.0, like `t*km`). It rides in via passenger-car/aircraft transport flows
+  in some 2026-07 bundles; consumed and produced in the same unit, so passthrough happened to be
+  numerically harmless here — but only by luck. A follow-up census of the FULL USLCI zip found the
+  entire database uses only 30 distinct unit strings; the two remaining gaps (`h` — Duration, a
+  1.0-h service reference unit on chainsawing/skidding flows; `gal (Imp)` — 4.54609e-3 m3) were
+  added too, so `WITHIN_FP` now covers 100% of the USLCI unit universe and the hard stop should be
+  unreachable for USLCI-sourced bundles until USLCI itself introduces a new unit.
+  (3) the unknown-unit hard stop now names example flows (name + UUID) per unit so the operator
+  can see where the unit occurs; and `ALLOW_UNIT_PASSTHROUGH` is an **environment variable** again
+  (a session's local `= 1` toggle had been committed in `f707205`, silently disabling the ledger #7
+  hard stop for everyone — the edit-a-constant ergonomics bug striking again, cf. Phase 3.3).
