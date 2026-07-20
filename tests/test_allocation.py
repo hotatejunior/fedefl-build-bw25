@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from allocation import MASS_FP_UUID, allocation_for, coproduct_multipliers
+from allocation import (MASS_FP_UUID, allocation_for, causal_coproducts,
+                        coproduct_multipliers)
 
 VOLUME_FP_UUID = "93a60a56-a3c8-22da-a746-0800200c9a66"  # arbitrary non-mass fp
 
@@ -221,6 +222,32 @@ def test_causal_would_be_misrepresented_by_any_scalar():
     assert len(set(causal.values())) > 1
 
 
+def test_causal_coproducts_extracts_each_coproducts_own_column():
+    out = causal_coproducts(_causal_proc(), "p10", _identity_normalize,
+                            _mass_conv(FUEL, WAX))
+    # only the NON-reference product gets an entry
+    assert set(out) == {WAX}
+    wax = out[WAX]
+    # the co-product's own column — NOT the reference product's
+    assert wax["column"] == {3: 0.1, 4: 0.5, 5: 0.3}
+    assert wax["yield"] == 40.0
+    # fallback = wax's own mass fraction (40 / 100)
+    assert wax["fallback"] == pytest.approx(0.4)
+    # complementarity with the reference column: each exchange's factors sum to 1
+    _a, _r, _po, _m, ref_col = allocation_for(
+        _causal_proc(), "p10", _identity_normalize, _mass_conv(FUEL, WAX))
+    for iid, v in wax["column"].items():
+        assert ref_col[iid] + v == pytest.approx(1.0)
+
+
+def test_causal_coproducts_empty_for_non_causal_processes():
+    assert causal_coproducts(_economic_proc(), "p11", _identity_normalize,
+                             _mass_conv(FUEL, WAX)) == {}
+    single = {"name": "one", "exchanges": [_exc(1, FUEL, 100.0, is_ref=True)]}
+    assert causal_coproducts(single, "p12", _identity_normalize,
+                             _mass_conv(FUEL)) == {}
+
+
 # ---------------------------------------------------------------------------
 # co-product re-basis multipliers
 # ---------------------------------------------------------------------------
@@ -298,3 +325,25 @@ def test_real_cellulosic_ethanol_grid():
     assert values == {0.4633, 0.0}
     # mass-fraction fallback = ethanol's physical share, 21183 / 25023.52 kg
     assert alloc == pytest.approx(0.8465235906059579, rel=1e-9)
+
+
+@pytest.mark.skipif(not _BUNDLE.exists(), reason="USLCI bundle zips not present")
+def test_real_cellulosic_ethanol_coproduct_columns():
+    with zipfile.ZipFile(_BUNDLE) as z:
+        proc = json.loads(z.read(f"processes/{_ETHANOL_UUID}.json"))
+    product_flows = [e["flow"]["@id"] for e in proc["exchanges"]
+                     if not e.get("isInput")
+                     and e["flow"].get("flowType") == "PRODUCT_FLOW"]
+    out = causal_coproducts(proc, _ETHANOL_UUID, _identity_normalize,
+                            _mass_conv(*product_flows))
+    # two non-reference co-products: mixed alcohols and sulfur
+    assert len(out) == 2
+    by_fallback = sorted(out.values(), key=lambda d: d["fallback"])
+    sulfur, mixed = by_fallback
+    # mixed alcohols: complement of ethanol's uniform 0.4633 column
+    assert len(mixed["column"]) == 29
+    assert set(round(v, 4) for v in mixed["column"].values()) == {0.5367, 0.0}
+    assert mixed["fallback"] == pytest.approx(0.15133762156563105, rel=1e-9)
+    # sulfur: a real all-zero column — the plant charges sulfur nothing
+    assert set(sulfur["column"].values()) == {0.0}
+    assert sulfur["fallback"] == pytest.approx(0.002138787828411031, rel=1e-9)

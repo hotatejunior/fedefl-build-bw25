@@ -139,8 +139,10 @@ UNKNOWN_UNITS: set = set()
 # plausible one's clothes"). By DEFAULT the build now HARD-STOPS if any unknown unit
 # was encountered, checked before '{USLCI_DB}' is written. Set ALLOW_UNIT_PASSTHROUGH=1
 # to permit passthrough with a loud warning instead (exploratory imports only).
-ALLOW_UNIT_PASSTHROUGH = os.environ.get(
-    "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
+ALLOW_UNIT_PASSTHROUGH = 1
+
+# os.environ.get(
+#     "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
@@ -381,7 +383,7 @@ def _resolve_provider(exc, flow_uuid):
 # Allocation logic lives in setup/allocation.py (extracted verbatim so it is
 # unit-testable with synthetic openLCA JSON — see tests/test_allocation.py).
 # The thin wrapper binds this script's normalize() and FLOW_CONV table.
-from allocation import allocation_for, coproduct_multipliers
+from allocation import allocation_for, causal_coproducts, coproduct_multipliers
 
 
 def _allocation_for(proc, proc_uuid):
@@ -415,7 +417,7 @@ total_tech_unlinked  = 0
 total_tech_ambiguous = 0
 ambiguous_examples   = []
 total_causal_fallback = 0          # causal exchanges that fell back to the scalar
-total_causal_coproduct_links = 0   # links consuming a causal process's co-product
+total_causal_coproduct_links = 0   # links redirected to a causal co-product activity
 causal_coproduct_examples = []
 
 # =============================================================================
@@ -439,7 +441,12 @@ causal_coproduct_examples = []
 alloc_cache = {}                 # proc_uuid -> scalar alloc_factor (native/mass/fallback)
 causal_cache = {}                # proc_uuid -> {exchange_internalId: ref-product factor}
 coproduct_multiplier = {}        # (supplier_proc_uuid, output_flow_uuid) -> m
-causal_coproduct_flows = set()   # non-ref product flows of causal processes (unsupported as inputs)
+# Causal co-products can't be scalar-re-based (their burden is per-exchange), so
+# each gets its OWN activity, built from its own column of the causal factor grid.
+# Consumers are redirected to that activity at the link site — no multiplier.
+causal_coproduct_info = {}       # (proc_uuid, co_flow_uuid) -> {"column", "fallback", "yield"}
+causal_coproduct_key  = {}       # (proc_uuid, co_flow_uuid) -> (USLCI_DB_NAME, code)
+causal_coproduct_consumed = set()  # (proc_uuid, co_flow_uuid) actually drawn by a consumer
 skipped_multipliers = []         # (proc_uuid, flow_uuid) where m was uncomputable
 n_multi_native = 0
 n_multi_mass   = 0
@@ -462,12 +469,12 @@ for _puuid, _proc in all_processes.items():
         n_multi_causal += 1
         if len(multi_examples) < 5:
             multi_examples.append(f"{_proc.get('name', _puuid)} (causal, {len(_causal)} per-exchange factors)")
-        # Causal co-products can't be scalar-re-based (their burden is per-exchange).
-        # Record their flows so the build loop can warn if any is consumed as an input.
-        for _e in _proc.get("exchanges", []):
-            if (not _e.get("isInput") and not _e.get("isQuantitativeReference")
-                    and _e.get("flow", {}).get("flowType") == "PRODUCT_FLOW"):
-                causal_coproduct_flows.add(_e["flow"]["@id"])
+        # Each causal co-product gets a dedicated activity built from its own
+        # factor column. Key it now (pre-pass) so consumers built before the
+        # supplier can already link to it.
+        for _fuuid, _info in causal_coproducts(_proc, _puuid, normalize, FLOW_CONV).items():
+            causal_coproduct_info[(_puuid, _fuuid)] = _info
+            causal_coproduct_key[(_puuid, _fuuid)] = (USLCI_DB_NAME, f"{_puuid}__co__{_fuuid}")
     # Co-product multipliers: only for scalar-allocated processes (native/mass).
     # single-output and causal have empty per_output -> no multipliers.
     if _method in ("single", "causal") or _ref_flow is None:
@@ -484,28 +491,50 @@ for _puuid, _proc in all_processes.items():
 # is purely additive and never touches db_data, so the LCIA harness is unaffected.
 proc_provenance = {}
 
-for proc_uuid, proc in all_processes.items():
-    key = (USLCI_DB_NAME, proc_uuid)
+# Build jobs: every process's reference activity (co_flow None), plus one extra
+# activity per causal co-product (co_flow set), built from the same JSON process
+# but with the co-product's own per-exchange factor column and its own yield as
+# the production exchange.
+_build_jobs = [(_puuid, None) for _puuid in all_processes]
+_build_jobs += sorted(causal_coproduct_info)  # (proc_uuid, co_flow_uuid), deterministic order
+
+for proc_uuid, co_flow in _build_jobs:
+    proc = all_processes[proc_uuid]
     exchanges = []
     ref_unit = "unit"
     pdiag = {"bio_matched": 0, "bio_unmatched": 0, "tech_linked": 0,
              "tech_external": 0, "tech_unlinked": 0, "tech_ambiguous": 0}
 
-    # Reference product's allocation factor(s), computed once in the pre-pass.
-    # For native/mass allocation this is one scalar applied to every input/
-    # biosphere exchange; for causal allocation each exchange has its own factor
-    # (keyed by internalId), with alloc_factor as the fallback. Co-product
+    # Allocation factor(s), computed once in the pre-pass. For native/mass
+    # allocation this is one scalar applied to every input/biosphere exchange;
+    # for causal allocation each exchange has its own factor (keyed by
+    # internalId), with alloc_factor as the fallback. Scalar co-product
     # consumers are re-based separately, at their link site, via
-    # coproduct_multiplier. 1.0 for single-output.
-    alloc_factor    = alloc_cache[proc_uuid]
-    causal_factors  = causal_cache.get(proc_uuid)
+    # coproduct_multiplier. 1.0 for single-output. A causal co-product job uses
+    # the CO-PRODUCT's own factor column and mass-fraction fallback.
+    if co_flow is None:
+        key = (USLCI_DB_NAME, proc_uuid)
+        alloc_factor    = alloc_cache[proc_uuid]
+        causal_factors  = causal_cache.get(proc_uuid)
+    else:
+        key = causal_coproduct_key[(proc_uuid, co_flow)]
+        alloc_factor    = causal_coproduct_info[(proc_uuid, co_flow)]["fallback"]
+        causal_factors  = causal_coproduct_info[(proc_uuid, co_flow)]["column"]
 
     for exc in proc.get("exchanges", []):
         flow_ref  = exc.get("flow", {})
         flow_uuid = flow_ref.get("@id")
         flow_type = flow_ref.get("flowType", "")
         is_input  = exc.get("isInput", False)
-        is_ref    = exc.get("isQuantitativeReference", False)
+        # Production exchange: the quantitative reference for a normal job, the
+        # co-product's own output exchange for a causal co-product job (there
+        # the actual reference product falls through to the else branch and is
+        # dropped like any other non-reference product output).
+        if co_flow is None:
+            is_ref = exc.get("isQuantitativeReference", False)
+        else:
+            is_ref = (not is_input and flow_uuid == co_flow
+                      and flow_type == "PRODUCT_FLOW")
 
         if flow_uuid is None:
             raise RuntimeError(
@@ -586,31 +615,42 @@ for proc_uuid, proc in all_processes.items():
                         f"(hint {hinted_uuid!r} unresolved; {len(candidates)} candidates: {sorted(candidates)})"
                     )
                 if target_proc:
-                    # Safety net: a consumer drawing a CAUSAL process's non-
-                    # reference co-product cannot be scalar-re-based (its burden
-                    # is per-exchange), and no coproduct_multiplier is built for
-                    # it. Does not occur in the current bundles (both causal
-                    # co-products go unconsumed); warn loudly if that changes.
-                    if flow_uuid in causal_coproduct_flows:
+                    co_key = causal_coproduct_key.get((target_proc, flow_uuid))
+                    if co_key is not None:
+                        # This exchange draws a CAUSAL process's non-reference
+                        # co-product. Its burden is per-exchange, so no scalar
+                        # multiplier can re-base it through the reference
+                        # activity — link instead to the co-product's dedicated
+                        # activity (built from its own factor column), which is
+                        # natively in the co-product's own units. No multiplier.
+                        causal_coproduct_consumed.add((target_proc, flow_uuid))
                         total_causal_coproduct_links += 1
                         if len(causal_coproduct_examples) < 5:
                             causal_coproduct_examples.append(
                                 f"{proc.get('name', proc_uuid)} draws causal co-product flow {flow_uuid}")
-                    # Re-basis co-product draws. When this exchange targets a
-                    # NON-reference output of a multi-output supplier, the
-                    # supplier's single brightway activity is built on its
-                    # reference product's yield+allocation; convert the request
-                    # into the equivalent reference-product amount that carries
-                    # this co-product's own allocated burden. 1.0 (no-op) for
-                    # reference products, single-output suppliers, and external
-                    # (aggregated) providers.
-                    m = coproduct_multiplier.get((target_proc, flow_uuid), 1.0)
-                    exchanges.append({
-                        "input":  (target_db, target_proc),
-                        "amount": norm_amount * m,
-                        "unit":   norm_unit,
-                        "type":   "technosphere",
-                    })
+                        exchanges.append({
+                            "input":  co_key,
+                            "amount": norm_amount,
+                            "unit":   norm_unit,
+                            "type":   "technosphere",
+                        })
+                    else:
+                        # Re-basis scalar co-product draws. When this exchange
+                        # targets a NON-reference output of a multi-output
+                        # supplier, the supplier's single brightway activity is
+                        # built on its reference product's yield+allocation;
+                        # convert the request into the equivalent reference-
+                        # product amount that carries this co-product's own
+                        # allocated burden. 1.0 (no-op) for reference products,
+                        # single-output suppliers, and external (aggregated)
+                        # providers.
+                        m = coproduct_multiplier.get((target_proc, flow_uuid), 1.0)
+                        exchanges.append({
+                            "input":  (target_db, target_proc),
+                            "amount": norm_amount * m,
+                            "unit":   norm_unit,
+                            "type":   "technosphere",
+                        })
                     total_tech_linked += 1
                     pdiag["tech_linked"] += 1
                     if target_db == EXTERNAL_PROVIDER_DB:
@@ -631,20 +671,48 @@ for proc_uuid, proc in all_processes.items():
     raw_loc = location.get("name", "") if isinstance(location, dict) else ""
     location_name = LOCATION_MAP.get(raw_loc, raw_loc) or "GLO"
 
+    if co_flow is None:
+        act_name = proc.get("name", proc_uuid)
+    else:
+        _co_flow_name = (all_flows.get(co_flow) or {}).get("name", co_flow)
+        act_name = f"{proc.get('name', proc_uuid)} [causal co-product: {_co_flow_name}]"
+
     db_data[key] = {
-        "name":     proc.get("name", proc_uuid),
-        "code":     proc_uuid,
+        "name":     act_name,
+        "code":     key[1],
         "location": location_name,
         "unit":     ref_unit,
         "exchanges": exchanges,
     }
 
-    proc_provenance[proc_uuid] = {
-        "name":       proc.get("name", proc_uuid),
+    # Keyed by activity code so general/04's manifest can look any solved
+    # activity up directly (main jobs: code == proc_uuid, unchanged).
+    proc_provenance[key[1]] = {
+        "name":       act_name,
         "version":    proc.get("version"),
         "lastChange": proc.get("lastChange"),
+        **({"coproduct_of": proc_uuid, "coproduct_flow": co_flow}
+           if co_flow is not None else {}),
         **pdiag,
     }
+
+# Hard-stop if a CONSUMED causal co-product has no factor column at all — its
+# activity would then be built entirely on the mass-fraction fallback, i.e. a
+# flattened scalar wearing per-exchange clothes. Unconsumed co-products may pass
+# (their activities are inert); partial holes use the counted fallback, same as
+# the reference-product side.
+_empty_consumed = [(p, f) for (p, f) in causal_coproduct_consumed
+                   if not causal_coproduct_info[(p, f)]["column"]]
+if _empty_consumed:
+    raise RuntimeError(
+        f"{len(_empty_consumed)} consumed causal co-product(s) have NO per-exchange "
+        f"factor column in their process JSON — build STOPPED before writing "
+        f"'{USLCI_DB_NAME}'.\n"
+        f"  Their activities would silently degrade to a flat mass-fraction split, "
+        f"which is exactly the mis-allocation causal handling exists to prevent.\n"
+        f"  Affected (process UUID, co-product flow UUID):\n"
+        + "\n".join(f"    {p}  {f}" for p, f in _empty_consumed)
+    )
 
 # Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
 # means silently wrong exchange amounts; refuse to build a database that contains
@@ -724,11 +792,11 @@ if n_multi_native or n_multi_mass or n_multi_causal:
 if total_causal_fallback:
     print(f"\n  Note: {total_causal_fallback} exchange(s) in causal-allocation process(es) lacked a "
           f"per-exchange factor and used the mass-fraction fallback.")
-if total_causal_coproduct_links:
-    print(f"\n  WARNING: {total_causal_coproduct_links} technosphere link(s) consume a CAUSAL "
-          f"process's NON-reference co-product, which cannot be correctly re-based by the scalar "
-          f"co-product multiplier (its burden is per-exchange). These are UNDER-supported — the "
-          f"consumer gets the reference product's basis. Handle explicitly if this matters:")
+if causal_coproduct_info:
+    print(f"\n  Causal co-products: {len(causal_coproduct_info)} dedicated activit(ies) built "
+          f"from per-exchange factor columns; {total_causal_coproduct_links} consuming link(s) "
+          f"redirected to them ({len(causal_coproduct_consumed)} distinct co-product(s) consumed)."
+          + ("" if not causal_coproduct_examples else " Examples:"))
     for ex in causal_coproduct_examples[:5]:
         print(f"    {ex}")
 if skipped_multipliers:

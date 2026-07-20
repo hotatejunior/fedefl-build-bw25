@@ -62,11 +62,22 @@ stays under 3%, comfortably inside any reasonable LCA tolerance.
 
 ## What to make of the petroleum residual
 
-Petroleum refining's ecotoxicity, cancer, and non-cancer scores run ~2.7% high. I traced this and
-ruled out the pipeline mechanics: allocation factors, co-product handling, provider linking, and
-data completeness all check out identical to openLCA (details in the appendix). The residual sits
-in a long feedback loop specific to petroleum's supply chain and is within tolerance, so I've left
-it documented rather than chased further. It does not affect the other three processes.
+Petroleum refining's ecotoxicity, cancer, and non-cancer scores run ~2.7% high against the locked
+reference export. Root-caused 2026-07-17: **the gap is in the reference, not the engine.**
+
+- Per-process comparison against the export's own contribution tabs puts the entire gap on the four
+  crude-oil extraction processes (each exactly 1.06× openLCA's upstream; every other node 1.000).
+- Those processes declare **0.1584 MJ electricity per kg crude** — a value USLCI corrected upward by
+  1.06 (*"this electricity value has been updated from the original report inventory due to an
+  error"*, per the exchange note). brightway charges exactly 0.1584.
+- The openLCA reference calculation charged the **pre-correction value** (0.1584/1.06), even though
+  its own database stores the corrected one — the export was computed from stale product-system
+  state.
+
+So on this input brightway is *more* current than the locked reference. The locked CSVs stay as-is
+(verbatim history); regenerating the openLCA export from a freshly rebuilt product system
+([procedure](validation/REGENERATING_REFERENCE_EXPORTS.md)) is expected to move petroleum to ~1.000
+and is the standing exit criterion. Evidence chain: `validation/VALIDATION_LOG.md`, 2026-07-17.
 
 ## How the numbers got here — the debugging arc
 
@@ -109,8 +120,9 @@ This is a *validation in progress*, not a finished certification.
   the LCIA math and biosphere mapping but exercises **none** of the technosphere solve (parser,
   allocation, provider linking). Genuine full-chain coverage rests on petroleum, corn, and cement.
   Re-pulling steel as a full-chain bundle is on the roadmap.
-- **One residual above 1%** (petroleum, ~2.7%), understood well enough to be confident it's not a
-  general bug.
+- **One residual above 1%** (petroleum, ~2.7%). Root-caused: the openLCA reference charged the
+  crude-oil processes' electricity at a pre-correction USLCI value; the engine's inputs are correct.
+  Closes with a reference re-export (see "What to make of the petroleum residual" above).
 - **Electricity boundary matters.** Both engines were run with the US Electricity Baseline mounted
   and the US-average grid provider linked; a mismatch there would confound the comparison (see
   appendix).

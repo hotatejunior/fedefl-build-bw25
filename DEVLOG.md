@@ -37,6 +37,19 @@ engine). See CLAUDE.md for the script table and run order.
 - **openLCA library interoperability.** `setup/olca_library.py` decodes openLCA's pre-aggregated
   library (matrix) packages so their pre-solved background (e.g. the electricity baseline) can be
   injected directly — a format brightway cannot otherwise read.
+- **Dedicated activities for causal co-products** (2026-07-15). Causal allocation is per-exchange,
+  so a consumer of a causal process's NON-reference co-product cannot be re-based through the
+  reference activity by any scalar multiplier. `setup/03` therefore builds a second brightway
+  activity per causal co-product (code `<proc_uuid>__co__<flow_uuid>`): production = the
+  co-product's own native yield, every exchange scaled by the co-product's own column of the
+  openLCA causal factor grid (extracted by `setup/allocation.py::causal_coproducts`). Consumers
+  are redirected to it at the link site, no multiplier. A consumed co-product whose grid column is
+  empty hard-stops the build (mirrors the unknown-unit policy). Verified on the cellulosic-ethanol
+  process: its uniform grid means the co-product activity is the reference activity rescaled by
+  exactly λ_co/λ_ref = 1.158249156 on all 20 non-product exchanges, matching the JSON factors at
+  full precision; non-uniform grids are pinned by synthetic fixtures in `tests/test_allocation.py`.
+  openLCA parity for a *consumed* causal co-product is still pending a Phase 3.1 test case (the
+  USLCI recycling/MRF sector has real consumers — recovered HDPE/PET from sorting processes).
 - **Per-process downloads, not the full USLCI zip.** LCA Commons bundles each process with its full
   upstream, so a handful of target processes arrive with their complete supply chains without
   importing the entire ~10,000-process database.
@@ -63,6 +76,14 @@ Condensed; the full diagnostic narrative for each lives in the parent project's 
 
 Outcome: all 40 category × process cells validate within 5% of openLCA (35/40 within 1%). See
 `VALIDATION_REPORT.md`.
+
+**Resolved (2026-07-17): the ~1.027 petroleum residual is a reference-export artifact, not an
+engine bug.** The entire electricity over-draw sits on the four crude-oil extraction processes.
+Their JSON declares 0.1584 MJ electricity/kg — a value USLCI corrected "due to an error" (per the
+exchange's own note) — and brightway charges exactly that, while the openLCA reference calculation
+charged the pre-correction 0.1584/1.06: it ran on stale process state (the openLCA database on disk
+already stores the corrected value). No code change; closes with an openLCA re-export, petroleum
+expected at ~1.000. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 entry).
 
 ## Quality-of-life / reproducibility
 

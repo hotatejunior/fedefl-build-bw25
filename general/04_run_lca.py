@@ -41,7 +41,7 @@ from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, ELECTRICITY_BASELINE_D
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
 # =============================================================================
-PROCESS_UUID      = "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71"  # petroleum refining, US
+PROCESS_UUID      = "1cbbcd09-ea17-3d9b-bc34-2cf42efe26ba_a900b507109a80c21db983e5f13f283f4a84aa51"  # petroleum refining, US
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
                             # required when CSV has >1 process; ignored without CSV

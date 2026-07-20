@@ -15,6 +15,38 @@ module globals, and `coproduct_multipliers` is plain arithmetic on
 MASS_FP_UUID = "93a60a56-a3c8-11da-a746-0800200b9a66"
 
 
+def _output_products(proc, normalize, flow_conv):
+    """List the process's PRODUCT_FLOW outputs as (flow_uuid, native_yield,
+    mass_kg) plus the reference product's flow UUID (None if the reference is
+    not among them, e.g. a reference-on-input waste-treatment process)."""
+    output_products = []
+    ref_flow_uuid = None
+    for exc in proc.get("exchanges", []):
+        if exc.get("isInput") or exc.get("flow", {}).get("flowType") != "PRODUCT_FLOW":
+            continue
+        flow_uuid_e = exc.get("flow", {}).get("@id")
+        fp_uuid_e   = exc.get("flowProperty", {}).get("@id", "")
+        amount_e    = exc.get("amount", 0.0)
+        unit_e      = exc.get("unit", {}).get("name", "")
+        # Native yield in the flow's own reference unit.
+        norm_e, _ = normalize(amount_e, unit_e, fp_uuid_e, flow_uuid_e)
+        # Convert to kg for the mass-fraction fallback denominator.
+        # FLOW_CONV factor semantics: factor = (other fp units) per (ref fp unit).
+        fc      = flow_conv.get(flow_uuid_e, {})
+        ref_fp  = fc.get("ref_fp_uuid", "")
+        convs   = fc.get("conversions", {})
+        if ref_fp == MASS_FP_UUID:
+            mass_kg = norm_e                                    # ref already kg
+        elif MASS_FP_UUID in convs:
+            mass_kg = norm_e * convs[MASS_FP_UUID]["factor"]    # e.g. m3 × (kg/m3)
+        else:
+            mass_kg = 0.0                                       # no mass conversion
+        output_products.append((flow_uuid_e, norm_e, mass_kg))
+        if exc.get("isQuantitativeReference"):
+            ref_flow_uuid = flow_uuid_e
+    return output_products, ref_flow_uuid
+
+
 def allocation_for(proc, proc_uuid, normalize, flow_conv):
     """Compute one multi-output process's reference-product allocation, plus the
     per-output data needed to correctly re-basis consumers of its NON-reference
@@ -52,31 +84,7 @@ def allocation_for(proc, proc_uuid, normalize, flow_conv):
 
     Raises the same malformed/uncomputable errors the previous inline logic did.
     """
-    output_products = []  # (flow_uuid, native_yield, mass_kg)
-    ref_flow_uuid = None
-    for exc in proc.get("exchanges", []):
-        if exc.get("isInput") or exc.get("flow", {}).get("flowType") != "PRODUCT_FLOW":
-            continue
-        flow_uuid_e = exc.get("flow", {}).get("@id")
-        fp_uuid_e   = exc.get("flowProperty", {}).get("@id", "")
-        amount_e    = exc.get("amount", 0.0)
-        unit_e      = exc.get("unit", {}).get("name", "")
-        # Native yield in the flow's own reference unit.
-        norm_e, _ = normalize(amount_e, unit_e, fp_uuid_e, flow_uuid_e)
-        # Convert to kg for the mass-fraction fallback denominator.
-        # FLOW_CONV factor semantics: factor = (other fp units) per (ref fp unit).
-        fc      = flow_conv.get(flow_uuid_e, {})
-        ref_fp  = fc.get("ref_fp_uuid", "")
-        convs   = fc.get("conversions", {})
-        if ref_fp == MASS_FP_UUID:
-            mass_kg = norm_e                                    # ref already kg
-        elif MASS_FP_UUID in convs:
-            mass_kg = norm_e * convs[MASS_FP_UUID]["factor"]    # e.g. m3 × (kg/m3)
-        else:
-            mass_kg = 0.0                                       # no mass conversion
-        output_products.append((flow_uuid_e, norm_e, mass_kg))
-        if exc.get("isQuantitativeReference"):
-            ref_flow_uuid = flow_uuid_e
+    output_products, ref_flow_uuid = _output_products(proc, normalize, flow_conv)
 
     if len(output_products) <= 1:
         return 1.0, ref_flow_uuid, {}, "single", None
@@ -172,6 +180,57 @@ def allocation_for(proc, proc_uuid, normalize, flow_conv):
             per_output[flow_uuid] = (yld, (mass_kg / total_mass) if total_mass else None)
 
     return alloc_factor, ref_flow_uuid, per_output, method, None
+
+
+def causal_coproducts(proc, proc_uuid, normalize, flow_conv):
+    """Per NON-reference product output of a CAUSAL_ALLOCATION process, the data
+    needed to build a DEDICATED brightway activity for that co-product.
+
+    Causal allocation is per-exchange, so a consumer of a causal co-product
+    cannot be re-based through the reference product's activity by any scalar
+    multiplier (see coproduct_multipliers). Instead the importer builds a second
+    activity per co-product: production = the co-product's own native yield,
+    every input/biosphere exchange scaled by the co-product's own column of the
+    per-exchange factor grid. openLCA ships the full grid (all products'
+    columns); allocation_for reads only the reference product's column, this
+    reads the rest.
+
+    Returns {} unless `proc` is a multi-output CAUSAL_ALLOCATION process with a
+    reference product. Otherwise:
+
+      {co_flow_uuid: {
+          "column":   {exchange_internalId: factor}  -- this co-product's grid column
+          "fallback": mass fraction of this co-product -- used, and counted by the
+                      caller, for any exchange missing a causal entry (mirrors
+                      allocation_for's reference-product fallback)
+          "yield":    native yield in the flow's own reference unit
+      }}
+    """
+    if proc.get("defaultAllocationMethod") != "CAUSAL_ALLOCATION":
+        return {}
+    output_products, ref_flow_uuid = _output_products(proc, normalize, flow_conv)
+    if len(output_products) <= 1 or ref_flow_uuid is None:
+        return {}
+
+    total_mass = sum(m for _, _, m in output_products if m > 0)
+    out = {}
+    for flow_uuid, yld, mass_kg in output_products:
+        if flow_uuid == ref_flow_uuid:
+            continue
+        column = {}
+        for af in proc.get("allocationFactors", []):
+            if (af.get("allocationType") == "CAUSAL_ALLOCATION"
+                    and af.get("product", {}).get("@id") == flow_uuid
+                    and "exchange" in af):
+                iid = af["exchange"].get("internalId")
+                if iid is not None:
+                    column[iid] = af["value"]
+        out[flow_uuid] = {
+            "column":   column,
+            "fallback": (mass_kg / total_mass) if total_mass else 1.0,
+            "yield":    yld,
+        }
+    return out
 
 
 def coproduct_multipliers(per_output, ref_flow_uuid):

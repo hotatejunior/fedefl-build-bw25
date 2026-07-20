@@ -40,7 +40,8 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `setup/02_setup_traci22.py` | Loads TRACI 2.2 CFs mapped to FEDEFL UUIDs |
 | `setup/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
 | `setup/03b_import_electricity_baseline.py` | Injects the US electricity baseline into brightway as aggregated background activities, discovered per-bundle; auto-fetches + hash-verifies the library |
-| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway. Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
+| `setup/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py` |
+| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway; multi-output allocation via `setup/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
 | `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV. Also emits `validation_manifest.json` (per-run audit manifest: provenance + per-result completeness); `--no-manifest` to skip |
 | `general/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
 | `general/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness. Unit-tested by `tests/test_run_manifest.py` |
@@ -55,7 +56,9 @@ changes to any script.
 
 All four locked test cases (petroleum, corn, cement, steel) validate against openLCA on all 10 TRACI
 categories — every one of the 40 category × process cells lands within ±5%, 35 of 40 within ±1%.
-Max deviation is petroleum's ecotox/cancer/non-cancer at ~1.027, within tolerance. Full write-up
+Max deviation is petroleum's ecotox/cancer/non-cancer at ~1.027, within tolerance — root-caused
+(2026-07-17) to the openLCA reference export charging a pre-correction USLCI electricity value on the
+crude-oil processes; the engine is correct, and the residual closes with a reference re-export. Full write-up
 (method, results, appendix) in `VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file
 provenance (`VALIDATION_LOG.md`, SHA256-pinned asset manifest) live in `validation/`.
 

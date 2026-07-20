@@ -534,3 +534,51 @@ verification: DEVLOG.md, "Causal allocation" (2026-07-02).
 petroleum's ecotox/cancer/non-cancer at ~1.027 — the only remaining >1% gap, within tolerance, and
 plausibly the genuine (now bounded) USLCI trace-metal vintage effect. Not investigated further.
 Petroleum's earlier trace-metal "2× gap" was disproven; this ~3% residual is a different, small thing.
+
+### 2026-07-15 — petroleum residual localized: electricity over-draw, not trace-metal vintage (WIP)
+
+**Supersedes the "trace-metal vintage" guess above for the ~1.027 petroleum residual.** Investigated
+ledger #2 without a new openLCA session, using the existing exports' per-flow/per-process
+contribution tabs. Findings:
+
+- Per-flow comparison ("Impact contributions by flow" tab): EVERY electricity-borne emission
+  (Vanadium, arsenic, lead, mercury, thallium, zinc, cobalt) is brightway = openLCA × **1.027
+  exactly**; every non-electricity flow (atrazine, acrolein) = **1.000**. Uniform factor ⇒ not a
+  per-CF error.
+- brightway TRACI CFs == openLCA TRACI JSON exactly (checked vs `source_data/TRACI_2.2_json_v1.2.0.zip`).
+- `03b` injection reproduces the electricity library's `M` inventory exactly (max rel diff 0.0 / 2181 flows).
+- Electricity background is correct: **cement draws the same grid node at 99.9% and validates at 1.000.**
+- Disaggregation hypothesis disproven: library ships `M = B·A⁻¹` (holds ~1e-15) with zero product
+  overlap with the bundles; re-solving live is a mathematical no-op.
+
+**Conclusion:** the residual is a petroleum-specific **~2.7% over-draw of electricity demand** — a
+scaling/allocation effect on petroleum's route to the grid. **Open (WIP):** localize the exact
+over-drawing node (suspect: multi-output cellulosic-ethanol processes / petroleum refining's physical
+allocation) and decide fix-vs-document. Not yet remediated; harness numbers above unchanged.
+
+### 2026-07-17 — petroleum residual ROOT-CAUSED: stale reference export, engine correct (ledger #2 closed)
+
+Localized and diagnosed; no engine change needed. Method: attributed the US-average grid node's
+(`7068192a`) demand by consuming process in brightway, then compared per-process direct and
+total-upstream impacts against the export's own tabs.
+
+- The entire gap sits on the **four crude-oil extraction processes** (upstream ecotox each exactly
+  **1.0597×** openLCA; hydrogen, pipeline transport, ethanol all 1.000). The NG-extraction chain
+  carries the small remainder (~0.2 pp, scaling drift of the same vintage character).
+- Crude's USLCI JSON declares **0.1584 MJ electricity/kg** (provider `7068192a`), with the exchange
+  note *"this electricity value has been updated from the original report inventory due to an
+  error."* brightway charges exactly 0.1584. The same 0.1584 appears in every surviving USLCI drop
+  (2026-06-22 bundle, 2026-06-30 bundle, full-DB zip).
+- The openLCA reference calculation charged **0.1494 MJ/kg = 0.1584 / 1.06** — the pre-correction
+  value — confirmed to 5 significant figures independently in ecotox, cancer, and non-cancer from
+  the export's upstream tabs. Alternative explanations eliminated: not a provider swap (at-grid
+  would be ÷1.0458, and no library node matches the implied intensity), not allocation (crude is
+  single-output, no formulas/parameters), not a duplicate process copy.
+- Inspecting `bw_comp_petroleum_rebuild` (Derby, offline copy): `TBL_EXCHANGES` stores the
+  **corrected 0.1584**, data files frozen 2026-06-30 16:19, exports made 2026-07-02 ⇒ the openLCA
+  calculation ran on stale product-system state. The openLCA-internal mechanism is unresolved and
+  moot — the export's own numbers prove the pre-correction charge.
+
+**Verdict: brightway is correct; the ~1.027 is a reference-side vintage artifact.** Locked CSVs are
+unchanged (verbatim history). **Exit criterion:** rebuild the petroleum product system fresh in
+openLCA and re-export (`REGENERATING_REFERENCE_EXPORTS.md`); petroleum expected → ~1.000.
