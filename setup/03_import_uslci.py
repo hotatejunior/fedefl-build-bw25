@@ -131,6 +131,13 @@ WITHIN_FP = {
     "usd": 1.0,  "$": 1.0,  "us$": 1.0,
 }
 
+# Case-SENSITIVE entries, checked before the lowercase fallback: units whose
+# meaning changes with case. "Mg" (megagram = tonne, used by the recycling/MRF
+# sector) would otherwise collide with "mg" (milligram) in the case-insensitive
+# lookup — a silent 1e9 error. A census of the full USLCI unit universe
+# (30 strings) found Mg/mg to be the only case collision.
+_WITHIN_FP_EXACT = {"Mg": 1e3}
+
 # Case-insensitive lookup built from WITHIN_FP. All keys are lowercased at
 # definition time so lookup just needs unit.lower(). Explicit lowercase entries
 # in WITHIN_FP (e.g. "mmbtu") are already correct.
@@ -168,7 +175,9 @@ def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
     Returns (normalized_amount, ref_unit_str).
     Falls back to (amount, unit) when data is missing so import never crashes.
     """
-    within = _WITHIN_FP_LOWER.get(unit.lower() if unit else "")
+    within = _WITHIN_FP_EXACT.get(unit) if unit else None
+    if within is None:
+        within = _WITHIN_FP_LOWER.get(unit.lower() if unit else "")
     if within is None:
         UNKNOWN_UNITS.setdefault(unit, set()).add(flow_uuid)
         return amount, unit   # unrecognised unit — pass through
@@ -351,7 +360,12 @@ for proc_uuid, proc in all_processes.items():
 external_provider_uuids = set()
 flow_to_external_process = {}
 external_uuid_to_name = {}
+# The electricity-baseline vintage 03b injected (e.g. "2025" / "2026"), copied
+# onto uslci-subset below so the validation harness can assert a case is diffed
+# against the matching-vintage grid. None if 03b predates the stamp.
+electricity_vintage = None
 if EXTERNAL_PROVIDER_DB in bd.databases:
+    electricity_vintage = bd.databases[EXTERNAL_PROVIDER_DB].get("electricity_vintage")
     for act in bd.Database(EXTERNAL_PROVIDER_DB):
         external_provider_uuids.add(act["code"])
         external_uuid_to_name[act["code"]] = act["name"]
@@ -360,7 +374,9 @@ if EXTERNAL_PROVIDER_DB in bd.databases:
             flow_to_external_process.setdefault(ref_flow_uuid, set()).add(act["code"])
     print(f"Loaded {len(external_provider_uuids)} external provider process(es) "
           f"({len(flow_to_external_process)} distinct reference flow(s)) "
-          f"from '{EXTERNAL_PROVIDER_DB}'.")
+          f"from '{EXTERNAL_PROVIDER_DB}'"
+          + (f" [electricity_vintage = {electricity_vintage}]."
+             if electricity_vintage else "."))
 
 
 def _candidate_name(db_name, proc_uuid):
@@ -451,6 +467,8 @@ ambiguous_examples   = []
 total_causal_fallback = 0          # causal exchanges that fell back to the scalar
 total_causal_coproduct_links = 0   # links redirected to a causal co-product activity
 causal_coproduct_examples = []
+total_waste_treatment_links = 0    # non-reference WASTE_FLOW outputs sent to a treatment provider
+waste_treatment_examples = []
 
 # =============================================================================
 # PRE-PASS: allocation factors + co-product re-basis multipliers
@@ -629,7 +647,20 @@ for proc_uuid, co_flow in _build_jobs:
                     total_bio_unmatched += 1
                     pdiag["bio_unmatched"] += 1
 
-            elif flow_type in ("PRODUCT_FLOW", "WASTE_FLOW") and is_input:
+            elif (is_input and flow_type in ("PRODUCT_FLOW", "WASTE_FLOW")) \
+                    or (not is_input and flow_type == "WASTE_FLOW"):
+                # Technosphere link. Two directions resolve the same way:
+                #   - a consumed INPUT (product or waste feedstock), and
+                #   - a WASTE_FLOW OUTPUT sent to a treatment provider. openLCA
+                #     models disposal as the generator OUTPUTTING a waste flow
+                #     whose defaultProvider is the treatment process (whose own
+                #     reference is that waste flow as an input). The waste amount
+                #     is a positive consumption of the treatment service, so it
+                #     links exactly like an input. Without this, every waste-to-
+                #     treatment output was silently dropped and the treatment
+                #     burden (e.g. landfill methane) was omitted entirely.
+                # NON-reference PRODUCT_FLOW outputs are co-products, handled by
+                # allocation / coproduct_multiplier — deliberately NOT linked here.
                 norm_amount, norm_unit = normalize(amount, unit, fp_uuid, flow_uuid)
                 target_db, target_proc, was_ambiguous = _resolve_provider(exc, flow_uuid)
                 if was_ambiguous:
@@ -688,6 +719,12 @@ for proc_uuid, co_flow in _build_jobs:
                     if target_db == EXTERNAL_PROVIDER_DB:
                         total_tech_external += 1
                         pdiag["tech_external"] += 1
+                    if not is_input:  # a waste-treatment output link
+                        total_waste_treatment_links += 1
+                        if len(waste_treatment_examples) < 5:
+                            waste_treatment_examples.append(
+                                f"{proc.get('name', proc_uuid)} sends {flow_ref.get('name', flow_uuid)} "
+                                f"to {external_uuid_to_name.get(target_proc) or (all_processes.get(target_proc) or {}).get('name', target_proc)}")
                 else:
                     total_tech_unlinked += 1
                     pdiag["tech_unlinked"] += 1
@@ -775,7 +812,15 @@ if UNKNOWN_UNITS and not ALLOW_UNIT_PASSTHROUGH:
 
 bd.Database(USLCI_DB_NAME).write(db_data)
 
-print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes.")
+# Carry the electricity-baseline vintage stamp (from 03b) onto this database, so
+# the validation harness can assert each case is diffed against the grid vintage
+# its openLCA reference export used. A build is single-vintage by design.
+if electricity_vintage is not None:
+    bd.databases[USLCI_DB_NAME]["electricity_vintage"] = electricity_vintage
+    bd.databases.flush()
+
+print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes"
+      + (f" [electricity_vintage = {electricity_vintage}]." if electricity_vintage else "."))
 print(f"  Biosphere exchanges: {total_bio_matched} matched, {total_bio_unmatched} unmatched")
 print(f"  Technosphere exchanges: {total_tech_linked} linked "
       f"({total_tech_external} via '{EXTERNAL_PROVIDER_DB}'), {total_tech_unlinked} unlinked")
@@ -843,6 +888,12 @@ if causal_coproduct_info:
           f"redirected to them ({len(causal_coproduct_consumed)} distinct co-product(s) consumed)."
           + ("" if not causal_coproduct_examples else " Examples:"))
     for ex in causal_coproduct_examples[:5]:
+        print(f"    {ex}")
+if total_waste_treatment_links:
+    print(f"\n  Waste treatment: {total_waste_treatment_links} WASTE_FLOW output(s) linked to a "
+          f"treatment provider (disposal burden, e.g. landfill methane, now charged to the "
+          f"generating process)." + ("" if not waste_treatment_examples else " Examples:"))
+    for ex in waste_treatment_examples[:5]:
         print(f"    {ex}")
 if skipped_multipliers:
     print(f"\n  WARNING: {len(skipped_multipliers)} co-product output(s) could not be re-based "

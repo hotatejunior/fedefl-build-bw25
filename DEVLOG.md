@@ -73,6 +73,20 @@ Condensed; the full diagnostic narrative for each lives in the parent project's 
   technosphere linking resolved providers by a key that could collide across flows; keyed correctly.
 - **Waste-treatment processes rejected as malformed.** `WASTE_FLOW` reference products were being
   dropped; accepted as valid reference products.
+- **Waste-treatment OUTPUT links dropped (2026-07-20, found via first HDPE parity diff).** openLCA
+  models disposal as the generating process *outputting* a `WASTE_FLOW` whose `defaultProvider` is
+  the treatment process (whose own reference is that waste flow, as an input). `setup/03`'s
+  technosphere-linking branch was gated `... and is_input`, so only *inputs* linked — a waste flow
+  *output* to a treatment provider matched no branch and was silently dropped, omitting the entire
+  treatment burden (notably landfill methane). Symptom: HDPE flake's MSW-landfilling burden
+  (openLCA charged 0.0856 kg CO2-eq of the 0.52 total) was absent in brightway → GWP ratio 0.842.
+  Fix: the branch now also links non-reference `WASTE_FLOW` outputs to their resolved treatment
+  provider (positive consumption of the treatment service, linked by the same machinery as inputs);
+  non-reference `PRODUCT_FLOW` outputs remain excluded (those are co-products, handled by
+  allocation). 67 such links now form across the bundles; HDPE GWP 0.842 → 1.036. NOTE: this changes
+  every case that sends waste to treatment, including the locked ones (petroleum/cement/corn) — the
+  locked CSV and `tests/test_validation_cement.py` expectations must be re-established once the
+  openLCA reference exports are regenerated with waste treatment included.
 
 Outcome: all 40 category × process cells validate within 5% of openLCA (35/40 within 1%). See
 `VALIDATION_REPORT.md`.
@@ -100,6 +114,21 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
 - **Auto-fetched electricity baseline** — `setup/03b` downloads the version-pinned baseline library
   from the Federal LCA Commons GitHub and verifies its SHA256 before use, removing a manual
   onboarding step. `--no-fetch` requires a local copy; `--library` points at your own.
+- **Electricity-baseline vintage selector + stamp/assert guard (2026-07-20).** The US-average grid
+  node is named identically across releases but carries a different UUID per vintage (`7068192a` in
+  2025-06, `75d4be66` in 2026-06 — see the vintage-UUID note). The 4 locked cases were exported
+  against 2025-06; the newer HDPE/PET bundles hardcode the 2026-06 provider UUID, so their brightway
+  supply chain was being silently relinked down to 2025 (name-match fallback in `03`'s
+  `_resolve_provider`), producing a vintage mismatch against their openLCA exports. Fix: a build
+  injects exactly ONE vintage. `setup/03b --vintage {2025|2026}` (default 2025) selects the library
+  (`VINTAGES` config, each with its own pinned SHA) and STAMPS `electricity_vintage` onto the
+  `electricity-baseline` db; `setup/03` copies the stamp onto `uslci-subset`; `validation/05` reads
+  it and HARD-STOPS if a case's expected vintage (`EXPECTED_VINTAGE`, steel = agnostic) doesn't match
+  the build — so a 2025 case can never be silently diffed against a 2026 grid. Injecting BOTH vintages
+  at once is deliberately unsupported: the two identically-named US-average nodes would make name-based
+  resolution ambiguous AND would flip the locked cases' stray direct 2026 references. Verified: 2025
+  build reproduces the locked CSV byte-for-byte (machine-epsilon float noise only), the guard trips on
+  a 2026 stamp, pytest green.
 - **New-process protocol hardening (2026-07-20)** — worked example: adding "Corn; at field" on a
   fresh machine hard-stopped on `p*km`, then (with passthrough toggled) `general/04` failed with
   `UnknownObject`. Root causes and fixes, all in `setup/03`:
@@ -120,3 +149,14 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   can see where the unit occurs; and `ALLOW_UNIT_PASSTHROUGH` is an **environment variable** again
   (a session's local `= 1` toggle had been committed in `f707205`, silently disabling the ledger #7
   hard stop for everyone — the edit-a-constant ergonomics bug striking again, cf. Phase 3.3).
+- **"Mg" misread as milligram (2026-07-20, found on first HDPE-flake build).** The `WITHIN_FP`
+  lookup is case-insensitive, so `Mg` (megagram = tonne, the unit of every MRF sorting output in the
+  recycling sector) resolved to the `mg` entry — 1e-6 instead of 1e3, a silent 1e9 error. Mg-based
+  exchanges partially cancelled (both sides shrunk), but the sorting processes' kWh electricity
+  didn't, inflating HDPE flake's GWP to ~1.6e7 kg CO2-eq/kg. Fix: `_WITHIN_FP_EXACT`, a
+  case-sensitive table checked before the lowercase fallback. A census of the full USLCI unit
+  universe confirmed Mg/mg is the *only* case collision among the 30 unit strings — so the earlier
+  "100% coverage" claim was true for presence but not correctness; coverage now audited for case
+  too. Post-fix HDPE flake GWP: 0.4499 kg CO2-eq/kg (literature range). The four locked cases carry
+  no Mg exchanges; harness ratios unchanged (last-ulp float noise only, from the larger matrix —
+  byte-for-byte parity still holds against the pinned asset set without the HDPE/PET bundles).

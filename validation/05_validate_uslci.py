@@ -87,6 +87,27 @@ TARGETS_FULL = {
         SOURCE_DATA /"Portland_cement__at_plant___US__US_AVG_ELEC_SELECTION.xlsx",
     "ac54bc7d-5db5-3b4f-9175-5dd02f678312":
         SOURCE_DATA /"Steel__billets__at_plant___RNA_results.xlsx",
+    # HDPE flake (causal co-product case, ledger #1) is a POST-BETA target: it
+    # requires a `03b --vintage 2026` build and a non-anomalous 2026 reference
+    # export. Add it here once that reference is regenerated. The vintage guard
+    # below (EXPECTED_VINTAGE) already supports mixing it with the 2025 cases.
+}
+
+# The default vintage: cases at this vintage write the git-tracked locked CSV;
+# other vintages write a tagged file (see SAVE) so they can't clobber it.
+LOCKED_CSV_VINTAGE = "2025"
+
+# Electricity-baseline vintage each reference export was computed against (see
+# the vintage-UUID note / DEVLOG). A build injects ONE vintage (03b --vintage,
+# stamped onto uslci-subset); the harness skips a case whose export vintage
+# doesn't match the build, so a 2025 case can't be silently compared against a
+# 2026 grid. None = vintage-agnostic (steel has no grid electricity).
+EXPECTED_VINTAGE = {
+    "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71": "2025",  # petroleum
+    "11256034-2355-3add-ade9-59983025dded": "2025",  # corn
+    "62993671-574c-3fc5-b66a-6be3bb21ad3d": "2025",  # cement
+    "ac54bc7d-5db5-3b4f-9175-5dd02f678312": None,    # steel — no electricity
+    "17664c37-72c0-4813-a4b9-93f962962c63": "2026",  # HDPE flake (post-beta)
 }
 
 # Density (kg/m3) for processes whose production exchange is in volume units.
@@ -119,6 +140,18 @@ if USLCI_DB_NAME not in bd.databases:
 traci_methods = {m[2]: m for m in bd.methods if m[:2] == METHOD_ROOT}
 if not traci_methods:
     raise RuntimeError("No TRACI 2.2 methods found. Run setup/02_setup_traci22.py first.")
+
+# Which electricity-baseline vintage this uslci-subset build was linked against
+# (stamped by 03b -> 03). Used to guard each case's diff below. None if the DB
+# predates the stamp — then the guard warns once and proceeds (don't hard-break
+# an existing 2025 build before the operator rebuilds).
+BUILD_VINTAGE = bd.databases[USLCI_DB_NAME].get("electricity_vintage")
+if BUILD_VINTAGE is None:
+    print("  NOTE: this 'uslci-subset' build carries no electricity_vintage stamp "
+          "(built before the vintage guard). Rebuild via setup/03b + setup/03 to "
+          "enable the per-case vintage check. Proceeding without it.")
+else:
+    print(f"  Build electricity_vintage = {BUILD_VINTAGE}.")
 
 # =============================================================================
 # NORMALIZATION
@@ -248,12 +281,27 @@ def run_all_full_chain(act, methods):
 # =============================================================================
 targets = TARGETS_DIRECT if VALIDATION_MODE == "direct" else TARGETS_FULL
 all_results = []
+skipped_vintage = []   # (process_name, expected_vintage) skipped by the guard
 
 for uuid, xlsx_path in targets.items():
     try:
         act = bd.get_activity((USLCI_DB_NAME, uuid))
     except Exception:
         print(f"WARNING: {uuid} not in '{USLCI_DB_NAME}' — skipping.")
+        continue
+
+    # Vintage guard: never diff a case against a mismatched-vintage grid. A build
+    # is single-vintage, so cases whose export vintage differs are SKIPPED (with a
+    # loud notice) rather than silently compared — validate them from a matching
+    # build. Only enforced when the build carries a stamp and the case has an
+    # expected vintage (steel is vintage-agnostic → None → always runs).
+    want_vintage = EXPECTED_VINTAGE.get(uuid)
+    if BUILD_VINTAGE is not None and want_vintage is not None \
+            and want_vintage != BUILD_VINTAGE:
+        print(f"SKIP: '{act['name']}' was exported against the {want_vintage} "
+              f"electricity baseline; this build is {BUILD_VINTAGE}. Rebuild with "
+              f"'setup/03b --vintage {want_vintage}' then setup/03 to validate it.")
+        skipped_vintage.append((act["name"], want_vintage))
         continue
 
     try:
@@ -325,13 +373,25 @@ for uuid, xlsx_path in targets.items():
 # =============================================================================
 # SAVE
 # =============================================================================
+if skipped_vintage:
+    print(f"\n{len(skipped_vintage)} case(s) SKIPPED (vintage ≠ build {BUILD_VINTAGE}): "
+          + ", ".join(f"{n} [{v}]" for n, v in skipped_vintage))
+
 if not all_results:
     raise RuntimeError(
-        f"No results produced. Check that TARGETS_{'DIRECT' if VALIDATION_MODE == 'direct' else 'FULL'} "
-        f"contains at least one valid process UUID and that the xlsx path exists."
+        f"No results produced. "
+        + (f"All targets were skipped by the vintage guard — this build is "
+           f"{BUILD_VINTAGE}; rebuild with a matching --vintage. "
+           if skipped_vintage else
+           f"Check that TARGETS_{'DIRECT' if VALIDATION_MODE == 'direct' else 'FULL'} "
+           f"contains at least one valid process UUID and that the xlsx path exists.")
     )
 
-out_path = HERE / f"validation_{VALIDATION_MODE}_results.csv"
+# The locked CSV is the default-vintage (2025) parity artifact. A non-default
+# build writes a vintage-tagged file so it can't clobber the locked baseline;
+# an unstamped legacy build keeps the canonical name (prior behavior).
+_suffix = f"_{BUILD_VINTAGE}" if BUILD_VINTAGE and BUILD_VINTAGE != LOCKED_CSV_VINTAGE else ""
+out_path = HERE / f"validation_{VALIDATION_MODE}_results{_suffix}.csv"
 pd.DataFrame(all_results).to_csv(out_path, index=False)
-print(f"\nResults saved → {out_path.name}")
+print(f"\n{len(all_results)} result row(s) saved → {out_path.name}")
 print("Rows marked '!' have BW/OL ratio outside [0.95, 1.05].")

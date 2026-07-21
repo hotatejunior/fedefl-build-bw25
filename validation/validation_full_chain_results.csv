@@ -1,34 +1,34 @@
 process,mode,category,bw_score,ol_score,ratio_bw_ol
-Petroleum refining; at refinery,full_chain,Acidification,0.0011816361089724578,0.0011859683312631926,0.9963471012028454
-Petroleum refining; at refinery,full_chain,Eutrophication (Freshwater),4.0432021430408816e-07,3.979230812175586e-07,1.016076305669316
-Petroleum refining; at refinery,full_chain,Eutrophication (Marine),0.0003469514404600269,0.00034891289565402983,0.9943783814859402
-Petroleum refining; at refinery,full_chain,Freshwater ecotoxicity,2.750729263892281,2.678463935446376,1.0269801386867887
-Petroleum refining; at refinery,full_chain,Global warming,0.7824680338080953,0.7928629230104276,0.9868894245138063
-Petroleum refining; at refinery,full_chain,Human health - cancer,6.212510612826379e-09,6.057087966607993e-09,1.025659631670402
-Petroleum refining; at refinery,full_chain,Human health - non-cancer,1.0854776132618368e-06,1.0568863090350004e-06,1.0270523934148998
-Petroleum refining; at refinery,full_chain,Human health - particulate matter,7.470393458396589e-05,7.45998673135257e-05,1.001395006106416
-Petroleum refining; at refinery,full_chain,Ozone depletion,8.536306881941457e-09,8.510969936668241e-09,1.0029769750641528
-Petroleum refining; at refinery,full_chain,Smog formation,0.047975947263996295,0.04817879988803377,0.99578958744284
-Corn; whole plant; at field,full_chain,Acidification,0.004764677984021285,0.004764751844333979,0.9999844986024231
-Corn; whole plant; at field,full_chain,Eutrophication (Freshwater),5.7480943330801296e-05,5.7480839902746757e-05,1.0000017993483519
-Corn; whole plant; at field,full_chain,Eutrophication (Marine),0.0017989641226921309,0.0017989969053356755,0.9999817772651818
-Corn; whole plant; at field,full_chain,Freshwater ecotoxicity,1.8447527230315082,1.8436105364483286,1.0006195378907847
-Corn; whole plant; at field,full_chain,Global warming,0.28543613327506734,0.2856047172584233,0.9994097296957339
-Corn; whole plant; at field,full_chain,Human health - cancer,1.096701448156127e-09,1.094244941884621e-09,1.0022449327179663
-Corn; whole plant; at field,full_chain,Human health - non-cancer,1.8282206308739504e-07,1.8237016177840662e-07,1.00247793446352
-Corn; whole plant; at field,full_chain,Human health - particulate matter,0.0001129364248064504,0.0001129348718809112,1.0000137506291311
-Corn; whole plant; at field,full_chain,Ozone depletion,4.986444599883073e-10,4.982441891353126e-10,1.0008033628122976
-Corn; whole plant; at field,full_chain,Smog formation,0.08809721977887874,0.08810059345133199,0.9999617065865156
-Portland cement; at plant,full_chain,Acidification,0.005909597154964417,0.005909608990112373,0.9999979973043942
-Portland cement; at plant,full_chain,Eutrophication (Freshwater),3.204668011049872e-07,3.2044951160726525e-07,1.000053953890069
-Portland cement; at plant,full_chain,Eutrophication (Marine),0.0008219692938570517,0.0008219746107922172,0.9999935315092514
-Portland cement; at plant,full_chain,Freshwater ecotoxicity,3.5326418971145146,3.532446300855699,1.000055371332543
-Portland cement; at plant,full_chain,Global warming,1.3258320199430884,1.3258601190070005,0.9999788069167258
-Portland cement; at plant,full_chain,Human health - cancer,1.142384999684408e-08,1.1423429708428063e-08,1.0000367917890463
-Portland cement; at plant,full_chain,Human health - non-cancer,1.5105292666181454e-06,1.5104519718517826e-06,1.0000511732698578
-Portland cement; at plant,full_chain,Human health - particulate matter,0.0003107175003169045,0.0003107172192420153,1.0000009046002982
-Portland cement; at plant,full_chain,Ozone depletion,6.394603226278616e-09,6.394534803272194e-09,1.0000107002320773
-Portland cement; at plant,full_chain,Smog formation,0.08238053868509065,0.08238108556442683,0.9999933615910445
+Petroleum refining; at refinery,full_chain,Acidification,0.0011929708003816672,0.0011859683312631926,1.0059044317912067
+Petroleum refining; at refinery,full_chain,Eutrophication (Freshwater),4.110036703164268e-07,3.979230812175586e-07,1.0328721547361475
+Petroleum refining; at refinery,full_chain,Eutrophication (Marine),0.0003507869786420377,0.00034891289565402983,1.0053712058549598
+Petroleum refining; at refinery,full_chain,Freshwater ecotoxicity,2.8238213219749215,2.678463935446376,1.0542689354913122
+Petroleum refining; at refinery,full_chain,Global warming,0.7965337968393177,0.7928629230104276,1.004629897202094
+Petroleum refining; at refinery,full_chain,Human health - cancer,6.3699490863457474e-09,6.057087966607993e-09,1.051652068033768
+Petroleum refining; at refinery,full_chain,Human health - non-cancer,1.1143963371950717e-06,1.0568863090350004e-06,1.0544145833553102
+Petroleum refining; at refinery,full_chain,Human health - particulate matter,7.499218858635725e-05,7.45998673135257e-05,1.0052590076492056
+Petroleum refining; at refinery,full_chain,Ozone depletion,8.564978851252227e-09,8.510969936668241e-09,1.0063458001832783
+Petroleum refining; at refinery,full_chain,Smog formation,0.04834919523999237,0.04817879988803377,1.003536728859054
+Corn; whole plant; at field,full_chain,Acidification,0.004764857108413636,0.004764751844333979,1.0000220922480532
+Corn; whole plant; at field,full_chain,Eutrophication (Freshwater),5.748104872517073e-05,5.7480839902746757e-05,1.0000036329048831
+Corn; whole plant; at field,full_chain,Eutrophication (Marine),0.001799024727928437,0.0017989969053356755,1.000015465614576
+Corn; whole plant; at field,full_chain,Freshwater ecotoxicity,1.8459094978072021,1.8436105364483286,1.001246988620114
+Corn; whole plant; at field,full_chain,Global warming,0.28565872006858367,0.2856047172584233,1.000189082346674
+Corn; whole plant; at field,full_chain,Human health - cancer,1.0991931119160938e-09,1.094244941884621e-09,1.0045219948862185
+Corn; whole plant; at field,full_chain,Human health - non-cancer,1.83279739297261e-07,1.8237016177840662e-07,1.0049875347479242
+Corn; whole plant; at field,full_chain,Human health - particulate matter,0.00011294098365121201,0.0001129348718809112,1.0000541176538214
+Corn; whole plant; at field,full_chain,Ozone depletion,4.990981835038409e-10,4.982441891353126e-10,1.001714007683683
+Corn; whole plant; at field,full_chain,Smog formation,0.08810311770036904,0.08810059345133199,1.0000286518959538
+Portland cement; at plant,full_chain,Acidification,0.005909627792068742,0.005909608990112373,1.0000031815905925
+Portland cement; at plant,full_chain,Eutrophication (Freshwater),3.204848661525215e-07,3.2044951160726525e-07,1.0001103279735986
+Portland cement; at plant,full_chain,Eutrophication (Marine),0.0008219796611250416,0.0008219746107922172,1.0000061441469823
+Portland cement; at plant,full_chain,Freshwater ecotoxicity,3.5328394612940666,3.532446300855699,1.0001112997636432
+Portland cement; at plant,full_chain,Global warming,1.3258700389974967,1.3258601190070005,1.000007481928413
+Portland cement; at plant,full_chain,Human health - cancer,1.1424275545168575e-08,1.1423429708428063e-08,1.0000740440272406
+Portland cement; at plant,full_chain,Human health - non-cancer,1.5106074324834585e-06,1.5104519718517826e-06,1.0001029232538161
+Portland cement; at plant,full_chain,Human health - particulate matter,0.00031071827945306494,0.0003107172192420153,1.0000034121412782
+Portland cement; at plant,full_chain,Ozone depletion,6.394680725178521e-09,6.394534803272194e-09,1.0000228197845216
+Portland cement; at plant,full_chain,Smog formation,0.08238154755571334,0.08238108556442683,1.0000056079776485
 Steel; billets; at plant,full_chain,Acidification,0.005473843112318378,0.005473843084,1.0000000051733997
 Steel; billets; at plant,full_chain,Eutrophication (Freshwater),5.1868520066393e-06,5.186852035193971e-06,0.9999999944947974
 Steel; billets; at plant,full_chain,Eutrophication (Marine),-0.000928664506869518,-0.0009286645896637276,0.9999999108459496
