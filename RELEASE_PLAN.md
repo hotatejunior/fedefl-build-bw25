@@ -189,6 +189,8 @@ any individual result they compute, not just the locked test cases.
 >   CSV, data-gated). `pytest.ini` added; `pytest` added to `environment.yml` as a dev dep. Scoped
 >   to NOT refactor the validated `setup/03` (decision: normalize()/_allocation_for() unit tests
 >   deferred — they'd need setup/03 made import-safe). CI wired 2026-07-20 (landed in `b0eef0a`):
+>   **CI has run green on every push since it was wired** (confirmed 2026-07-23), which also
+>   exercises the `environment.yml` build end-to-end on a clean runner — the ledger-#11 failure mode.
 >   `.github/workflows/ci.yml` — unit-tests job on every push/PR (pinned env from
 >   `environment.yml`, data-gated tests self-skip); validation job manual-only
 >   (workflow_dispatch), probes for `source_data/` and skips with a notice when absent.
@@ -340,5 +342,5 @@ Struck after the 2026-07-23 census: a full-chain steel re-pull (ledger #3, close
 an additional ECONOMIC case (degenerate throughout USLCI). Check each bundle's grid vintage before
 the openLCA session — new LCA Commons pulls are 2026.
 
-**Then Phase 5:** confirm CI is green on GitHub, upload the reference-export mirror as a release
+**Then Phase 5:** upload the reference-export mirror as a release
 asset, tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
