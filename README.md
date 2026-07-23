@@ -185,22 +185,22 @@ harness and running provenance log in [`validation/`](validation/).
 This engine was built with heavy AI assistance and it's worth being direct about that, because the
 trust case here does **not** rest on who typed the code.
 
-- **AI-assisted development, stated plainly.** Most of the implementation code was written by Claude
-  (Anthropic), working under close human direction. The trickiest logic — the JSON-LD parser, the
+- **AI-assisted development.** Most of the implementation code was written by Claude
+  (Anthropic), working under close human direction. The JSON-LD parser, the
   co-product allocation handling, the openLCA-library matrix decoder — was AI-authored.
-- **Human accountability, stated plainly.** A human (the maintainer) made the method decisions
+- **Human accountability.** A human expert made the method decisions
   (allocation approach, electricity-boundary control, generic-vs-regional CF selection), ran every
   openLCA reference session by hand, directed the debugging, and audited each script against
   [`QC_PROTOCOL.md`](QC_PROTOCOL.md) — a module-by-module read-through, assumption inventory, and
   risk resolution pass. Where AI-generated work was accepted without proportionate review, that is
-  tracked openly in the "under-review ledger" of the release plan rather than hidden.
+  tracked openly in the "under-review ledger" of the release plan to be systematically checked later.
 - **The governing principle: VALIDATE, do not FIT.** Discrepancies against openLCA were root-caused,
   never tuned away. The code is general and data-driven — no hardcoded per-dataset constants, no
   special-casing of the four test processes. Two comfortable-sounding explanations for early
   discrepancies (a petroleum "trace-metal vintage" story and an electricity-Vanadium mystery) were
   *disproven* during debugging and are kept on the record in
   [`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md), not quietly deleted.
-- **The debugging arc is the real trust artifact.** Petroleum's toxicity categories started at
+- **The debugging arc.** Petroleum's toxicity categories started at
   **2.0×** openLCA. That gap was traced to the importer applying a multi-output process's *reference*
   product allocation factor to a *co-product* exchange, then to a causal-allocation factor being
   flattened to a mass fraction — two genuine correctness bugs. Fixing them (not fitting them) brought
@@ -229,9 +229,9 @@ a `--vintage 2026` build (locked in `validation_full_chain_results_2026.csv`).
 
 ---
 
-## Maintainer, citation & reporting issues
+## Author, citation & reporting issues
 
-- **Maintainer:** Harrison Watson.
+- **Author:** Harrison Watson.
 - **Report a discrepancy or bug:** open a
   [GitHub issue](https://github.com/hotatejunior/fedefl-build-bw25/issues). Parity results and
   bug reports are especially welcome — the trust case here is built on independent scrutiny.
