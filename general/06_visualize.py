@@ -8,7 +8,9 @@ No brightway dependency — pandas + matplotlib + seaborn only.
 
 Charts are written under charts/general/:
   impact_profile.png            — absolute LCIA scores, log scale (first/only scenario)
-  scenario_comparison.png       — % of baseline, all scenarios, per category
+  scenario_comparison.png       — % of baseline, per category, for the scenarios
+                                  sharing the baseline's functional unit (others
+                                  are excluded with a reason — see chart_units.py)
   normalized_profile.png        — scores / US per-capita reference (dimensionless)
   contribution_analysis_*.png   — % process contribution per category (one per scenario)
   foreground_background_*.png   — foreground vs supply-chain split (one per scenario)
@@ -38,6 +40,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
+
+import chart_units
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import REPO_ROOT
@@ -230,17 +234,31 @@ def plot_impact_profile(df: pd.DataFrame) -> None:
 # CHART 2: SCENARIO COMPARISON
 # Each scenario's score as % of the first (baseline) scenario per category.
 # Skipped if only one scenario is present.
+#
+# Only scenarios sharing the baseline's functional unit are plotted: a ratio
+# between "1 m3" and "1 kg" scenarios is a unit artifact, not a result (see
+# general/chart_units.py). Mismatched scenarios are dropped with a named reason.
 # =============================================================================
 def plot_scenario_comparison(df: pd.DataFrame) -> None:
-    scenarios = df["scenario"].unique()
+    scenarios = df["scenario"].unique().tolist()
     if len(scenarios) < 2:
         print("  Skipping scenario_comparison: only one scenario in results CSV.")
         return
 
-    df = _sort_cats(df.copy(), "method")
-    df["label"] = df["method"].map(_short)
     fu_map = _fu_map(df)
-    baseline = scenarios[0]
+    partition = chart_units.partition_by_functional_unit(scenarios, fu_map)
+    for line in chart_units.describe_exclusions(partition):
+        print(f"  {line}")
+
+    scenarios = partition["comparable"]
+    if len(scenarios) < 2:
+        print("  Skipping scenario_comparison: fewer than 2 scenarios share the "
+              "baseline's functional unit, so no meaningful comparison remains.")
+        return
+
+    df = _sort_cats(df[df["scenario"].isin(scenarios)].copy(), "method")
+    df["label"] = df["method"].map(_short)
+    baseline = partition["baseline"]
     baseline_vals = df[df["scenario"] == baseline].set_index("method")["score"]
 
     def _pct(row):
@@ -267,7 +285,12 @@ def plot_scenario_comparison(df: pd.DataFrame) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(cats, rotation=30, ha="right", fontsize=9)
     ax.set_ylabel(f"% of baseline ('{_scen_label(baseline, fu_map)}')")
-    ax.set_title("Scenario comparison — TRACI 2.2", fontsize=11, pad=10)
+    subtitle = chart_units.comparison_subtitle(partition)
+    ax.set_title("Scenario comparison — TRACI 2.2", fontsize=11,
+                 pad=18 if subtitle else 10)
+    if subtitle:
+        ax.text(0.5, 1.02, subtitle, transform=ax.transAxes, ha="center",
+                va="bottom", fontsize=9, color="#555")
     ax.legend(fontsize=9, framealpha=0.75)
     fig.tight_layout()
     _save(fig, "scenario_comparison")
