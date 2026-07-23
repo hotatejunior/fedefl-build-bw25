@@ -172,12 +172,19 @@ Place the four full-chain files in `source_data/` (and the direct file in `valid
 python validation/05_validate_uslci.py     # --mode full_chain is the default
 ```
 
-Expect every BW/OL ratio inside ±5% — in fact all 40 cells of the 2025 build reproduce openLCA
-within 0.1% (every cell rounds to 1.000), as do the 60 cells of the 2026 build. The harness overwrites
-`validation/validation_full_chain_results.csv`; an empty `git diff` on it means your regenerated
-exports reproduce the locked comparison. Rows flagged `!` are outside tolerance — if you get those,
-re-check steps 2 (library mounted), 4 (electricity provider linked), and 6 (1 kg basis), which are
-the three setup choices that most affect the full-chain numbers.
+The harness ends with a **REPLICATION GATE: PASS/FAIL** line — every cell within ±0.1% of openLCA.
+That is the check. All 40 cells of the 2025 build and all 60 of the 2026 build currently pass with
+room to spare (~1e-6 or better).
+
+Do **not** judge by `git diff` on the results CSV. Absolute scores reproduce to ~1e-14 and shift in
+the last ulp depending on which bundles are in your build, so a regenerated export will almost
+certainly produce a non-empty diff while passing the gate cleanly. Rows flagged `!` are outside
+tolerance — if you get those, re-check steps 2 (library mounted), 4 (electricity provider linked and
+at the right vintage), and 6 (1 kg basis), which are the three setup choices that most affect the
+full-chain numbers.
+
+You do not need every export to check one case: cases without a reference export are skipped by name,
+and a partial run writes `…_partial.csv` rather than touching the locked table.
 
 **If a case prints `SKIP:` instead of a row**, its expected vintage doesn't match the build — the
 guard is doing its job. Rebuild against the matching baseline (`setup/03b --vintage <year>` then

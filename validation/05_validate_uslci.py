@@ -117,6 +117,13 @@ TARGETS_FULL = {
 
 # The default vintage: cases at this vintage write the git-tracked locked CSV;
 # other vintages write a tagged file (see SAVE) so they can't clobber it.
+# The replication gate. A run reproduces the published comparison if every cell
+# agrees with openLCA within this margin -- see "THE REPLICATION GATE" below for
+# why this, and not a byte-identical CSV, is the check that means something.
+# 0.1% is the "Strict" band of VALIDATION_LOG's tolerance ladder; every published
+# cell is currently ~1e-6 or better, so this leaves four orders of headroom.
+TOLERANCE = 0.001
+
 LOCKED_CSV_VINTAGE = "2025"
 
 # Electricity-baseline vintage each reference export was computed against (see
@@ -308,6 +315,7 @@ def run_all_full_chain(act, methods):
 targets = TARGETS_DIRECT if VALIDATION_MODE == "direct" else TARGETS_FULL
 all_results = []
 skipped_vintage = []   # (process_name, expected_vintage) skipped by the guard
+skipped_missing = []   # (process_name, path) -- no reference export on disk
 
 for uuid, xlsx_path in targets.items():
     try:
@@ -328,6 +336,15 @@ for uuid, xlsx_path in targets.items():
               f"electricity baseline; this build is {BUILD_VINTAGE}. Rebuild with "
               f"'setup/03b --vintage {want_vintage}' then setup/03 to validate it.")
         skipped_vintage.append((act["name"], want_vintage))
+        continue
+
+    # A reference export you don't have is a case you can't check -- not an error.
+    # Someone verifying a single process has one export, not all of them; blocking
+    # the whole run on the other nine would make the common check impossible.
+    if not Path(xlsx_path).exists():
+        print(f"SKIP: '{act['name']}' — no openLCA reference export at "
+              f"{Path(xlsx_path).name}. (Only the cases you have exports for are checked.)")
+        skipped_missing.append((act["name"], Path(xlsx_path).name))
         continue
 
     try:
@@ -381,7 +398,7 @@ for uuid, xlsx_path in targets.items():
             ratio_str = "  inf"
         else:
             ratio     = bw_val / ol_val
-            flag      = " !" if abs(ratio - 1.0) > 0.05 else "   "
+            flag      = " !" if abs(ratio - 1.0) > TOLERANCE else "   "
             ratio_str = f"{ratio:>7.3f}{flag}"
 
         ol_str = f"{ol_val:.3e}" if ol_val else "      0.0"
@@ -403,21 +420,67 @@ if skipped_vintage:
     print(f"\n{len(skipped_vintage)} case(s) SKIPPED (vintage ≠ build {BUILD_VINTAGE}): "
           + ", ".join(f"{n} [{v}]" for n, v in skipped_vintage))
 
+if skipped_missing:
+    print(f"\n{len(skipped_missing)} case(s) SKIPPED (no reference export): "
+          + ", ".join(n for n, _ in skipped_missing))
+
 if not all_results:
     raise RuntimeError(
         f"No results produced. "
         + (f"All targets were skipped by the vintage guard — this build is "
            f"{BUILD_VINTAGE}; rebuild with a matching --vintage. "
-           if skipped_vintage else
-           f"Check that TARGETS_{'DIRECT' if VALIDATION_MODE == 'direct' else 'FULL'} "
-           f"contains at least one valid process UUID and that the xlsx path exists.")
+           if skipped_vintage else "")
+        + (f"All targets were skipped for want of a reference export — see "
+           f"validation/REGENERATING_REFERENCE_EXPORTS.md. "
+           if skipped_missing else "")
+        + (f"Check that TARGETS_{'DIRECT' if VALIDATION_MODE == 'direct' else 'FULL'} "
+           f"contains at least one valid process UUID."
+           if not (skipped_vintage or skipped_missing) else "")
     )
+
+# =============================================================================
+# THE REPLICATION GATE
+# =============================================================================
+# This is the check that decides whether a replication succeeded -- not a byte
+# comparison of the CSV. Absolute scores are reproducible only to ~1e-14, and
+# only on an identical bundle set: the sparse solve's summation order depends on
+# which activities are in the matrix, so adding OR removing bundles moves the
+# last ulp or two. Measured on petroleum: a petroleum-only build (342 activities)
+# differs from the locked table by ~1e-14, the full 391-activity build by ~1e-15.
+# That is float arithmetic, not disagreement, and it is ~12 orders of magnitude
+# below anything an LCA conclusion rests on.
+_dev = [(r["process"], r["category"], abs(r["ratio_bw_ol"] - 1.0))
+        for r in all_results if r["ratio_bw_ol"]]
+_worst = max(_dev, key=lambda t: t[2]) if _dev else None
+_out = [d for d in _dev if d[2] > TOLERANCE]
+
+print("\n" + "=" * 72)
+if _out:
+    print(f"REPLICATION GATE: FAIL — {len(_out)} of {len(_dev)} cell(s) outside "
+          f"±{TOLERANCE:.3%} of openLCA:")
+    for proc, cat, dev in sorted(_out, key=lambda t: -t[2]):
+        print(f"    {dev:>8.2%}  {proc} / {cat}")
+else:
+    print(f"REPLICATION GATE: PASS — all {len(_dev)} cell(s) within "
+          f"±{TOLERANCE:.3%} of openLCA.")
+if _worst:
+    print(f"  Largest deviation: {_worst[2]:.2e} "
+          f"({_worst[0]} / {_worst[1]})")
+print("=" * 72)
 
 # The locked CSV is the default-vintage (2025) parity artifact. A non-default
 # build writes a vintage-tagged file so it can't clobber the locked baseline;
 # an unstamped legacy build keeps the canonical name (prior behavior).
 _suffix = f"_{BUILD_VINTAGE}" if BUILD_VINTAGE and BUILD_VINTAGE != LOCKED_CSV_VINTAGE else ""
+# A run missing some reference exports covered only part of the case set, so it
+# must not overwrite the locked table -- otherwise checking a single process
+# silently replaces the published 40-row artifact with a 10-row one. Vintage
+# skips don't count: they define which cases this build is *supposed* to run.
+if skipped_missing:
+    _suffix += "_partial"
 out_path = HERE / f"validation_{VALIDATION_MODE}_results{_suffix}.csv"
 pd.DataFrame(all_results).to_csv(out_path, index=False)
 print(f"\n{len(all_results)} result row(s) saved → {out_path.name}")
-print("Rows marked '!' have BW/OL ratio outside [0.95, 1.05].")
+print(f"Rows marked '!' are outside the ±{TOLERANCE:.3%} replication gate.")
+print("Absolute scores reproduce to ~1e-14 and depend on which bundles are in the\n"
+      "build; the ratio above is the check that means something. See validation/README.md.")

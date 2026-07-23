@@ -154,6 +154,20 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   resolution ambiguous AND would flip the locked cases' stray direct 2026 references. Verified: 2025
   build reproduces the locked CSV byte-for-byte (machine-epsilon float noise only), the guard trips on
   a 2026 stamp, pytest green.
+- **Replication gate changed from byte-identity to tolerance (2026-07-23).** The documented check
+  was "run the harness, `git diff` the results CSV, empty diff = replicated". That gate only holds
+  for someone with a byte-identical `source_data`, which is nobody except the maintainer: measured on
+  petroleum, a petroleum-only build (342 activities) differs from the locked table by ~1e-14 and the
+  full 391-activity build by ~1e-15, because the sparse solve's summation order depends on which
+  activities are in the matrix — adding *or removing* bundles moves the last ulp or two. It is not
+  monotonic in size. So the documented gate would read FAIL for a peer doing everything right, at
+  1e-14, which is the worst possible first impression. `validation/05` now ends with an explicit
+  **REPLICATION GATE: PASS/FAIL** on every cell being within `TOLERANCE` (0.1%, the Strict band) of
+  openLCA, and the per-row `!` marker is driven off the same constant so the table and the verdict
+  cannot disagree. Two related fixes for the same use case — a curious user checking *one* process:
+  a missing reference export now SKIPs by name instead of aborting the whole run, and a run with any
+  missing export writes `…_partial.csv` so it cannot overwrite the locked table. The locked CSVs are
+  now described as a published reference table, not a gate.
 - **Electricity vintage exposed at run time (2026-07-23).** The vintage stamp existed on the
   databases and the harness guarded on it, but `general/` never read it — no console line, no
   manifest field. A practitioner running `general/04` against a 2025-era process on a 2026 build got

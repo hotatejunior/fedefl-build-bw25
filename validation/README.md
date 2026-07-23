@@ -42,19 +42,49 @@ Prerequisites: the conda env from [`environment.yml`](../environment.yml), and t
 chain run on this machine (`setup/00 → 01 → 02 → 03b → 03`) against the pinned assets listed below.
 
 ```bash
-# 1. Full-chain comparison, all four locked test cases, all 10 TRACI categories
-python validation/05_validate_uslci.py
-#    → prints per-category BW / OL / ratio; writes validation/validation_full_chain_results.csv
-
-# 2. Confirm you reproduced the locked results
-git diff validation/validation_full_chain_results.csv   # empty diff = byte-for-byte replication
-
-# 3. Regenerate the charts
-python validation/06_visualize_validation.py             # → charts/validation/*.png
+python validation/05_validate_uslci.py          # → per-category BW / OL / ratio, and a PASS/FAIL gate
+python validation/06_visualize_validation.py    # → charts/validation/*.png
 ```
 
-Note that step 1 **overwrites** the locked CSV in place — that is intentional: the `git diff` in
-step 2 *is* the replication check. Restore with `git checkout` if you want the locked copy back.
+The harness ends with the verdict:
+
+```
+========================================================================
+REPLICATION GATE: PASS — all 40 cell(s) within ±0.100% of openLCA.
+  Largest deviation: 4.32e-07 (Petroleum refining; at refinery / Eutrophication (Marine))
+========================================================================
+```
+
+**That gate is the replication check** — every cell agreeing with openLCA within 0.1%, the "Strict"
+band of the tolerance ladder. Published cells currently sit around 1e-6 or better, four orders of
+magnitude inside it.
+
+### You only need the case you care about
+
+You do **not** need the full asset set. Download one bundle from LCA Commons, produce (or fetch) that
+one openLCA export, and run the harness: cases without a reference export are skipped by name and the
+gate reports on what you *did* check. A single-process run prints something like
+
+```
+3 case(s) SKIPPED (no reference export): Corn; whole plant; at field, …
+REPLICATION GATE: PASS — all 10 cell(s) within ±0.100% of openLCA.
+```
+
+Partial runs write `validation_full_chain_results_partial.csv` (git-ignored) rather than overwriting
+the locked table, so checking one process can't clobber the published 40-row artifact.
+
+### What is *not* a replication check: a byte comparison
+
+The locked CSVs are a **published reference table, not a byte gate.** Absolute scores reproduce to
+about **1e-14**, and only on an identical bundle set — brightway's sparse solve sums in an order that
+depends on which activities are in the matrix, so adding *or removing* bundles moves the last ulp or
+two. Measured on petroleum: a petroleum-only build (342 activities) differs from the locked table by
+~1e-14; the full 391-activity build by ~1e-15. Neither is disagreement — it is float arithmetic about
+twelve orders of magnitude below anything an LCA conclusion rests on.
+
+So `git diff` on the CSV is useful to the maintainer as a regression check on a fixed asset set, and
+it is **not** the thing a replicator should judge by. If your diff is non-empty in the 14th
+significant figure, you replicated the result.
 
 Direct mode (isolates CF/flow-mapping from the system solve) is a flag, not a source edit:
 `python validation/05_validate_uslci.py --mode direct`. It currently covers petroleum only, because
@@ -210,6 +240,9 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
   database splits a burden economically, so the corn case (factors `[0.0, 1.0]`) already covers
   everything USLCI can exercise. Physical and causal allocation, by contrast, are tested against real
   splits (petroleum's 9-product physical grid; the HDPE case's causal grids).
+- **Absolute scores are reproducible to ~1e-14, not bit-for-bit.** The figure depends on which
+  bundles share the build (see "What is *not* a replication check" above). The parity claim is the
+  ±0.1% gate, which the harness enforces and prints; the locked CSVs are a reference table.
 - Direct mode currently covers petroleum only — it is the only case with a kg-basis openLCA export.
   (Mode switching itself is no longer a source edit: `--mode {full_chain,direct}`.)
 - The causal-allocation co-product **consumption** path is covered twice over: the

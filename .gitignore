@@ -15,3 +15,6 @@ National_Renewable_Energy_Laboratory-USLCI_Database_Public.zip
 # openLCA reference exports (~130 MB) — hash-pinned in validation/README.md, not
 # committed pending a hosting decision (RELEASE_PLAN Phase 1.3).
 validation/*.xlsx
+
+# Partial harness runs (subset of cases — not a locked artifact)
+validation/validation_*_partial.csv

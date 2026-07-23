@@ -187,6 +187,13 @@ This is a *validation in progress*, not a finished certification.
   inventory (the large `Steel; * coil; at plant` datasets carry ~740 exchanges and ~690 elementary
   flows with **zero** default-provider inputs). Full-chain steel is not available in this database, so
   steel stays in the role it was chosen for.
+- **Reproducibility is ~1e-14, not bit-for-bit, and depends on the build's composition.** Every
+  number here is reproducible in the sense that matters — re-running reproduces the ±0.1% agreement
+  with openLCA — but the absolute scores move in roughly the 14th significant figure depending on
+  which bundles share the database, because brightway's sparse solve sums in a matrix-dependent
+  order. A petroleum-only build differs from the published table by ~1e-14. That is float
+  arithmetic, about twelve orders of magnitude below anything an LCA conclusion rests on, and it is
+  why the replication gate is a tolerance rather than a byte comparison.
 - **Avoided products are still only lightly exercised.** The `isAvoidedProduct` fix that closed
   petroleum is a general correctness change, but the test cases activate only a handful of
   avoided-product exchanges (chiefly the landfill-gas electricity credit). One rare variant — a
