@@ -83,13 +83,34 @@ Condensed; the full diagnostic narrative for each lives in the parent project's 
   Fix: the branch now also links non-reference `WASTE_FLOW` outputs to their resolved treatment
   provider (positive consumption of the treatment service, linked by the same machinery as inputs);
   non-reference `PRODUCT_FLOW` outputs remain excluded (those are co-products, handled by
-  allocation). 67 such links now form across the bundles; HDPE GWP 0.842 → 1.036. NOTE: this changes
-  every case that sends waste to treatment, including the locked ones (petroleum/cement/corn) — the
-  locked CSV and `tests/test_validation_cement.py` expectations must be re-established once the
-  openLCA reference exports are regenerated with waste treatment included.
+  allocation). 67 such links now form across the bundles; HDPE GWP 0.842 → 1.036. This pulled the
+  MSW-landfilling process into the locked cases' supply chains for the first time — which **exposed a
+  separate, dormant importer bug** (avoided-product handling; next entry). Petroleum GWP rose into
+  agreement (0.987 → 1.005) but its toxicity cells jumped to ~1.05; that jump turned out to be the
+  landfill-gas electricity credit being imported with the wrong sign, not a reference gap.
 
-Outcome: all 40 category × process cells validate within 5% of openLCA (35/40 within 1%). See
-`VALIDATION_REPORT.md`.
+- **`isAvoidedProduct` ignored → avoided credits imported as burdens (2026-07-21, root cause of the
+  petroleum toxicity residual).** USLCI marks byproduct energy/material recovery with `isInput=true` +
+  `isAvoidedProduct=true` — e.g. MSW landfilling/combustion recovering landfill-gas electricity that
+  displaces grid power (91.97 kWh on the landfilling process). openLCA credits these (they *lower* the
+  result); `setup/03` had no `isAvoidedProduct` handling and imported them as positive consumption
+  burdens. Since petroleum's toxicity is ~99% grid electricity, that one sign error on the landfill
+  credit *was* the entire gap: openLCA's landfilling contributes **−0.072** to petroleum ecotox,
+  brightway's **+0.072**, and that 0.145 flip = the whole 2.68 → 2.82 discrepancy. Fix: sign-flip
+  avoided-product technosphere exchanges into credits (15 such exchanges per bundle — landfilling,
+  combustion, sulfuric acid, sulfur, ethylene glycol…). A first-principles correctness fix, so it
+  brought **all 40** cells to exact agreement, not just the three toxicity targets. **Supersedes the
+  ledger-#2 "crude electricity" diagnosis below**: there was no crude-electricity discrepancy; openLCA
+  was correct throughout, and the residual was always brightway's missing (then sign-flipped) landfill
+  credit.
+
+Outcome: **all 40 category × process cells validate within 0.1% of openLCA** — every cell rounds to a
+BW/OL ratio of 1.000. Full clean parity; the petroleum residual is closed. See `VALIDATION_REPORT.md`.
+
+**⚠️ Superseded 2026-07-21 — kept as history; the diagnosis in this paragraph was wrong.** The
+petroleum residual was not a reference artifact and not about crude electricity — it was brightway's
+`isAvoidedProduct` bug (entry above): the missing/sign-flipped landfill-gas electricity credit.
+openLCA charged the correct value throughout. The original (incorrect) reasoning is preserved below.
 
 **Resolved (2026-07-17): the ~1.027 petroleum residual is a reference-export artifact, not an
 engine bug.** The entire electricity over-draw sits on the four crude-oil extraction processes.

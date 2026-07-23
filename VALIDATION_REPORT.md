@@ -4,8 +4,9 @@
 handles allocation, and applies TRACI 2.2 — a fully open, EPA-aligned stack with no ecoinvent
 license required. To check it's trustworthy, I ran four processes through both my pipeline and
 openLCA (the reference tool) and compared the results. **All 40 category × process results agree
-within 5%, and 35 of 40 within 1%.** That's close enough to use the pipeline as a drop-in,
-license-free background-data engine.
+within 0.1% — every cell rounds to a ratio of 1.000.** Getting the last three cells there (petroleum
+refining's toxicity categories) uncovered and fixed a real importer bug, detailed below. The result
+is a drop-in, license-free background-data engine that reproduces openLCA exactly.
 
 ---
 
@@ -37,52 +38,67 @@ Four test processes, chosen to span different sectors and different allocation s
 
 | Process | Sector | Allocation | Worst-case disagreement |
 |---|---|---|---|
-| Petroleum refining; at refinery | Petroleum / energy | Physical (causal upstream) | **2.7 %** |
-| Corn; whole plant; at field | Agriculture | Economic | 0.25 % |
-| Portland cement; at plant | Minerals | None (single-output) | 0.01 % |
+| Petroleum refining; at refinery | Petroleum / energy | Physical (causal upstream) | **0.00 %** |
+| Corn; whole plant; at field | Agriculture | Economic | 0.00 % |
+| Portland cement; at plant | Minerals | None (single-output) | 0.00 % |
 | Steel; billets; at plant | Metals | None (foreground) | 0.00 % |
 
 ## The result
 
-Every result lands inside the ±5% band. Most sit right on 1.000.
+Every one of the 40 results lands on 1.000 — full agreement to at least three significant figures.
 
 ![brightway / openLCA ratio, full supply chain, all categories](charts/validation/validation_ratio_full_chain.png)
 
 *Each dot is one impact category for one process; the vertical line is perfect agreement (ratio =
-1.0). The green band is ±5%. All 40 dots fall inside it.*
+1.0). The green band is ±5%. All 40 dots sit exactly on the line.*
 
-- **40 / 40** results within 5% (0 failures)
-- **35 / 40** within 1%
-- **28 / 40** within 0.1% — i.e. numerically identical for practical purposes
-- Largest single disagreement: **2.7%**, on petroleum refining's toxicity categories
+- **40 / 40** results within 0.1% — numerically identical for practical purposes
+- **0** cells outside 1%
+- Largest single disagreement across all four cases: **< 0.1%**
 
-Cement and steel reproduce openLCA to 4–7 significant figures. Corn agrees to a quarter of a
-percent. The only place the pipeline drifts past 1% is petroleum refining — and even there it
-stays under 3%, comfortably inside any reasonable LCA tolerance.
+Cement and steel reproduce openLCA to 4–7 significant figures; corn and petroleum now match just as
+tightly. Petroleum was the last to get there — its toxicity categories sat at ~1.05 until a single
+importer bug was found and fixed (next section), after which all ten of its categories snapped to
+1.000.
 
-## What to make of the petroleum residual
+## How the petroleum residual was closed
 
-Petroleum refining's ecotoxicity, cancer, and non-cancer scores run ~2.7% high against the locked
-reference export. Root-caused 2026-07-17: **the gap is in the reference, not the engine.**
+Petroleum was the last case to reach agreement. Its ecotoxicity, cancer, and non-cancer scores had
+run high against the reference for a long time (~1.027 in early builds, drifting to ~1.05 later). The
+root cause, found 2026-07-21, was **a single importer bug — brightway did not honor USLCI's
+`isAvoidedProduct` flag** — and fixing it snapped all ten petroleum categories to 1.000.
 
-- Per-process comparison against the export's own contribution tabs puts the entire gap on the four
-  crude-oil extraction processes (each exactly 1.06× openLCA's upstream; every other node 1.000).
-- Those processes declare **0.1584 MJ electricity per kg crude** — a value USLCI corrected upward by
-  1.06 (*"this electricity value has been updated from the original report inventory due to an
-  error"*, per the exchange note). brightway charges exactly 0.1584.
-- The openLCA reference calculation charged the **pre-correction value** (0.1584/1.06), even though
-  its own database stores the corrected one.
+The trail:
 
-So on this input brightway is *more* current than the locked reference. The locked CSVs stay as-is
-(verbatim history). **Update 2026-07-20:** the freshly rebuilt product system was re-exported and
-tested — it reproduced the stale calculation *numerically identically* (all sheets agree to
-float noise, pre-correction electricity charge included). That disproves the initial "stale cached
-product-system state" explanation: whatever charges the pre-correction value is live, reproducible
-state in that openLCA database, surviving a product-system rebuild. The engine-side verdict is
-unchanged (it rests on the export's own contribution tabs), but the openLCA-side mechanism is an
-open question; the next discriminating test is regenerating in a brand-new openLCA database
-([procedure](validation/REGENERATING_REFERENCE_EXPORTS.md)). Evidence chain:
-`validation/VALIDATION_LOG.md`, 2026-07-17 and 2026-07-20 entries.
+- **Petroleum's toxicity is ~99% grid electricity.** A per-activity contribution analysis put nearly
+  the entire ecotoxicity / cancer / non-cancer score on the US-average grid node, with the direct
+  emissions of every other process negligible. So the gap had to be an electricity-routing effect.
+- **One node carried the whole gap, with the wrong sign.** openLCA's "MSW landfilling of mixed MSW"
+  process contributes **−0.072** to petroleum's ecotoxicity (a *credit*); brightway's contributed
+  **+0.072** (a *burden*). Same magnitude, opposite sign — and that 0.145 flip equals the entire
+  petroleum ecotoxicity gap (2.68 → 2.82), identically for all three toxicity categories.
+- **Why the sign flip.** The USLCI landfilling process recovers landfill-gas electricity that
+  displaces grid power, recorded as an electricity exchange with `isInput=true` **and
+  `isAvoidedProduct=true`** (91.97 kWh). openLCA credits avoided products (subtracts them); `setup/03`
+  had no `isAvoidedProduct` handling and imported the exchange as ordinary consumption — turning a
+  grid-electricity *credit* into a grid-electricity *burden*. Since petroleum's toxicity is almost
+  all grid electricity, that one exchange was the whole story.
+
+**The fix** (`setup/03`) sign-flips avoided-product technosphere exchanges into credits — a
+first-principles correctness change (honor the flag per openLCA semantics), not a tweak aimed at these
+four processes. There are 15 such exchanges per bundle (landfilling, MSW combustion, sulfuric acid,
+sulfur, ethylene glycol, …), so the fix brought **all 40** cells to exact agreement, not just the
+three toxicity cells it was chased down for; corn and cement tightened from ~0.1–0.5% residuals to
+1.000 as well.
+
+This **supersedes the earlier "petroleum residual" diagnosis** (a 2026-07-17 investigation had
+attributed the ~1.027 to openLCA charging a pre-correction crude-oil electricity value). That was a
+misattribution: there was no crude-electricity discrepancy — openLCA computed the correct value
+throughout, and the residual was always brightway's mishandled landfill-gas credit. The 2026-07-20
+waste-treatment output-linking fix was itself correct; it simply *exposed* this dormant bug by pulling
+the landfilling process into the supply chains for the first time. The full chronological trail
+(including the superseded diagnosis, kept on the record) is in
+[`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md) and [`DEVLOG.md`](DEVLOG.md).
 
 ## How the numbers got here — the debugging arc
 
@@ -116,19 +132,23 @@ The full chronological trace — every run, wrong theory, and fix — is in
 
 This is a *validation in progress*, not a finished certification.
 
-- **Four processes so far.** They span four sectors and three allocation methods on purpose, and
-  the pipeline logic is process-agnostic (it special-cases nothing about these four). But the
-  strongest guard against "the code was fit to these examples" is more examples — the plan is to
-  pull additional processes from other manufacturing sectors and re-run this same check.
+- **Five processes so far** (four in the locked 2025 table, plus recycled-HDPE-flake on a 2026-grid
+  build). They span five sectors and every allocation method — including the causal co-product
+  *consumption* path, which HDPE exercises via the MRF-sorting processes and reproduces within 0.01%.
+  The pipeline logic is process-agnostic (it special-cases nothing about these five). But the strongest
+  guard against "the code was fit to these examples" is more examples — the plan is to pull additional
+  processes from other manufacturing sectors and re-run this same check. (Recycled-PET-flake is a sixth
+  candidate — it builds and solves, but has no openLCA reference export yet.)
 - **Steel is a direct-mode case, not a fourth full-chain one.** The steel billets bundle contains a
   **single process with no upstream supply chain**, so for steel full-chain ≡ direct: it validates
   the LCIA math and biosphere mapping but exercises **none** of the technosphere solve (parser,
   allocation, provider linking). Genuine full-chain coverage rests on petroleum, corn, and cement.
   Re-pulling steel as a full-chain bundle is on the roadmap.
-- **One residual above 1%** (petroleum, ~2.7%). Root-caused: the openLCA reference charged the
-  crude-oil processes' electricity at a pre-correction USLCI value; the engine's inputs are correct.
-  A first re-export (2026-07-20) reproduced the stale calculation identically, so closing it now
-  waits on a fresh-database regeneration (see "What to make of the petroleum residual" above).
+- **Avoided products beyond the four locked cases are lightly exercised.** The `isAvoidedProduct`
+  fix that closed petroleum is a general correctness change, but the locked cases only activate a
+  handful of avoided-product exchanges (chiefly the landfill-gas electricity credit). One rare
+  variant — a negative-amount avoided product ("steel from combustion") — isn't in any locked case's
+  active chain, so it's untested; worth confirming as the test set expands.
 - **Electricity boundary matters.** Both engines were run with the US Electricity Baseline mounted
   and the US-average grid provider linked; a mismatch there would confound the comparison (see
   appendix).
@@ -248,38 +268,41 @@ The comparison is run at two depths, so a disagreement can be localized rather t
 
 The mental model behind the petroleum investigation: **are the inputs to the two computations
 identical, or is the divergence in the solve?** Direct mode answers the first; full-chain answers
-the second. For these four processes, direct-mode CFs match exactly (Appendix C), so the small
-petroleum residual is a solve-side effect, not a CF error.
+the second. For these four processes, direct-mode CFs match exactly (Appendix C), which is what
+localized the former petroleum residual to the solve — specifically the avoided-product sign bug in
+how one supply-chain node was imported, now fixed.
 
 ## E. Full results — brightway / openLCA ratio (full chain, per 1 kg)
 
 | Category | Petroleum | Corn | Cement | Steel |
 |---|---|---|---|---|
-| Global warming | 0.987 | 0.999 | 1.000 | 1.000 |
-| Acidification | 0.996 | 1.000 | 1.000 | 1.000 |
-| Human health – particulate matter | 1.001 | 1.000 | 1.000 | 1.000 |
-| Smog formation | 0.996 | 1.000 | 1.000 | 1.000 |
-| Ozone depletion | 1.003 | 1.001 | 1.000 | 1.000 |
-| Freshwater ecotoxicity | 1.027 | 1.001 | 1.000 | 1.000 |
-| Human health – cancer | 1.026 | 1.002 | 1.000 | 1.000 |
-| Human health – non-cancer | 1.027 | 1.002 | 1.000 | 1.000 |
-| Eutrophication (Freshwater) | 1.016 | 1.000 | 1.000 | 1.000 |
-| Eutrophication (Marine) | 0.994 | 1.000 | 1.000 | 1.000 |
+| Global warming | 1.000 | 1.000 | 1.000 | 1.000 |
+| Acidification | 1.000 | 1.000 | 1.000 | 1.000 |
+| Human health – particulate matter | 1.000 | 1.000 | 1.000 | 1.000 |
+| Smog formation | 1.000 | 1.000 | 1.000 | 1.000 |
+| Ozone depletion | 1.000 | 1.000 | 1.000 | 1.000 |
+| Freshwater ecotoxicity | 1.000 | 1.000 | 1.000 | 1.000 |
+| Human health – cancer | 1.000 | 1.000 | 1.000 | 1.000 |
+| Human health – non-cancer | 1.000 | 1.000 | 1.000 | 1.000 |
+| Eutrophication (Freshwater) | 1.000 | 1.000 | 1.000 | 1.000 |
+| Eutrophication (Marine) | 1.000 | 1.000 | 1.000 | 1.000 |
 
-Source: `validation_full_chain_results.csv`. Steel's ecotox/non-cancer/marine values are negative
-(avoided-burden credits from scrap recovery); ratios there are ~1.0000000.
+Source: `validation_full_chain_results.csv`. Every cell agrees to at least three significant figures
+(max deviation < 0.1%). Steel's ecotox/non-cancer/marine values are negative (avoided-burden credits
+from scrap recovery); ratios there are ~1.0000000.
 
 ## F. Tolerance ladder
 
 | Band | Margin from 1.000 | Cells (of 40) |
 |---|---|---|
-| Strict | ≤ 0.1% | 28 |
-| Acceptable | ≤ 1% | 7 |
-| Investigate / justify | ≤ 5% | 5 |
-| Failure | > 5% | 0 |
+| Strict | ≤ 0.1% | 40 |
+| Acceptable | ≤ 1% | 0 |
+| Investigate / justify | ≤ 5% | 0 |
+| Above tolerance | > 5% | 0 |
 
-The 5 "Investigate" cells are all petroleum refining (its toxicity and freshwater-eutro
-categories); everything else is Strict or Acceptable.
+All 40 cells are Strict — every one within 0.1% of openLCA. (Before the `isAvoidedProduct` fix, three
+petroleum toxicity cells sat above ±5% and several more between 0.1% and 1%; the fix moved every cell
+into the Strict band.)
 
 ## G. Example practitioner visualizations
 

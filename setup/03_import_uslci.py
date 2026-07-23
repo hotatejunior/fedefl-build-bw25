@@ -469,6 +469,8 @@ total_causal_coproduct_links = 0   # links redirected to a causal co-product act
 causal_coproduct_examples = []
 total_waste_treatment_links = 0    # non-reference WASTE_FLOW outputs sent to a treatment provider
 waste_treatment_examples = []
+total_avoided_product_links = 0    # exchanges flagged isAvoidedProduct — credited (sign-flipped)
+avoided_product_examples = []
 
 # =============================================================================
 # PRE-PASS: allocation factors + co-product re-basis multipliers
@@ -662,6 +664,23 @@ for proc_uuid, co_flow in _build_jobs:
                 # NON-reference PRODUCT_FLOW outputs are co-products, handled by
                 # allocation / coproduct_multiplier — deliberately NOT linked here.
                 norm_amount, norm_unit = normalize(amount, unit, fp_uuid, flow_uuid)
+
+                # Avoided products are CREDITS, not burdens. USLCI marks byproduct
+                # energy/material recovery this way (isInput=true + isAvoidedProduct
+                # =true): e.g. MSW landfilling / combustion recovering landfill-gas
+                # electricity, which displaces grid power. openLCA subtracts these;
+                # a brightway technosphere input with a positive stored amount is a
+                # positive consumption (burden), so flip the sign to turn the
+                # avoided consumption into the credit openLCA computes. Without this,
+                # the landfill-gas electricity credit was imported as a burden and
+                # sign-flipped petroleum's grid-dominated toxicity result.
+                if exc.get("isAvoidedProduct", False):
+                    norm_amount = -norm_amount
+                    total_avoided_product_links += 1
+                    if len(avoided_product_examples) < 5:
+                        avoided_product_examples.append(
+                            f"{proc.get('name', proc_uuid)} avoids "
+                            f"{flow_ref.get('name', flow_uuid)} ({norm_amount:.4g} {norm_unit})")
                 target_db, target_proc, was_ambiguous = _resolve_provider(exc, flow_uuid)
                 if was_ambiguous:
                     # Several candidate producers (bundle-internal and/or
@@ -894,6 +913,13 @@ if total_waste_treatment_links:
           f"treatment provider (disposal burden, e.g. landfill methane, now charged to the "
           f"generating process)." + ("" if not waste_treatment_examples else " Examples:"))
     for ex in waste_treatment_examples[:5]:
+        print(f"    {ex}")
+if total_avoided_product_links:
+    print(f"\n  Avoided products: {total_avoided_product_links} exchange(s) flagged "
+          f"isAvoidedProduct credited (sign-flipped), matching openLCA (e.g. landfill-gas / "
+          f"combustion electricity displacing grid power)." +
+          ("" if not avoided_product_examples else " Examples:"))
+    for ex in avoided_product_examples[:5]:
         print(f"    {ex}")
 if skipped_multipliers:
     print(f"\n  WARNING: {len(skipped_multipliers)} co-product output(s) could not be re-based "

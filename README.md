@@ -145,10 +145,13 @@ deliberately apples-to-apples: identical USLCI JSON-LD is fed to both engines, s
 attributable to the pipeline, not to data-version drift.
 
 Across four locked test cases (petroleum refining, corn, Portland cement, steel billets), **all 40
-category × process cells reproduce openLCA within 5%**, and 35 of 40 within ±1%. (One caveat: the
-steel bundle is a single process with no upstream, so for steel full-chain ≡ direct — it exercises
-the LCIA math but not the technosphere solve. Full-chain coverage rests on petroleum, corn, and
-cement.)
+category × process cells reproduce openLCA within 0.1%** — every cell rounds to a ratio of 1.000. The
+last gap to close was petroleum's toxicity categories: they traced to a single importer bug (brightway
+was not honoring USLCI's `isAvoidedProduct` flag, so byproduct energy-recovery *credits* — chiefly the
+landfill-gas electricity that displaces grid power — were imported as burdens). Fixing it snapped all
+of petroleum, and tightened corn and cement, to exact agreement. (One caveat: the steel bundle is a
+single process with no upstream, so for steel full-chain ≡ direct — it exercises the LCIA math but not
+the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.)
 
 **What this does *not* cover** stays with the practitioner: whether the allocation choices, system
 boundary, cutoffs, and data vintage are appropriate for *your* study is a modeling judgment the
@@ -191,9 +194,10 @@ trust case here does **not** rest on who typed the code.
 **Why provenance is orthogonal to correctness here.** The evidence chain is *pinned inputs →
 reproducible harness → locked outputs*. Anyone can re-run the harness from [`validation/`](validation/)
 against the SHA256-pinned inputs and check the locked result CSVs byte-for-byte. That chain doesn't
-depend on who — or what — typed the code. The place AI-authored code most warrants independent
-scrutiny is the causal co-product **consumption** path in `setup/03`, which is currently exercised by
-zero validation cells; it is flagged as such in `validation/README.md` and the release plan's ledger.
+depend on who — or what — typed the code. The most intricate AI-authored path — the causal co-product
+**consumption** path in `setup/03` — is now covered: the recycled-HDPE-flake case exercises it
+(non-uniform MRF-sorting allocation grids) and reproduces openLCA within 0.01% on all 10 categories on
+a `--vintage 2026` build (locked in `validation_full_chain_results_2026.csv`).
 
 ## Documentation
 

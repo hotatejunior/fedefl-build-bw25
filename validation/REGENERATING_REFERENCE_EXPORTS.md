@@ -110,7 +110,8 @@ Place the four full-chain files in `source_data/` (and the direct file in `valid
 python validation/05_validate_uslci.py     # VALIDATION_MODE = "full_chain"
 ```
 
-Expect every BW/OL ratio inside ±5% (35 of 40 within ±1%). The harness overwrites
+Expect every BW/OL ratio inside ±5% — in fact all 40 cells reproduce openLCA within 0.1% (every cell
+rounds to 1.000). The harness overwrites
 `validation/validation_full_chain_results.csv`; an empty `git diff` on it means your regenerated
 exports reproduce the locked comparison. Rows flagged `!` are outside tolerance — if you get those,
 re-check steps 2 (library mounted), 4 (electricity provider linked), and 6 (1 kg basis), which are

@@ -97,27 +97,26 @@ any individual result they compute, not just the four locked test cases.
 4. **Steel disclosure:** the steel bundle has 1 process; full-chain ≡ direct for it. Say so in
    VALIDATION_REPORT.md rather than presenting it as a fourth full-chain case.
 
-## Phase 3 — Validation expansion & demystifying the 2.7% (target: ~2–3 weeks, needs openLCA operator sessions)
+## Phase 3 — Validation expansion (petroleum residual CLOSED 2026-07-21) (target: ~2–3 weeks, needs openLCA operator sessions)
 
 1. **New test cases chosen to hammer allocation**, not to pad the count:
-   - ≥1 process that **consumes a causal-allocation co-product** (the importer's most complex
-     path; currently zero validation coverage — the importer itself warns this path is
-     "UNDER-supported" if hit). Candidate hunting ground: paper/pulp mills, petroleum coproducts.
+   - ~~≥1 process that **consumes a causal-allocation co-product**~~ **DONE 2026-07-21** — the
+     recycled-HDPE-flake case covers it (MRF-sorting causal co-products), validated within 0.01% on a
+     `--vintage 2026` build. Recycled-PET-flake is a second such case, built and solving, but blocked
+     on an openLCA reference export.
    - ≥1 additional ECONOMIC and ≥1 PHYSICAL multi-output case from new sectors (chemicals,
      plastics, wood products).
    - Re-pull a **full-chain steel bundle** so steel actually tests the solve.
    - For each: download bundle, pin hash, openLCA export with baseline mounted + US-avg provider
      linked (the documented product-system setup), extend `TARGETS_FULL`, run, append to
      VALIDATION_LOG.
-2. **Demystify the petroleum 2.7% (ecotox/cancer/non-cancer) mechanistically.** Working
-   hypothesis: the electricity baseline enters brightway as a *pre-solved aggregated M column*
-   (one lumped node), while openLCA solves the mounted library jointly — any feedback loop between
-   electricity's upstream and the USLCI foreground is cut on the brightway side. Testable without
-   new data: `olca_library.py` already decodes the library's full A and B matrices, so brightway
-   can alternatively import the library *disaggregated* (its 771 processes as real activities) and
-   solve jointly. If the residual collapses, the mechanism is proven and becomes a documented,
-   quantified design trade-off (fast lumped background vs exact joint solve — possibly a user
-   flag). If it doesn't, the hypothesis is disproven and that goes on the record too.
+2. ~~**Demystify the petroleum 2.7% (ecotox/cancer/non-cancer) mechanistically.**~~ **RESOLVED
+   2026-07-21** — not a background-aggregation effect and not a reference issue. `setup/03` was
+   ignoring USLCI's `isAvoidedProduct` flag, so the landfill-gas electricity credit on the
+   MSW-landfilling process was imported as a burden (sign-flipped). Since petroleum's toxicity is
+   ~99% grid electricity, that one exchange was the whole gap. The fix (credit avoided-product
+   exchanges) closed petroleum to 1.000 on all ten categories and moved all 40 cells within 0.1%.
+   See DEVLOG / VALIDATION_REPORT. (The joint-solve hypothesis below was never needed.)
 3. **Direct-mode coverage for all four (then all N) test cases**, and promote `VALIDATION_MODE`
    to a CLI flag so replicators don't edit source. (Code change — after Phase 2 lands.)
 
@@ -129,6 +128,16 @@ any individual result they compute, not just the four locked test cases.
 > that openLCA database. Next discriminating tests (operator): model-graph amount on the four
 > crude-oil processes; regenerate in a **brand-new** openLCA database; duplicate-process check
 > (VALIDATION_LOG 2026-07-20).
+>
+> **Progress — 2026-07-21 (RESOLVED, supersedes everything above).** The waste-treatment
+> output-linking fix (commit 9592364) pulled the MSW-landfilling process into the locked chains,
+> which briefly pushed petroleum toxicity to ~1.05 — and that *exposed* the real bug: `setup/03` did
+> not honor `isAvoidedProduct`, so the landfill-gas electricity credit was imported as a burden. The
+> fix (sign-flip avoided-product technosphere exchanges) closed petroleum to 1.000 on all ten
+> categories; **all 40 cells now reproduce openLCA within 0.1%**, and 41/41 pytest pass. This
+> **supersedes the ledger-#2 crude-electricity diagnosis** — there was no crude-electricity
+> discrepancy; openLCA was correct throughout. Docs corrected across README, VALIDATION_REPORT,
+> CLAUDE.md, DEVLOG, and `validation/`; the locked CSV and charts re-generated.
 
 ## Phase 4 — Engineering hardening (parallel with Phase 3; all items are code edits, deliberately deferred from the 2026-07-04 session)
 
@@ -234,8 +243,8 @@ has either verified it against evidence or replaced the claim with a tested one.
 
 | # | Area | What happened | Status / exit criterion |
 |---|---|---|---|
-| 1 | **Causal co-product consumption path** (`setup/03`, `_allocation_for` + link-site re-basis) | Most intricate code in the repo; written by Claude with confident comments; exercised by **zero** validation cells (no bundle consumes a causal co-product) | OPEN — Phase 3.1: add a covering test case; until then treat path as unvalidated |
-| 2 | **Petroleum 2.7% residual** | Accepted as "long feedback loop, within tolerance" without a proven mechanism | Root-caused 2026-07-17: reference export charged pre-correction electricity on the crude-oil processes; engine correct. Re-export tested 2026-07-20: numerically identical to the stale export ⇒ openLCA-side mechanism reopened; closure waits on fresh-DB regeneration (VALIDATION_LOG 2026-07-20) |
+| 1 | **Causal co-product consumption path** (`setup/03`, `_allocation_for` + link-site re-basis) | Most intricate code in the repo; written by Claude with confident comments; was exercised by **zero** validation cells | **CLOSED 2026-07-21** — the recycled-HDPE-flake case (`17664c37…`) consumes causal co-products from the MRF-sorting processes (non-uniform allocation grids) and reproduces openLCA **within 0.01%** on all 10 categories (`--vintage 2026` build, locked `validation_full_chain_results_2026.csv`). Path validated against a real case. |
+| 2 | **Petroleum toxicity residual** | Accepted as "long feedback loop, within tolerance" without a proven mechanism | **CLOSED 2026-07-21.** Real root cause: `setup/03` did not honor USLCI's `isAvoidedProduct` flag, so the MSW-landfilling landfill-gas electricity *credit* was imported as a *burden* (sign-flipped). Petroleum toxicity is ~99% grid electricity, so that one exchange was the entire gap (openLCA landfilling −0.072 vs BW +0.072 on ecotox). Fix credits avoided-product exchanges → all 40 cells within 0.1% of openLCA, 41/41 pytest. The 2026-07-17 "pre-correction crude electricity" diagnosis was a **misattribution** (superseded); openLCA was correct throughout. |
 | 3 | **Steel framed as a full-chain case** | 1-process bundle ⇒ full-chain ≡ direct; report presents 4 full-chain cases | Disclosure DONE — `validation/README.md` (2026-07-04) + `VALIDATION_REPORT.md` Honest-scope (2026-07-07). Full-chain re-pull still OPEN (Phase 3.1) |
 | 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | DONE 2026-07-07 (uncommitted) — both CF source files' SHA256 pinned + hard-enforced, mirroring `03b` |
 | 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | DONE 2026-07-07 (uncommitted) — precedence now by per-process `(version, lastChange)`, deterministic across machines |

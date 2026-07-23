@@ -87,10 +87,13 @@ TARGETS_FULL = {
         SOURCE_DATA /"Portland_cement__at_plant___US__US_AVG_ELEC_SELECTION.xlsx",
     "ac54bc7d-5db5-3b4f-9175-5dd02f678312":
         SOURCE_DATA /"Steel__billets__at_plant___RNA_results.xlsx",
-    # HDPE flake (causal co-product case, ledger #1) is a POST-BETA target: it
-    # requires a `03b --vintage 2026` build and a non-anomalous 2026 reference
-    # export. Add it here once that reference is regenerated. The vintage guard
-    # below (EXPECTED_VINTAGE) already supports mixing it with the 2025 cases.
+    # HDPE flake — the causal co-product consumption case (ledger #1), the most
+    # intricate importer path. Its bundle hardcodes the 2026-06 grid UUID, so it
+    # needs a `03b --vintage 2026` build; the vintage guard below skips it on a
+    # 2025 build and tags the output CSV `_2026`, so it never clobbers the locked
+    # 2025 table. Validated within 0.01% on all 10 categories (2026-vintage build).
+    "17664c37-72c0-4813-a4b9-93f962962c63":
+        SOURCE_DATA /"Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx",
 }
 
 # The default vintage: cases at this vintage write the git-tracked locked CSV;

@@ -1,8 +1,10 @@
 # Validation package — replicating the openLCA comparison
 
 This directory contains everything needed to replicate the headline claim in
-[`VALIDATION_REPORT.md`](../VALIDATION_REPORT.md): **all 40 category × process cells within ±5% of
-openLCA (35 of 40 within ±1%) on identical inputs.**
+[`VALIDATION_REPORT.md`](../VALIDATION_REPORT.md): **all 40 category × process cells reproduce openLCA
+within 0.1% on identical inputs** — every cell rounds to a ratio of 1.000. (The last gap, petroleum's
+toxicity categories, closed 2026-07-21 when `setup/03` was fixed to honor USLCI's `isAvoidedProduct`
+flag — see the report.)
 
 Ported 2026-07-04 from the parent project this engine was extracted from. On the same day, the
 harness was re-run **from this repo** and reproduced the locked results **byte-for-byte** (see
@@ -100,6 +102,7 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
 | 2026-07-02 | parent project; conda `asp-lca-bw25` (py 3.11.x, bw2data 4.7, bw2calc 2.5.0) | Original locked run — 40/40 within 5%, 35/40 within 1%, max dev 2.71% (petroleum ecotox/cancer/non-cancer) |
 | 2026-07-04 | **this repo**, post-port; conda `asp-lca-bw25` (py 3.11.15, bw2data 4.7, bw2calc 2.5.0, pandas 3.0.3) | `validation_full_chain_results.csv` reproduced **byte-for-byte**; all four `charts/validation/*.png` reproduced byte-for-byte |
 | 2026-07-07 | **this repo**, post-rename; conda `asp-lca-bw25` (py 3.11.15, bw2data 4.7, bw2calc 2.5.0, pandas 3.0.3) | brightway project renamed `asphalt-lca` → `fedefl-build-bw25` (`config.py`); full setup chain (`01→02→03b→03`) rebuilt from scratch under the new name, harness re-run → `validation_full_chain_results.csv` reproduced **byte-for-byte** (empty `git diff`). Confirms the project name is non-load-bearing. |
+| 2026-07-21 | **this repo**; branch `release-prep-phase1-2` | **Re-locked** after the `isAvoidedProduct` fix in `setup/03` (byproduct energy-recovery credits — chiefly landfill-gas electricity — were being imported as burdens). Closed the last petroleum residual: **all 40 cells now within 0.1% of openLCA** (every cell rounds to 1.000); corn and cement tightened too. Supersedes the earlier "crude-electricity / reference-completeness" reading of the petroleum gap. All 41 pytest checks pass. |
 
 ## Known limitations of this package (honest scope)
 
@@ -115,6 +118,8 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
 - The steel test case is a 1-process bundle: it exercises LCIA math and biosphere mapping but not
   the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.
 - Direct mode currently covers petroleum only, and mode switching requires editing a constant.
-- No process that **consumes** a causal-allocation co-product exists in the current bundle set, so
-  that importer path is exercised by zero validation cells (the importer warns loudly if it ever
-  triggers). Expanding the test set to cover it is the top validation roadmap item.
+- The causal-allocation co-product **consumption** path is now covered: the recycled-HDPE-flake case
+  (`17664c37…`, a `--vintage 2026` build) consumes causal co-products from the MRF-sorting processes
+  and reproduces openLCA within 0.01% on all 10 categories, locked in
+  `validation_full_chain_results_2026.csv`. (The recycled-PET-flake case builds and solves too, but has
+  no openLCA reference export yet, so it is not validated.)

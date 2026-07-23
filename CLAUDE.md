@@ -54,15 +54,33 @@ changes to any script.
 
 ## Validation Status
 
-All four locked test cases (petroleum, corn, cement, steel) validate against openLCA on all 10 TRACI
-categories — every one of the 40 category × process cells lands within ±5%, 35 of 40 within ±1%.
-Max deviation is petroleum's ecotox/cancer/non-cancer at ~1.027, within tolerance — root-caused
-(2026-07-17) to the openLCA reference export charging a pre-correction USLCI electricity value on the
-crude-oil processes; the engine is correct. A first re-export (2026-07-20) reproduced the stale
-calculation identically, so closing the residual waits on a fresh-database regeneration on the
-openLCA side (see VALIDATION_LOG 2026-07-20). Full write-up
-(method, results, appendix) in `VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file
-provenance (`VALIDATION_LOG.md`, SHA256-pinned asset manifest) live in `validation/`.
+All four locked test cases (petroleum, corn, cement, steel) run against openLCA on all 10 TRACI
+categories, and **every one of the 40 category × process cells reproduces openLCA within 0.1%** —
+each cell rounds to a BW/OL ratio of 1.000. Full clean parity, no outstanding residual.
+
+Getting there closed the last long-standing gap, the petroleum residual (which had wandered ~1.027 →
+~1.05 across earlier builds). Root cause, found 2026-07-21: `setup/03` did not honor USLCI's
+`isAvoidedProduct` flag. USLCI marks byproduct energy/material recovery this way — landfill-gas and
+MSW-combustion electricity that displaces grid power (`isInput=true` + `isAvoidedProduct=true`).
+openLCA credits these (they lower the result); brightway was importing them as ordinary consumption
+**burdens**. Because petroleum's toxicity is ~99% grid electricity, that sign error on the landfill
+credit was the entire gap. The fix sign-flips avoided-product exchanges into credits — a
+first-principles correctness change (not tuned to these four cases), which is why it snapped **all
+40** cells to 1.000, not just the three it was aimed at. This **supersedes ledger #2**: the earlier
+"stale pre-correction crude electricity" attribution was a misattribution — there was no
+crude-electricity discrepancy; openLCA was correct throughout. The waste-treatment output-linking fix
+(prior commit) was itself correct — it *exposed* the dormant avoided-product bug by pulling the
+landfilling process into the supply chains. Full write-up (method, results, appendix) in
+`VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file provenance (`VALIDATION_LOG.md`,
+SHA256-pinned asset manifest) live in `validation/`.
+
+A fifth case now validates too: **recycled-HDPE-flake** (`17664c37…`), the causal co-product
+consumption case (ledger #1) — the most intricate importer path, previously exercised by zero
+validation cells. Its bundle hardcodes the 2026-06 grid UUID, so it needs a `03b --vintage 2026` build
+and validates against a 2026 reference within 0.01% on all 10 categories (locked in
+`validation_full_chain_results_2026.csv`; the harness vintage guard skips it on the default 2025 build,
+so the locked 2025 table is untouched). A build injects one vintage — 2025 for the four locked cases,
+2026 for HDPE. The recycled-PET-flake case builds and solves but has no openLCA reference export yet.
 
 Note the parity framing: this is *engine verification against openLCA on identical inputs* — trust in
 the mechanics (parser, allocation, solve, LCIA), not certification of any study's real-world results.

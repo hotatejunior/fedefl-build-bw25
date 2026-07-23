@@ -1,0 +1,21 @@
+process,mode,category,bw_score,ol_score,ratio_bw_ol
+Steel; billets; at plant,full_chain,Acidification,0.005473843112318378,0.005473843084,1.0000000051733997
+Steel; billets; at plant,full_chain,Eutrophication (Freshwater),5.1868520066393e-06,5.186852035193971e-06,0.9999999944947974
+Steel; billets; at plant,full_chain,Eutrophication (Marine),-0.000928664506869518,-0.0009286645896637276,0.9999999108459496
+Steel; billets; at plant,full_chain,Freshwater ecotoxicity,-2.4289534695000095,-2.4289535226288343,0.9999999781268664
+Steel; billets; at plant,full_chain,Global warming,2.0441094232247825,2.0441092954971998,1.0000000624856915
+Steel; billets; at plant,full_chain,Human health - cancer,3.7494140223569144e-10,3.749413974575998e-10,1.0000000127435693
+Steel; billets; at plant,full_chain,Human health - non-cancer,-6.034232981412588e-08,-6.034233137332169e-08,0.9999999741608291
+Steel; billets; at plant,full_chain,Human health - particulate matter,8.33295845316859e-05,8.332958511111111e-05,0.9999999930465847
+Steel; billets; at plant,full_chain,Ozone depletion,3.8792929749570824e-09,3.879293e-09,0.9999999935444635
+Steel; billets; at plant,full_chain,Smog formation,0.06035168490755945,0.06035168084116594,1.0000000673782976
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Acidification,0.0008513154298420481,0.0008513200966531415,0.9999945181476254
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Eutrophication (Freshwater),5.183368539928332e-07,5.183373693345419e-07,0.9999990057793645
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Eutrophication (Marine),0.0002857102564422346,0.0002857118151912001,0.9999945443314464
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Freshwater ecotoxicity,5.499883991946428,5.499886261897876,0.9999995872730199
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Global warming,0.5197197864220097,0.5197218847042194,0.9999959626825972
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - cancer,1.205552128187566e-08,1.2055526551657401e-08,0.9999995628741957
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - non-cancer,2.1953159317379303e-06,2.1953167760875496e-06,0.9999996153859759
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - particulate matter,6.475830436821372e-05,6.475847737939543e-05,0.9999973283624212
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Ozone depletion,1.9189590505395524e-09,1.918973856191381e-09,0.9999922845995108
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Smog formation,0.027673675756168845,0.027673852316855246,0.9999936199454857
