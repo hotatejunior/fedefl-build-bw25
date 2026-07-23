@@ -46,7 +46,7 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `general/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
 | `general/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness. Unit-tested by `tests/test_run_manifest.py` |
 | `general/06_visualize.py` | Reads CSVs from `general/04`, produces general-use charts |
-| `validation/05_validate_uslci.py` | Parity harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports; overwrites `validation/validation_full_chain_results.csv` (an empty `git diff` on it is the byte-for-byte parity check). Mode set by `VALIDATION_MODE` constant |
+| `validation/05_validate_uslci.py` | Parity harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports; overwrites `validation/validation_full_chain_results.csv` (an empty `git diff` on it is the byte-for-byte parity check). Mode via `--mode {full_chain,direct}`, default `full_chain`; a non-default electricity vintage writes a tagged CSV instead (e.g. `…_2026.csv`) |
 | `validation/06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
 
 Design decisions and the bugs fixed to reach validation are in `DEVLOG.md`. Read it before making

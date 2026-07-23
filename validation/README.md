@@ -14,9 +14,10 @@ harness was re-run **from this repo** and reproduced the locked results **byte-f
 
 | File | Role |
 |---|---|
-| `05_validate_uslci.py` | The harness — runs brightway LCIA for the four locked test cases and diffs against openLCA reference exports |
+| `05_validate_uslci.py` | The harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports. Mode via `--mode {full_chain,direct}` (default `full_chain`) |
 | `06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
-| `validation_full_chain_results.csv` | **Locked** full-chain results (the 40-cell table in the report) |
+| `validation_full_chain_results.csv` | **Locked** full-chain results on a 2025-vintage build (the 40-cell table in the report: petroleum, corn, cement, steel) |
+| `validation_full_chain_results_2026.csv` | **Locked** full-chain results on a `--vintage 2026` build (steel + recycled-HDPE flake — see the vintage note below) |
 | `validation_direct_results.csv` | **Locked** direct-mode results (LCIA-math-only layer, petroleum) |
 | `VALIDATION_LOG.md` | The running provenance log: validation design, environment pins, asset SHA256s, and the full chronological results record — including the failed runs and disproven theories that preceded the passing state |
 | `REGENERATING_REFERENCE_EXPORTS.md` | How to reproduce the openLCA reference exports in your own openLCA 2.6 — the intended path, since the exports are not shipped in the repo |
@@ -31,7 +32,7 @@ Prerequisites: the conda env from [`environment.yml`](../environment.yml), and t
 chain run on this machine (`setup/00 → 01 → 02 → 03b → 03`) against the pinned assets listed below.
 
 ```bash
-# 1. Full-chain comparison, all four test cases, all 10 TRACI categories
+# 1. Full-chain comparison, all four locked test cases, all 10 TRACI categories
 python validation/05_validate_uslci.py
 #    → prints per-category BW / OL / ratio; writes validation/validation_full_chain_results.csv
 
@@ -45,8 +46,25 @@ python validation/06_visualize_validation.py             # → charts/validation
 Note that step 1 **overwrites** the locked CSV in place — that is intentional: the `git diff` in
 step 2 *is* the replication check. Restore with `git checkout` if you want the locked copy back.
 
-Direct mode (isolates CF/flow-mapping from the system solve) is currently selected by editing
-`VALIDATION_MODE` at the top of `05_validate_uslci.py` — a CLI flag is on the roadmap.
+Direct mode (isolates CF/flow-mapping from the system solve) is a flag, not a source edit:
+`python validation/05_validate_uslci.py --mode direct`. It currently covers petroleum only, because
+that is the only case with a kg-basis openLCA export.
+
+### Replicating the HDPE case (2026 vintage)
+
+A build injects exactly **one** electricity-baseline vintage, so the HDPE case is a separate build,
+not an extra row in the run above. Its bundle hardcodes the 2026-06 grid UUID:
+
+```bash
+python setup/03b_import_electricity_baseline.py --vintage 2026
+python setup/03_import_uslci.py
+python validation/05_validate_uslci.py     # → validation_full_chain_results_2026.csv
+git diff validation/validation_full_chain_results_2026.csv
+```
+
+The harness reads the vintage stamp the build wrote and **skips** any case whose expected vintage
+doesn't match, writing a vintage-tagged CSV — so a 2026 build cannot silently overwrite or be diffed
+against the locked 2025 table. Rebuild with `--vintage 2025` (the default) to return to it.
 
 ## Data assets and pinned hashes
 
@@ -81,6 +99,27 @@ results were computed against.
 |---|---|
 | `U.S._electricity_baseline_v1.2025-06.0_from_olca` (canonical — the version openLCA computed against) | `60b92381ce83f576a08cd873cf7fa587cc293421a9204ff49a6d5662d47d1f68` |
 | `National_Renewable_Energy_Laboratory-USLCI_Database_Public.zip` (full USLCI; feeds `setup/00`) | `e0ad4ff560fc4ddce7b7b8645a94efb24e4ec342fd593fb243617def70a8281e` |
+
+> **Two different pins exist for the 2025 baseline, and that is expected.** The table above pins the
+> *hand-placed* copy exported from openLCA (`…_from_olca`, extensionless zip). `setup/03b` separately
+> pins the copy it **fetches** from the FLCAC GitHub
+> (`U.S._electricity_baseline_v1.2025-06.0.zip`, `9fec32a8…`) — same library version, different byte
+> stream (different packaging of the same content). `03b` prefers a hand-placed copy when present and
+> verifies whichever it uses against the matching pin; the two hashes are not meant to agree.
+
+### 2026-vintage assets (→ `source_data/`) — for the HDPE case only
+
+A build injects exactly **one** electricity-baseline vintage (see "Electricity-baseline vintage" in
+the DEVLOG). These assets belong to the `03b --vintage 2026` build, which produces the separate
+locked table `validation_full_chain_results_2026.csv`. They are **not** used by, and cannot affect,
+the 2025 locked results above.
+
+| Asset | Role | SHA256 |
+|---|---|---|
+| `17664c37-…_a900b507….zip` | Recycled-HDPE-flake bundle — the causal co-product consumption case | `cfb579d9a60034d70fad4a0e6bfb58d1dfcc28e4b428b6442618868769c21bae` |
+| `U.S._electricity_baseline_v1.2026-06.0.zip` | 2026-06 baseline library (also pinned in `setup/03b`) | `fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143` |
+| `Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx` | openLCA reference export (full-chain) — distributed-copy pin only, see the boxed note above | `d3d65b1f8986bc8354071a756b7c6036c9573116caf91adf122a7cd6dd0aaa5b` |
+| `f7b7280d-…_a900b507….zip` | Recycled-PET-flake bundle — builds and solves, but **no openLCA export exists yet**, so it is not a validation case | `5eaac06844c8e134bd43d588ad45dcf8f2a7faa3caad5261776502666a525051` |
 
 ### openLCA reference exports (hashes first pinned 2026-07-04)
 
@@ -117,7 +156,6 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
   tooling for files nobody needs in the working tree.)
 - The steel test case is a 1-process bundle: it exercises LCIA math and biosphere mapping but not
   the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.
-- Direct mode currently covers petroleum only, and mode switching requires editing a constant.
 - The causal-allocation co-product **consumption** path is now covered: the recycled-HDPE-flake case
   (`17664c37…`, a `--vintage 2026` build) consumes causal co-products from the MRF-sorting processes
   and reproduces openLCA within 0.01% on all 10 categories, locked in

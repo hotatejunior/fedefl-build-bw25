@@ -153,6 +153,11 @@ of petroleum, and tightened corn and cement, to exact agreement. (One caveat: th
 single process with no upstream, so for steel full-chain ≡ direct — it exercises the LCIA math but not
 the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.)
 
+A fifth case, **recycled-HDPE flake**, validates separately within 0.01% on all 10 categories. It is
+the case that exercises the engine's most intricate path — consumption of a *causal-allocation
+co-product* — and it runs on its own build because its bundle is pinned to a newer electricity-grid
+vintage (see [`validation/README.md`](validation/README.md)).
+
 **What this does *not* cover** stays with the practitioner: whether the allocation choices, system
 boundary, cutoffs, and data vintage are appropriate for *your* study is a modeling judgment the
 engine can't make for you. Parity means the arithmetic is trustworthy; the science of the study is
@@ -188,8 +193,11 @@ trust case here does **not** rest on who typed the code.
   **2.0×** openLCA. That gap was traced to the importer applying a multi-output process's *reference*
   product allocation factor to a *co-product* exchange, then to a causal-allocation factor being
   flattened to a mass fraction — two genuine correctness bugs. Fixing them (not fitting them) brought
-  the residual to **~1.03**. The full trace lives in [`DEVLOG.md`](DEVLOG.md) and the chronological
-  `VALIDATION_LOG.md`.
+  the residual to **~1.03**. That last ~3% then survived two *wrong* explanations of its own — both
+  written down, both later disproven by evidence, including one that blamed the openLCA reference and
+  had to be publicly retracted — before the real cause turned up in this engine: the
+  `isAvoidedProduct` sign error. Fixing that took all 40 cells to **1.000**. The full trace lives in
+  [`DEVLOG.md`](DEVLOG.md) and the chronological `VALIDATION_LOG.md`.
 
 **Why provenance is orthogonal to correctness here.** The evidence chain is *pinned inputs →
 reproducible harness → locked outputs*. Anyone can re-run the harness from [`validation/`](validation/)
@@ -235,6 +243,6 @@ a `--vintage 2026` build (locked in `validation_full_chain_results_2026.csv`).
 
 ## Roadmap
 
-- **Now:** the general pipeline is built, audited, and validated against openLCA across four locked test cases.
+- **Now:** the general pipeline is built, audited, and validated against openLCA — four locked test cases at full parity (40/40 cells within 0.1%), plus the recycled-HDPE-flake case covering causal co-product consumption.
 - **Next:** full USLCI database import (~10,000 processes) with fast process selection, replacing per-process downloads.
 - **Then:** dynamic LCA — time-resolved, parameterized, scenario-swept impact modeling on top of this engine, run programmatically and faster than the incumbent GUI tools.

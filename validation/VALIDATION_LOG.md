@@ -537,6 +537,10 @@ Petroleum's earlier trace-metal "2× gap" was disproven; this ~3% residual is a 
 
 ### 2026-07-15 — petroleum residual localized: electricity over-draw, not trace-metal vintage (WIP)
 
+> ⚠️ **Superseded — see 2026-07-21.** The localization here (the residual rides on electricity) was
+> right; the attribution to a petroleum-specific *over-draw* was not. Real cause: the
+> `isAvoidedProduct` landfill-gas credit imported with the wrong sign. Kept verbatim.
+
 **Supersedes the "trace-metal vintage" guess above for the ~1.027 petroleum residual.** Investigated
 ledger #2 without a new openLCA session, using the existing exports' per-flow/per-process
 contribution tabs. Findings:
@@ -557,6 +561,10 @@ over-drawing node (suspect: multi-output cellulosic-ethanol processes / petroleu
 allocation) and decide fix-vs-document. Not yet remediated; harness numbers above unchanged.
 
 ### 2026-07-17 — petroleum residual ROOT-CAUSED: stale reference export, engine correct (ledger #2 closed)
+
+> ⚠️ **RETRACTED — see 2026-07-21.** This entry's conclusion is wrong. There was no crude-oil
+> electricity discrepancy and no stale reference export; openLCA was correct throughout. The residual
+> was brightway's own `isAvoidedProduct` bug. Kept verbatim as the record of a disproven theory.
 
 Localized and diagnosed; no engine change needed. Method: attributed the US-average grid node's
 (`7068192a`) demand by consuming process in brightway, then compared per-process direct and
@@ -585,6 +593,10 @@ openLCA and re-export (`REGENERATING_REFERENCE_EXPORTS.md`); petroleum expected 
 
 ### 2026-07-20 — July re-export tested: NUMERICALLY IDENTICAL to the stale export, exit criterion NOT met
 
+> ⚠️ **Superseded — see 2026-07-21.** The negative result here is sound and worth keeping: the
+> re-export *was* numerically identical. But it was read as evidence about openLCA-side state, when in
+> fact both exports were correct and the bug was in brightway. Kept verbatim.
+
 Ran the harness against the operator's fresh export
 (`Petroleum_refining__at_refinery___US___1kg_diesel___July_run.xlsx`, SHA256
 `b0b62e2caab5abf06633b8104f8153fcd5505ac1cbe8aa0b4e004c93866a905b`, product system
@@ -611,3 +623,97 @@ process copies in that database.
 
 Repo state: harness re-pointed back at the locked `US_AVG_ELEC_SELECTION` export; re-run confirms
 `validation_full_chain_results.csv` byte-for-byte (empty `git diff`). Locked baseline unchanged.
+
+### 2026-07-20 (later) — waste-treatment OUTPUT links restored; vintage selector; `Mg` unit fix; 2025 baseline re-locked
+
+Three `setup/03` findings, all surfaced while building the first causal co-product case
+(recycled-HDPE flake, `17664c37…`) — the case that had never been exercised (ledger #1).
+
+- **Waste-treatment OUTPUT links were silently dropped.** openLCA models disposal as the generating
+  process *outputting* a `WASTE_FLOW` whose `defaultProvider` is the treatment process (whose own
+  reference is that waste flow, as an input). `setup/03`'s technosphere-linking branch was gated
+  `… and is_input`, so only *inputs* linked; a waste flow *output* matched no branch and vanished,
+  omitting the entire treatment burden (notably landfill methane). Symptom: HDPE flake's
+  MSW-landfilling burden (openLCA charges 0.0856 of its 0.52 kg CO2-eq) was absent → GWP ratio
+  **0.842**. Fix links non-reference `WASTE_FLOW` outputs to their resolved treatment provider;
+  non-reference `PRODUCT_FLOW` outputs stay excluded (co-products, handled by allocation).
+  **67 such links** now form across the bundles. HDPE GWP **0.842 → 1.036**; petroleum GWP
+  **0.987 → 1.005**.
+- **Electricity-baseline vintage selector + stamp/guard.** The US-average grid node is named
+  identically across releases but carries a different UUID per vintage (`7068192a` in 2025-06,
+  `75d4be66` in 2026-06). The 4 locked cases were exported against 2025-06; the newer HDPE/PET
+  bundles hardcode the 2026-06 UUID, so their supply chain was being silently relinked down to 2025
+  by `03`'s name-match fallback. A build now injects exactly ONE vintage: `03b --vintage
+  {2025|2026}` (default 2025) selects the library and stamps `electricity_vintage` onto
+  `electricity-baseline`; `03` copies the stamp to `uslci-subset`; the harness reads it and **skips**
+  any case whose `EXPECTED_VINTAGE` doesn't match, writing a vintage-tagged CSV for non-default
+  builds so they cannot clobber the locked 2025 table. Injecting both vintages at once is
+  deliberately unsupported (two identically-named US-average nodes ⇒ ambiguous name resolution).
+- **`Mg` misread as milligram.** The `WITHIN_FP` lookup was case-insensitive, so `Mg` (megagram =
+  tonne, the unit of every MRF sorting output in the recycling sector) resolved to the `mg` entry —
+  1e-6 instead of 1e3, a silent **1e9** error. Mg-based exchanges partially cancelled, but the
+  sorting processes' kWh electricity did not, inflating HDPE flake GWP to ~1.6e7 kg CO2-eq/kg. Fix:
+  `_WITHIN_FP_EXACT`, a case-sensitive table checked before the lowercase fallback. A census of the
+  full USLCI zip confirms Mg/mg is the **only** case collision among its 30 unit strings. Post-fix
+  HDPE flake GWP: 0.4499 kg CO2-eq/kg (literature range). The four locked cases carry no `Mg`
+  exchanges.
+
+**2025 baseline re-locked on this build.** Corn/cement/steel within ±5%; petroleum's three toxicity
+cells moved to **~1.05** (from ~1.027) because the waste-linking fix pulled MSW-landfilling into the
+locked cases' supply chains for the first time.
+
+> ⚠️ **The reading recorded at the time — that the ~1.05 was a "reference-completeness gap with
+> brightway the more-complete engine" — was WRONG, and is superseded by the 2026-07-21 entry below.**
+> The waste-linking fix was itself correct; what it actually did was *expose a dormant second bug*
+> (`isAvoidedProduct`). Kept here as the record of what was believed on 2026-07-20.
+
+### 2026-07-21 — petroleum residual CLOSED: `isAvoidedProduct` ignored. All 40 cells within 0.1%; HDPE validates (ledgers #1 and #2 closed)
+
+**Root cause found, and it supersedes every earlier diagnosis of the petroleum residual.** USLCI
+marks byproduct energy/material recovery with `isInput=true` **+ `isAvoidedProduct=true`** — e.g. the
+MSW-landfilling process recovering 91.97 kWh of landfill-gas electricity that displaces grid power.
+openLCA *credits* these (they lower the result). `setup/03` had no `isAvoidedProduct` handling at all
+and imported them as positive consumption **burdens**.
+
+Since petroleum's toxicity is ~99% grid electricity, that one sign error was the entire gap:
+
+| | openLCA | brightway (pre-fix) |
+|---|---|---|
+| MSW-landfilling contribution to petroleum freshwater ecotox | **−0.072** | **+0.072** |
+
+That 0.145 flip is exactly the 2.678 → 2.824 discrepancy, and it reproduces identically across
+ecotox, cancer, and non-cancer. Decisive check: brightway-minus-landfilling matched
+openLCA-minus-its-landfilling-credit to 0.01%.
+
+**Fix:** sign-flip avoided-product technosphere exchanges into credits — 15 such exchanges per bundle
+(landfilling, MSW combustion, sulfuric acid, sulfur, ethylene glycol…). This is a first-principles
+correctness change, not a tuning: it was aimed at three toxicity cells and moved **all 40** to exact
+agreement.
+
+**Results — 2025 locked table (`validation_full_chain_results.csv`), re-locked on this build:**
+
+| | before (2026-07-20 build) | after |
+|---|---|---|
+| Cells within 0.1% (Strict) | 26 / 40 | **40 / 40** |
+| Cells outside ±5% | 3 | **0** |
+| Max deviation | ~5.4% (petroleum ecotox) | **< 0.0001%** |
+
+Every cell now rounds to a BW/OL ratio of **1.000**; petroleum ecotox lands at 2.6784642 vs openLCA
+2.6784639. Full clean parity, no residual.
+
+**HDPE flake validates — ledger #1 closed.** The recycled-HDPE-flake case (`17664c37…`) consumes
+causal co-products from the MRF-sorting processes (non-uniform allocation grids) — the most intricate
+importer path in the repo, previously exercised by **zero** validation cells. Added to
+`TARGETS_FULL`; on a `03b --vintage 2026` build it reproduces openLCA **within 0.01% on all 10
+categories**, locked in `validation_full_chain_results_2026.csv`. The vintage guard skips it on the
+default 2025 build, so the locked 2025 table is untouched.
+
+**Ledger #2 closed, and its prior diagnosis retracted.** The 2026-07-17 "openLCA charged a
+pre-correction crude-oil electricity value" finding was a **misattribution**. There was no
+crude-electricity discrepancy; openLCA was correct throughout, and the residual was always
+brightway's missing (then sign-flipped) landfill credit. The 2026-07-15, 07-17, and 07-20 entries
+above are kept verbatim as the record of the wrong path — see the forward pointers on each.
+
+Repo state: `validation_full_chain_results.csv` re-locked (40/40 at 1.000);
+`validation_full_chain_results_2026.csv` added (steel + HDPE, 2026 build); `charts/validation/*`
+regenerated; 41/41 pytest pass. Commit `2f9eb3c`.

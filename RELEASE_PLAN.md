@@ -110,6 +110,7 @@ any individual result they compute, not just the four locked test cases.
    - For each: download bundle, pin hash, openLCA export with baseline mounted + US-avg provider
      linked (the documented product-system setup), extend `TARGETS_FULL`, run, append to
      VALIDATION_LOG.
+
 2. ~~**Demystify the petroleum 2.7% (ecotox/cancer/non-cancer) mechanistically.**~~ **RESOLVED
    2026-07-21** — not a background-aggregation effect and not a reference issue. `setup/03` was
    ignoring USLCI's `isAvoidedProduct` flag, so the landfill-gas electricity credit on the
@@ -141,7 +142,12 @@ any individual result they compute, not just the four locked test cases.
 
 ## Phase 4 — Engineering hardening (parallel with Phase 3; all items are code edits, deliberately deferred from the 2026-07-04 session)
 
-> **Progress — 2026-07-07 session (UNCOMMITTED, on branch `release-prep-phase1-2`).** Items 4.1,
+> **Status: all of Phase 4 (4.1–4.5) is DONE and committed** on branch `release-prep-phase1-2` —
+> 4.1/4.2/4.3/4.5 in `34cdef8`, 4.4 in `50a0ac7`, CI + the `--mode` flag in `b0eef0a`. The
+> session-by-session notes below are kept as the work record; their "UNCOMMITTED" markers refer to the
+> state at the time of writing, not today.
+>
+> **Progress — 2026-07-07 session (uncommitted at the time; landed in `34cdef8`).** Items 4.1,
 > 4.2, 4.3, 4.5 DONE and verified; 4.4 paused at a scope decision (see handoff note below). After the
 > setup/02 + setup/03 edits, the full setup chain was rebuilt and the harness re-run —
 > `validation_full_chain_results.csv` still reproduces **byte-for-byte**, so all changes are
@@ -151,7 +157,7 @@ any individual result they compute, not just the four locked test cases.
 >   the real baseline, data-gated), `test_validation_cement.py` (cement full-chain cell vs locked
 >   CSV, data-gated). `pytest.ini` added; `pytest` added to `environment.yml` as a dev dep. Scoped
 >   to NOT refactor the validated `setup/03` (decision: normalize()/_allocation_for() unit tests
->   deferred — they'd need setup/03 made import-safe). CI wired 2026-07-20 (uncommitted):
+>   deferred — they'd need setup/03 made import-safe). CI wired 2026-07-20 (landed in `b0eef0a`):
 >   `.github/workflows/ci.yml` — unit-tests job on every push/PR (pinned env from
 >   `environment.yml`, data-gated tests self-skip); validation job manual-only
 >   (workflow_dispatch), probes for `source_data/` and skips with a notice when absent.
@@ -167,7 +173,7 @@ any individual result they compute, not just the four locked test cases.
 >   permit with a warning. Current validated build hits zero unknown units, so default is safe.
 > - **4.4 per-run auditability** (`general/04`) — NOT STARTED, paused at scope decision. See handoff.
 
-> **Progress — 2026-07-09 session (UNCOMMITTED, on branch `release-prep-phase1-2`).** 4.4
+> **Progress — 2026-07-09 session (uncommitted at the time; landed in `50a0ac7`).** 4.4
 > IMPLEMENTED, resolving the paused scope decision toward **option B+** (the full per-*result*
 > completeness view, not just DB-level totals). Closes ledger #9 pending human end-to-end run.
 > - **`setup/03`** now persists per-process import diagnostics (bio matched/unmatched, tech
@@ -187,7 +193,7 @@ any individual result they compute, not just the four locked test cases.
 >   re-run and a real `general/04` manifest emission must be done on the data machine. Because the
 >   `setup/03` change is additive-only, byte-identical is expected — but must be *shown*.
 
-> **Progress — 2026-07-13 session (data machine, UNCOMMITTED).** 4.4 verification completed:
+> **Progress — 2026-07-13 session (data machine; uncommitted at the time, landed in `50a0ac7`).** 4.4 verification completed:
 > harness re-run → `validation_full_chain_results.csv` byte-for-byte (empty `git diff`), closing
 > ledger #9. Along the way a real UX failure surfaced: a fresh petroleum `general/04` run reads
 > ~849× the locked values because the process's reference unit is m³, not kg (the locked validation
@@ -246,11 +252,11 @@ has either verified it against evidence or replaced the claim with a tested one.
 | 1 | **Causal co-product consumption path** (`setup/03`, `_allocation_for` + link-site re-basis) | Most intricate code in the repo; written by Claude with confident comments; was exercised by **zero** validation cells | **CLOSED 2026-07-21** — the recycled-HDPE-flake case (`17664c37…`) consumes causal co-products from the MRF-sorting processes (non-uniform allocation grids) and reproduces openLCA **within 0.01%** on all 10 categories (`--vintage 2026` build, locked `validation_full_chain_results_2026.csv`). Path validated against a real case. |
 | 2 | **Petroleum toxicity residual** | Accepted as "long feedback loop, within tolerance" without a proven mechanism | **CLOSED 2026-07-21.** Real root cause: `setup/03` did not honor USLCI's `isAvoidedProduct` flag, so the MSW-landfilling landfill-gas electricity *credit* was imported as a *burden* (sign-flipped). Petroleum toxicity is ~99% grid electricity, so that one exchange was the entire gap (openLCA landfilling −0.072 vs BW +0.072 on ecotox). Fix credits avoided-product exchanges → all 40 cells within 0.1% of openLCA, 41/41 pytest. The 2026-07-17 "pre-correction crude electricity" diagnosis was a **misattribution** (superseded); openLCA was correct throughout. |
 | 3 | **Steel framed as a full-chain case** | 1-process bundle ⇒ full-chain ≡ direct; report presents 4 full-chain cases | Disclosure DONE — `validation/README.md` (2026-07-04) + `VALIDATION_REPORT.md` Honest-scope (2026-07-07). Full-chain re-pull still OPEN (Phase 3.1) |
-| 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | DONE 2026-07-07 (uncommitted) — both CF source files' SHA256 pinned + hard-enforced, mirroring `03b` |
-| 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | DONE 2026-07-07 (uncommitted) — precedence now by per-process `(version, lastChange)`, deterministic across machines |
+| 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | DONE 2026-07-07, committed `34cdef8` — both CF source files' SHA256 pinned + hard-enforced, mirroring `03b` |
+| 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | DONE 2026-07-07, committed `34cdef8` — precedence now by per-process `(version, lastChange)`, deterministic across machines |
 | 6 | **"Validated" language** | Report/README language drifted from "engine parity" to "can be trusted" without the distinction being challenged | ADDRESSED 2026-07-07 — reworded to "engine parity on identical inputs" in README/VALIDATION_REPORT/CLAUDE.md; practitioner responsibility stated explicitly. Confirm wording holds on next read-through |
-| 7 | **Unknown-unit passthrough** (`setup/03` `normalize()`) | "Never crash on import" default accepted without weighing silent-wrong-number risk for study use | DONE 2026-07-07 (uncommitted) — hard-stops before DB write by default; `ALLOW_UNIT_PASSTHROUGH=1` opt-in |
-| 8 | **Harness ergonomics** (`validation/05`) | Mode switch requires editing a constant; direct mode covers petroleum only; accepted as-is | Mode switch DONE 2026-07-20 (uncommitted) — `--mode {full_chain,direct}` CLI flag, default full_chain; verified byte-for-byte in full_chain and a clean petroleum direct run. Direct-mode coverage beyond petroleum still OPEN (needs openLCA direct exports) |
+| 7 | **Unknown-unit passthrough** (`setup/03` `normalize()`) | "Never crash on import" default accepted without weighing silent-wrong-number risk for study use | DONE 2026-07-07, committed `34cdef8` — hard-stops before DB write by default; `ALLOW_UNIT_PASSTHROUGH=1` opt-in |
+| 8 | **Harness ergonomics** (`validation/05`) | Mode switch requires editing a constant; direct mode covers petroleum only; accepted as-is | Mode switch DONE 2026-07-20, committed `b0eef0a` — `--mode {full_chain,direct}` CLI flag, default full_chain; verified byte-for-byte in full_chain and a clean petroleum direct run. Direct-mode coverage beyond petroleum still OPEN (needs openLCA direct exports) |
 | 9 | **Per-result completeness** (`general/04`) | Import-time diagnostics exist, but nothing at run time tells a user how complete *their* result is; gap not noticed until external critique | DONE 2026-07-13 — end-to-end on the data machine: harness re-run reproduced `validation_full_chain_results.csv` **byte-for-byte** (empty `git diff`) with the 4.4 `setup/03` changes in place, and a real petroleum `general/04` run emitted `validation_manifest.json` with the per-result completeness block populated from `uslci_db_provenance.json` (93 bio-unmatched / 409 tech-unlinked honestly reported for petroleum's solved chain) |
 | 10 | **Report environment table accuracy** | Appendix A says Python 3.11.14 / conda `asphalt-lca`; actual replication env is 3.11.15 / `asp-lca-bw25` | ADDRESSED 2026-07-07 — Appendix A now reads Python 3.11.15, canonical env `fedefl-build-bw25`, with the legacy build env `asp-lca-bw25` noted (both records kept) |
 | 11 | **`environment.yml` never installed as written** | The AI-authored env file pinned `fedelemflowlist@<commit>` on its own line *and* listed `lciafmt`, whose metadata declares an unpinned `fedelemflowlist` git URL. pip refuses two different direct-URL refs for one package, so `conda env create` fails with `ResolutionImpossible`. The "reproducible env" claim (and README Step 1) was never exercised end-to-end; the working env on the build machine was assembled another way. Release-blocker — a peer can't build the env from the repo. | FIXED 2026-07-09 (Claude-found, this session) — pin only `lciafmt`; `fedelemflowlist` pulled transitively, still lands `d2d690fb` (== current default-branch HEAD, so byte-identical to the validated build today). Two-pass hard-pin documented in `environment.yml` for when HEAD drifts. Verified: `lciafmt`-alone resolves cleanly to `d2d690fb` via `pip --dry-run` in a clean venv. CLOSED 2026-07-13 — `conda env create -f environment.yml` run from scratch on the data machine (fresh env name, hand-assembled env untouched): completed cleanly, `pip freeze` shows `fedelemflowlist @ d2d690fb` / `lciafmt @ 48d19af1` / exact bw2* pins, and the full 25-test pytest suite passes from the new env. (First attempt failed only on a full disk — machine-state, not the yml.) |
@@ -264,40 +270,38 @@ Reviewed and CLOSED items (keep for the record):
 
 ---
 
-## Session handoff — 2026-07-07 (pick up here)
+## Session handoff — 2026-07-23 (pick up here)
 
-**Branch:** `release-prep-phase1-2` (pushed to origin; PR not yet opened — user will handle the PR).
+**Branch:** `release-prep-phase1-2`, 8 commits ahead of `main`, pushed and in sync with origin.
+PR not yet opened — the maintainer will handle the PR.
 
-**Committed this session (2 commits on the branch):**
-- `17171cc` — Phase 1/2: rename to `fedefl-build-bw25`, LICENSE/CITATION, validation package port, honest-parity docs.
-- `1f26435` — Phase 1.3 hosting decision: `validation/REGENERATING_REFERENCE_EXPORTS.md` + clarified hash semantics.
+**Where the project stands:** Phases 0, 1, 2, and 4 are complete and committed. Phase 3.2 (the
+petroleum residual) closed 2026-07-21 with ledgers #1 and #2. All 40 locked cells reproduce openLCA
+within 0.1%; the HDPE case validates within 0.01% on a 2026-vintage build; 41/41 pytest pass.
 
-**UNCOMMITTED working-tree changes (Phase 4 work — verify + commit next session):**
-- `setup/02_setup_traci22.py` — 4.2 TRACI CF hash enforcement (+ provenance base-file bug fix).
-- `setup/03_import_uslci.py` — 4.3 version/lastChange zip precedence; 4.5 unit-passthrough hard stop.
-- `environment.yml` — added `pytest` (dev dep).
-- `pytest.ini`, `tests/` (new) — 4.1 suite, 18 tests passing.
-- `RELEASE_PLAN.md` — this progress record (ledger #4/#5/#7 marked DONE-uncommitted).
+**Environment (correct as of 2026-07-23):** `~/miniconda3/envs/fedefl-build-bw25/bin/python`. Call the
+env's Python directly — `conda run` is unreliable here. The legacy `asp-lca-bw25` env no longer
+exists; `VALIDATION_REPORT.md` Appendix A still names it as the *historical* env the original locked
+results were computed in, which is correct and should stay.
 
-**Verification already done:** full setup chain rebuilt under the new project name + harness re-run →
-`validation/validation_full_chain_results.csv` reproduces **byte-for-byte** (empty `git diff`). All 18
-pytest tests pass (`pytest -q`). Env: use `/opt/miniconda3/envs/asp-lca-bw25/bin/python` (the working
-env is `asp-lca-bw25`, not the documented `fedefl-build-bw25` — see the local-conda-env memory).
+**Done this session (2026-07-23) — documentation coherence pass:**
+- `validation/VALIDATION_LOG.md` — added the two missing entries (2026-07-20 waste-linking / vintage
+  selector / `Mg` fix, and 2026-07-21 `isAvoidedProduct` root cause + HDPE validation). The log had
+  ended on a since-retracted conclusion. Superseded entries (07-15, 07-17, 07-20) now carry forward
+  pointers; their text is kept verbatim per the log's append-only convention.
+- `validation/README.md` — pinned the 2026-vintage assets (HDPE bundle, 2026 baseline, HDPE openLCA
+  export, PET bundle), documented the HDPE replication path, explained why the 2025 baseline has two
+  legitimate different hashes, and corrected the stale "mode requires editing a constant" note.
+- `CLAUDE.md`, `README.md` — harness `--mode`/vintage description corrected; the debugging-arc
+  narrative now runs through to 1.000 instead of stopping at ~1.03; HDPE surfaced as a fifth case.
+- `RELEASE_PLAN.md` — Phase 4 and ledger rows marked committed with their commit refs; this handoff.
+- `charts/general/*.png` regenerated on the current engine (they were two correctness fixes stale).
 
-**NEXT STEP — resolve the paused 4.4 scope decision, then implement:**
-4.4 = per-run auditability in `general/04` (emit `validation_manifest.json`). Paused because "bundle
-version" and "unlinked/unmatched counts *for the solved system*" are NOT stored today (computed at
-import in `setup/03`, then discarded; USLCI activities carry no `version`; DB metadata only gives a
-`modified` timestamp + activity count). Three options were on the table:
-- **(A, recommended) Run manifest now, self-contained in `general/04`:** target id/name/scenario/unit,
-  project, DB activity counts + `modified` timestamps, the 10 methods, package versions, solved-system
-  size (supply-chain activity count, biosphere-flow count, nonzero-contribution count), and the 10
-  scores. No `setup/03` change; honest about what it can/can't attest.
-- **(B) Full:** also add a `setup/03` DB-provenance sidecar (per-process bundle versions, import-time
-  unlinked/unmatched counts, DB hash) that `general/04` folds in. Matches the plan's letter; larger
-  cross-script change; re-verify byte-identical after.
-- **(C) Defer 4.4.**
+**NEXT STEP — Phase 3, which needs openLCA operator sessions (not codeable):**
+1. Re-pull a **full-chain steel bundle** so steel exercises the solve (ledger #3).
+2. openLCA reference export for **recycled-PET flake** — the case already builds and solves.
+3. ≥1 **ECONOMIC** and ≥1 **PHYSICAL** multi-output case from a new sector.
+4. **Direct-mode exports beyond petroleum** (ledger #8).
 
-**Also still open:** commit the Phase 4 work; wire CI (Phase 4.1 tail — GitHub Actions, unit tests
-always, validation job data-gated); Phase 3 items need openLCA operator sessions (not codeable here)
-except 3.3 (promote `VALIDATION_MODE` to a CLI flag, closes ledger #8).
+**Then Phase 5:** confirm CI is green on GitHub, upload the reference-export mirror as a release
+asset, tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
