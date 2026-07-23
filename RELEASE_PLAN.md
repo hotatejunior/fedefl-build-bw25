@@ -263,7 +263,12 @@ any individual result they compute, not just the locked test cases.
 
 ## Phase 5 — Slow-roll release
 
-1. Tag `v0.1.0-beta` once Phases 1–2 land and Phase 4.1 (minimal pytest) exists.
+> **Progress — 2026-07-23.** PR #1 merged to `main`; `v0.1.0-beta` tagged at `6bc8e83` and published
+> as a GitHub **pre-release**, no attachments (the reference-export mirror was dropped — see Phase
+> 1.3). Verified on the merged tree before tagging: 68/68 pytest, replication gate PASS on both
+> builds (40/40 cells 2025, 60/60 cells 2026), CI green. Items 2 and 3 below are outstanding.
+
+1. ~~Tag `v0.1.0-beta`~~ **DONE 2026-07-23** — tagged and published as a pre-release.
 2. Share with 2–3 trusted peers with a specific ask: "try to break the validation replication;
    try a study-shaped foreground CSV; tell me where you stopped trusting it."
 3. Fold feedback into VALIDATION_LOG/DEVLOG (public record of external review — more trust
