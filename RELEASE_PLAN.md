@@ -6,7 +6,7 @@ trust case must rest on reproducible evidence and documented human accountabilit
 
 The bar: a skeptical peer can (a) legally use the code, (b) replicate the validation from what the
 repo gives them, (c) see exactly what was AI-authored vs human-directed and audited, and (d) audit
-any individual result they compute, not just the four locked test cases.
+any individual result they compute, not just the locked test cases.
 
 ---
 

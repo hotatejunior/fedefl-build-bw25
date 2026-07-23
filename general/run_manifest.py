@@ -25,7 +25,7 @@ The provenance sidecar filename is duplicated as a local literal in
 """
 from __future__ import annotations
 
-SCHEMA = "validation-manifest/1"
+SCHEMA = "validation-manifest/2"   # /2 adds the electricity_vintage block
 
 # Written by setup/03_import_uslci.py, read by general/04_run_lca.py. Anchored to
 # the repo root on both sides (see setup/03's local copy of this literal).
@@ -139,8 +139,50 @@ def _completeness_notes(missing_prov, external_keys,
     return notes
 
 
-def build_manifest(*, generated, target, project, databases, methods, packages,
-                   provenance_source, solved_system, completeness, results):
+def summarize_electricity_vintage(databases, uslci_db, baseline_db):
+    """Which electricity-baseline vintage produced this result, and is the build
+    self-consistent?
+
+    A build injects exactly ONE baseline vintage (setup/03b), which stamps it onto
+    the baseline DB; setup/03 copies the stamp onto the USLCI DB. The choice is
+    load-bearing for any result with grid electricity in its chain — the same
+    process computed against a different vintage moves by ~10% on the locked cases
+    — so it belongs in the manifest rather than only in the build log.
+
+    Two failure modes are worth naming rather than hiding:
+      * `status="inconsistent"` — the two DBs carry DIFFERENT stamps, which means
+        03b was re-run without re-running 03. The injected grid is the baseline
+        DB's vintage while every consumer still links per the older build, and
+        anything reading only the USLCI stamp (the harness's guard included) will
+        believe the wrong vintage. Rebuild both.
+      * `status="unstamped"` — a build predating the stamp. Not wrong, just
+        unattributable; the vintage cannot be reported for this result.
+
+    `databases` is general/04's per-DB metadata dict. Returns a dict, never raises:
+    a manifest that can't attest the vintage should say so, not fail the run.
+    """
+    uslci = (databases.get(uslci_db) or {}).get("electricity_vintage")
+    baseline = (databases.get(baseline_db) or {}).get("electricity_vintage")
+
+    if uslci is None and baseline is None:
+        return {"vintage": None, "status": "unstamped",
+                "note": "This build predates the electricity-vintage stamp, so the "
+                        "baseline vintage behind this result cannot be attested. "
+                        "Rebuild with setup/03b + setup/03 to record it."}
+    if uslci is not None and baseline is not None and uslci != baseline:
+        return {"vintage": None, "status": "inconsistent",
+                "uslci_db_vintage": uslci, "baseline_db_vintage": baseline,
+                "note": f"INCONSISTENT BUILD: '{baseline_db}' was injected at vintage "
+                        f"{baseline} but '{uslci_db}' is stamped {uslci}. setup/03b was "
+                        f"re-run without re-running setup/03. Results in this state use "
+                        f"the {baseline} grid while everything reading the stamp believes "
+                        f"{uslci}. Re-run setup/03 before trusting this result."}
+    return {"vintage": uslci if uslci is not None else baseline, "status": "ok"}
+
+
+def build_manifest(*, generated, target, project, databases, electricity_vintage,
+                   methods, packages, provenance_source, solved_system,
+                   completeness, results):
     """Fold the run's provenance + completeness summary into the final manifest dict.
 
     Thin by design — all the derived logic lives in
@@ -153,6 +195,7 @@ def build_manifest(*, generated, target, project, databases, methods, packages,
         "target": target,
         "project": project,
         "databases": databases,
+        "electricity_vintage": electricity_vintage,
         "methods": methods,
         "packages": packages,
         "provenance_source": provenance_source,

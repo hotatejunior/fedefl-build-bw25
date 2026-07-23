@@ -762,3 +762,47 @@ bundles from the June drop reference 2025 85 times. Any newly pulled bundle ther
 has been corrected.
 
 No engine change; locked CSVs untouched.
+
+### 2026-07-23 (later) — five new cases validate: physical allocation exercised on real splits for the first time
+
+Operator session produced openLCA exports for recycled-PET flake, chlorine (chlor-alkali),
+hardboard, and soybean oil. All four bundles are 2026-vintage, so they join HDPE flake and steel on
+a `03b --vintage 2026` build. Added to `TARGETS_FULL` + `EXPECTED_VINTAGE`; the three 2025 cases
+were skipped by the vintage guard as designed.
+
+**Result: 60/60 cells within 0.001% — max deviation 0.00077%.** Every cell rounds to 1.000.
+
+| Case | Allocation | Max deviation |
+|---|---|---|
+| Steel; billets (Layer 1 control) | none | 0.000009% |
+| Recycled HDPE flake | causal (upstream) | 0.00077% |
+| Recycled PET flake | causal (upstream) | 0.00054% |
+| **Chlorine; chlor-alkali electrolysis** | **physical, 3-way** | **0.000077%** |
+| **Hardboard; at hardboard plant** | **physical, 7-way** | **0.000060%** |
+| **Soybean oil; crude, degummed** | **physical, 2-way** | **0.000097%** |
+
+Why this matters more than the cell count: **these are the first non-degenerate allocation grids in
+the test set.** Chlorine splits three ways (NaOH 0.5453 / Cl₂ 0.4357 / H₂ 0.019), hardboard seven
+ways (0.8634 → 0.0016), soybean two (meal 0.8051 / oil 0.1949). Until now the only real physical
+grid under test was petroleum's; corn's ECONOMIC factors are `[0.0, 1.0]`, and the 2026-07-23 census
+showed every ECONOMIC process in USLCI is degenerate the same way. Physical-allocation arithmetic is
+now verified against openLCA on three independent non-trivial grids, at ~1e-6 relative agreement.
+
+PET is also a second causal co-product *consumption* case, independently reproducing the path that
+closed ledger #1.
+
+**Setup notes for replication.** All five exports confirmed `Amount: 1.0 kg`, TRACI 2.2, process
+defaults, no cutoff, from their `Calculation setup` sheets. One counterintuitive case: the process
+`Soybean oil; crude, degummed; at plant` declares **`Soy meal; at plant` (4131 kg) as its
+quantitative reference**, not the oil it is named after — so both engines report soy meal at the
+0.8051 factor. The openLCA export names soy meal as its Product, which is correct, not an operator
+error.
+
+Repo state: `validation_full_chain_results_2026.csv` re-locked with 60 rows (was 20). The locked
+2025 table is untouched — the guard tagged the output, as intended. Charts:
+`charts/validation/validation_{ratio,pct}_full_chain_2026.png` are new; the four 2025/direct charts
+regenerated **byte-for-byte**. Note `06_visualize_validation.py` had been silently skipping
+vintage-tagged tables — its auto-detect glob (`validation_*_results.csv`) did not match
+`…_results_2026.csv`, so the 2026 results had never been charted; fixed, and chart filenames + titles
+now carry the vintage so a tagged run cannot overwrite the locked 2025 images. **This machine's build is now
+2026**; reproducing the locked 2025 table requires `03b --vintage 2025` + `03` first.

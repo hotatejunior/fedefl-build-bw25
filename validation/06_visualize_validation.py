@@ -69,16 +69,34 @@ CATEGORY_ORDER = list(CATEGORY_LABELS.keys())
 # `process` column in validation_*_results.csv exactly. Used to disambiguate the
 # per-category rows in the validation chart (e.g. GWP_Petroleum vs GWP_Corn).
 PROCESS_LABELS = {
+    # 2025-vintage locked cases
     "Petroleum refining; at refinery": "Petroleum",
     "Corn; whole plant; at field":     "Corn",
     "Portland cement; at plant":       "Cement",
     "Steel; billets; at plant":        "Billets",
+    # 2026-vintage cases (validated 2026-07-23). Steel appears in both tables --
+    # it has no grid electricity, so it is vintage-agnostic.
+    "Chlorine; chlor-alkali electrolysis; at plant": "Chlorine",
+    "Hardboard; at hardboard plant":                 "Hardboard",
+    # NB: this process is named for the oil, but its quantitative reference (and
+    # therefore everything plotted here) is Soy meal; at plant. See VALIDATION_LOG.
+    "Soybean oil; crude, degummed; at plant":        "Soy meal",
+    "Recycled postconsumer high-density polyethylene, HDPE, flake; at plant": "HDPE flake",
+    "Recycled postconsumer polyethylene terephthalate, PET, flake; at plant": "PET flake",
 }
 
 # Order the test-case processes appear within each category group.
 PROCESS_ORDER = list(PROCESS_LABELS.keys())
 
 _PASS_BAND = (0.95, 1.05)
+
+
+def _vintage_note(tag):
+    """Human note for a vintage-tagged results table ("_2026" -> ", 2026 electricity
+    baseline"). The default table's tag is "" and gets no note. Titles carry this
+    because a chart embedded in a report is separated from its filename, and the
+    baseline vintage materially moves any grid-dependent result."""
+    return f", {tag.lstrip('_')} electricity baseline" if tag else ""
 
 # =============================================================================
 # CLI
@@ -141,7 +159,7 @@ def _sort_cats(df, col):
 # Reference line at 1.0; shaded ±5% tolerance band.
 # One output file per validation mode (direct / full_chain).
 # =============================================================================
-def plot_validation_ratio(df: pd.DataFrame) -> None:
+def plot_validation_ratio(df: pd.DataFrame, tag: str = "") -> None:
     cat_ord  = {c: i for i, c in enumerate(CATEGORY_ORDER)}
     proc_ord = {p: i for i, p in enumerate(PROCESS_ORDER)}
 
@@ -201,7 +219,8 @@ def plot_validation_ratio(df: pd.DataFrame) -> None:
         ax.set_ylim(n - 0.5, -0.5)   # invert, with a little padding
         ax.set_xlabel("brightway / openLCA ratio", fontsize=10)
         proc_note = "" if multi_proc else f" — {_proc_short(sub['process'].iloc[0])} only"
-        ax.set_title(f"Pipeline validation — BW/OL ratio ({mode} mode{proc_note})",
+        ax.set_title(f"Pipeline validation — BW/OL ratio ({mode} mode{proc_note}"
+                     f"{_vintage_note(tag)})",
                      fontsize=12, pad=12)
         ax.margins(y=0)
 
@@ -209,7 +228,7 @@ def plot_validation_ratio(df: pd.DataFrame) -> None:
         ax.legend(handles=[band_patch], fontsize=9, loc="lower left",
                   bbox_to_anchor=(0, 1.005), frameon=False)
         fig.tight_layout()
-        _save(fig, f"validation_ratio_{mode}")
+        _save(fig, f"validation_ratio_{mode}{tag}")
 
 
 # =============================================================================
@@ -218,7 +237,7 @@ def plot_validation_ratio(df: pd.DataFrame) -> None:
 # Reference line at 100%; dotted line at 95%.
 # One output file per validation mode.
 # =============================================================================
-def plot_validation_pct(df: pd.DataFrame) -> None:
+def plot_validation_pct(df: pd.DataFrame, tag: str = "") -> None:
     def _color(r):
         if r is None or pd.isna(r): return "#aaaaaa"
         if r >= 0.95: return "#3cb464"
@@ -254,12 +273,13 @@ def plot_validation_pct(df: pd.DataFrame) -> None:
         ax.axvline(95,  color="#3cb464", linewidth=0.7, linestyle=":")
         ax.set_xlabel("BW score as % of openLCA reference")
         proc_note = "" if multi_proc else f" — {_proc_short(sub['process'].iloc[0])} only"
-        ax.set_title(f"Pipeline validation — % of reference ({mode} mode{proc_note})",
+        ax.set_title(f"Pipeline validation — % of reference ({mode} mode{proc_note}"
+                     f"{_vintage_note(tag)})",
                      fontsize=11, pad=10)
         ax.invert_yaxis()
         ax.tick_params(axis="y", labelsize=9)
         fig.tight_layout()
-        _save(fig, f"validation_pct_{mode}")
+        _save(fig, f"validation_pct_{mode}{tag}")
 
 
 # =============================================================================
@@ -272,7 +292,10 @@ def main() -> None:
         val_paths = [Path(VALIDATION_CSV)]
     else:
         # 05 writes its CSVs next to itself in validation/, not the CWD.
-        val_paths = sorted(HERE.glob("validation_*_results.csv"))
+        # Trailing wildcard so vintage-tagged tables (…_results_2026.csv, written by
+        # 05 for any non-default electricity vintage) are charted too, not silently
+        # skipped the way "…_results.csv" did.
+        val_paths = sorted(HERE.glob("validation_*_results*.csv"))
         if val_paths:
             print(f"\nAuto-detected validation CSV(s): {[str(p) for p in val_paths]}")
 
@@ -287,8 +310,12 @@ def main() -> None:
         if missing:
             print(f"  WARNING: validation CSV missing columns {missing} — skipping.")
             continue
-        plot_validation_ratio(val_df)
-        plot_validation_pct(val_df)
+        # "validation_full_chain_results_2026" -> "_2026"; default table -> "".
+        # Both tables carry mode="full_chain", so without this the 2026 charts
+        # would overwrite the locked 2025 ones.
+        tag = vp.stem.split("_results", 1)[1]
+        plot_validation_ratio(val_df, tag)
+        plot_validation_pct(val_df, tag)
         ran_any = True
 
     if not ran_any:

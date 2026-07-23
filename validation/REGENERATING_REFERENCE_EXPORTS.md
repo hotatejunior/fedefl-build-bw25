@@ -16,15 +16,21 @@ have to trust — or download — the maintainer's copies.
 
 ## What you are producing
 
-Five Excel exports — one per validation cell. Four feed full-chain mode; one feeds direct mode.
+Ten Excel exports — one per validation case. Nine feed full-chain mode; one feeds direct mode.
+The vintage column is the electricity baseline that must be mounted (see below).
 
-| File (exact name the harness expects) | Mode | Sheet the harness reads | Lives in |
-|---|---|---|---|
-| `Petroleum_refining__at_refinery___US__AVG_ELEC_SELECTION.xlsx` | full-chain | `Impacts` | `source_data/` |
-| `Corn__whole_plant__at_field___US_AVG_ELEC_SELECTION.xlsx` | full-chain | `Impacts` | `source_data/` |
-| `Portland_cement__at_plant___US__US_AVG_ELEC_SELECTION.xlsx` | full-chain | `Impacts` | `source_data/` |
-| `Steel__billets__at_plant___RNA_results.xlsx` | full-chain | `Impacts` | `source_data/` |
-| `Petroleum_refining__at_refinery___US_kg_basis.xlsx` | direct | `Direct impact contributions` | `validation/` |
+| File (exact name the harness expects) | Mode | Vintage | Sheet the harness reads | Lives in |
+|---|---|---|---|---|
+| `Petroleum_refining__at_refinery___US__AVG_ELEC_SELECTION.xlsx` | full-chain | 2025 | `Impacts` | `source_data/` |
+| `Corn__whole_plant__at_field___US_AVG_ELEC_SELECTION.xlsx` | full-chain | 2025 | `Impacts` | `source_data/` |
+| `Portland_cement__at_plant___US__US_AVG_ELEC_SELECTION.xlsx` | full-chain | 2025 | `Impacts` | `source_data/` |
+| `Steel__billets__at_plant___RNA_results.xlsx` | full-chain | either | `Impacts` | `source_data/` |
+| `Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx` | full-chain | 2026 | `Impacts` | `source_data/` |
+| `Recycled_postconsumer_polyethylene_terephthalate__PET__flake__at_plant___RNA.xlsx` | full-chain | 2026 | `Impacts` | `source_data/` |
+| `Chlorine__chlor_alkali_electrolysis__at_plant___US.xlsx` | full-chain | 2026 | `Impacts` | `source_data/` |
+| `Hardboard__at_hardboard_plant___RNA.xlsx` | full-chain | 2026 | `Impacts` | `source_data/` |
+| `Soybean_oil__crude__degummed__at_plant___RNA.xlsx` | full-chain | 2026 | `Impacts` | `source_data/` |
+| `Petroleum_refining__at_refinery___US_kg_basis.xlsx` | direct | 2025 | `Direct impact contributions` | `validation/` |
 
 Filenames matter: they are hardcoded in `TARGETS_FULL` / `TARGETS_DIRECT` at the top of
 `05_validate_uslci.py`. Either save with these exact names, or edit those dicts / set
@@ -52,26 +58,40 @@ compares against a grid the bundle never referenced.
 | `v1.2025-06.0` | `7068192a-999c-39b6-bf66-234a294bdf92` |
 | `v1.2026-06.0` | `75d4be66-…` |
 
-**Check any bundle before you open openLCA:**
+**Check any bundle before you open openLCA.** `setup/03b` classifies every bundle it finds and prints
+the verdict per file, so the quickest check is to run it against your bundle directory:
+
+```bash
+python setup/03b_import_electricity_baseline.py --bundle-dir source_data
+#   …_a900b507….zip: 11 external provider(s) referenced  [grid vintage: 2026]
+```
+
+Or read it straight out of the JSON:
 
 ```bash
 unzip -p source_data/<bundle>.zip "processes/*.json" | grep -o -e 7068192a -e 75d4be66 | sort | uniq -c
 ```
 
-Whichever UUID dominates is the vintage that bundle wants; mount that baseline. (A handful of stray
-references to the other vintage is normal — the four locked bundles show 85× `7068192a` and 1×
-`75d4be66`. Go with the dominant one.)
+Whichever UUID **dominates** is the vintage that bundle wants; mount that baseline. Note that
+presence alone is not the test — a handful of stray references to the other vintage is normal. The
+four locked bundles cite `7068192a` ~80 times and `75d4be66` exactly once, so "does it mention the
+2026 node?" would wrongly answer yes for every bundle in the repo.
 
 > **New bundles from LCA Commons are 2026-vintage.** Everything in the July-2026 drop — recycled HDPE
 > flake, recycled PET flake, "Corn; at field" — references `75d4be66` **exclusively** (91, 91, and 86
 > references, zero to 2025). If you are pulling a fresh bundle today, expect to mount
 > `v1.2026-06.0`, not the 2025 baseline the four locked cases use.
 
-On the brightway side this is the `setup/03b --vintage {2025|2026}` flag. **A build injects exactly
-one vintage**, stamps it onto the database, and `05_validate_uslci.py` hard-skips any case whose
-expected vintage doesn't match the build — so a mismatch shows up as a `SKIP:` line, not a wrong
-number. Add the new case's expected vintage to `EXPECTED_VINTAGE` in `05_validate_uslci.py` when you
-add it to `TARGETS_FULL`.
+On the brightway side you normally don't have to specify anything: `setup/03b` **auto-detects** the
+vintage from the bundles' own references and defaults to it. **A build injects exactly one vintage**,
+stamps it onto the database, and `05_validate_uslci.py` hard-skips any case whose expected vintage
+doesn't match the build — so a mismatch shows up as a `SKIP:` line, not a wrong number.
+
+If `source_data/` holds bundles from *both* releases (as it does once you add 2026-drop cases
+alongside the four locked ones), `03b` stops and prints which bundles want which vintage: one build
+cannot satisfy both. Build and validate one group, then rebuild for the other —
+`--vintage {2025|2026}` selects explicitly. Add each new case's expected vintage to
+`EXPECTED_VINTAGE` in `05_validate_uslci.py` when you add it to `TARGETS_FULL`.
 
 ## The openLCA session — per test case
 
@@ -101,6 +121,11 @@ matches by importing that same baseline via `setup/03b`.
    - Corn; whole plant: `11256034-2355-3add-ade9-59983025dded`
    - Portland cement: `62993671-574c-3fc5-b66a-6be3bb21ad3d`
    - Steel; billets: `ac54bc7d-5db5-3b4f-9175-5dd02f678312`
+   - Chlorine; chlor-alkali: `a3e150d0-770e-4e2a-9b19-f7daa8cda38b`
+   - Hardboard: `ca1d1dfa-fd3c-35f1-bea7-a037251deb04`
+   - Soybean oil (reference product is **Soy meal; at plant**, not the oil): `88aee762-4aa0-301f-b579-cca5d636aa0d`
+   - Recycled HDPE flake: `17664c37-72c0-4813-a4b9-93f962962c63`
+   - Recycled PET flake: `f7b7280d-f372-3a4b-86cf-caa588ca67ea`
 6. **Set the functional unit to `Amount: 1.0 kg`** of the reference product — *not* the process's
    native declared amount (e.g. petroleum's own reference is 0.2523 L, not 1 kg). The harness
    normalizes brightway to this same 1 kg basis.
@@ -147,8 +172,8 @@ Place the four full-chain files in `source_data/` (and the direct file in `valid
 python validation/05_validate_uslci.py     # --mode full_chain is the default
 ```
 
-Expect every BW/OL ratio inside ±5% — in fact all 40 cells reproduce openLCA within 0.1% (every cell
-rounds to 1.000). The harness overwrites
+Expect every BW/OL ratio inside ±5% — in fact all 40 cells of the 2025 build reproduce openLCA
+within 0.1% (every cell rounds to 1.000), as do the 60 cells of the 2026 build. The harness overwrites
 `validation/validation_full_chain_results.csv`; an empty `git diff` on it means your regenerated
 exports reproduce the locked comparison. Rows flagged `!` are outside tolerance — if you get those,
 re-check steps 2 (library mounted), 4 (electricity provider linked), and 6 (1 kg basis), which are

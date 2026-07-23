@@ -1,10 +1,20 @@
 # Validation package — replicating the openLCA comparison
 
 This directory contains everything needed to replicate the headline claim in
-[`VALIDATION_REPORT.md`](../VALIDATION_REPORT.md): **all 40 category × process cells reproduce openLCA
-within 0.1% on identical inputs** — every cell rounds to a ratio of 1.000. (The last gap, petroleum's
-toxicity categories, closed 2026-07-21 when `setup/03` was fixed to honor USLCI's `isAvoidedProduct`
-flag — see the report.)
+[`VALIDATION_REPORT.md`](../VALIDATION_REPORT.md): **all 100 category × process cells reproduce
+openLCA within 0.1% on identical inputs** — every cell rounds to a ratio of 1.000.
+
+The cells span **nine processes across two builds**, because a build injects exactly one
+electricity-baseline vintage:
+
+| Build | Cases | Cells | Max deviation |
+|---|---|---|---|
+| **2025 vintage** (`validation_full_chain_results.csv`) | petroleum, corn, cement, steel | 40 | < 0.0001% |
+| **2026 vintage** (`validation_full_chain_results_2026.csv`) | steel, HDPE flake, PET flake, chlorine, hardboard, soy meal | 60 | 0.00077% |
+
+Steel appears in both — it has no grid electricity, so it is vintage-agnostic. (The last gap,
+petroleum's toxicity categories, closed 2026-07-21 when `setup/03` was fixed to honor USLCI's
+`isAvoidedProduct` flag — see the report.)
 
 Ported 2026-07-04 from the parent project this engine was extracted from. On the same day, the
 harness was re-run **from this repo** and reproduced the locked results **byte-for-byte** (see
@@ -17,7 +27,7 @@ harness was re-run **from this repo** and reproduced the locked results **byte-f
 | `05_validate_uslci.py` | The harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports. Mode via `--mode {full_chain,direct}` (default `full_chain`) |
 | `06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
 | `validation_full_chain_results.csv` | **Locked** full-chain results on a 2025-vintage build (the 40-cell table in the report: petroleum, corn, cement, steel) |
-| `validation_full_chain_results_2026.csv` | **Locked** full-chain results on a `--vintage 2026` build (steel + recycled-HDPE flake — see the vintage note below) |
+| `validation_full_chain_results_2026.csv` | **Locked** full-chain results on a `--vintage 2026` build (steel, HDPE flake, PET flake, chlorine, hardboard, soy meal — see the vintage note below) |
 | `validation_direct_results.csv` | **Locked** direct-mode results (LCIA-math-only layer, petroleum) |
 | `VALIDATION_LOG.md` | The running provenance log: validation design, environment pins, asset SHA256s, and the full chronological results record — including the failed runs and disproven theories that preceded the passing state |
 | `REGENERATING_REFERENCE_EXPORTS.md` | How to reproduce the openLCA reference exports in your own openLCA 2.6 — the intended path, since the exports are not shipped in the repo |
@@ -50,10 +60,11 @@ Direct mode (isolates CF/flow-mapping from the system solve) is a flag, not a so
 `python validation/05_validate_uslci.py --mode direct`. It currently covers petroleum only, because
 that is the only case with a kg-basis openLCA export.
 
-### Replicating the HDPE case (2026 vintage)
+### Replicating the 2026-vintage cases
 
-A build injects exactly **one** electricity-baseline vintage, so the HDPE case is a separate build,
-not an extra row in the run above. Its bundle hardcodes the 2026-06 grid UUID:
+A build injects exactly **one** electricity-baseline vintage, so the five 2026 cases (HDPE flake,
+PET flake, chlorine, hardboard, soy meal — plus steel, which runs on either) are a separate build,
+not extra rows in the run above. Their bundles hardcode the 2026-06 grid UUID:
 
 ```bash
 python setup/03b_import_electricity_baseline.py --vintage 2026
@@ -62,9 +73,14 @@ python validation/05_validate_uslci.py     # → validation_full_chain_results_2
 git diff validation/validation_full_chain_results_2026.csv
 ```
 
+`setup/03b` auto-detects the vintage from the bundles, so `--vintage` is only needed to disambiguate
+when `source_data/` holds both generations (it stops and shows the split rather than guessing).
+
 The harness reads the vintage stamp the build wrote and **skips** any case whose expected vintage
 doesn't match, writing a vintage-tagged CSV — so a 2026 build cannot silently overwrite or be diffed
-against the locked 2025 table. Rebuild with `--vintage 2025` (the default) to return to it.
+against the locked 2025 table. Rebuild with `--vintage 2025` to return to it.
+`06_visualize_validation.py` tags its output the same way, writing
+`charts/validation/validation_{ratio,pct}_full_chain_2026.png` alongside the 2025 images.
 
 ## Data assets and pinned hashes
 
@@ -107,19 +123,42 @@ results were computed against.
 > stream (different packaging of the same content). `03b` prefers a hand-placed copy when present and
 > verifies whichever it uses against the matching pin; the two hashes are not meant to agree.
 
-### 2026-vintage assets (→ `source_data/`) — for the HDPE case only
+### 2026-vintage assets (→ `source_data/`) — the five-case 2026 build
 
 A build injects exactly **one** electricity-baseline vintage (see "Electricity-baseline vintage" in
 the DEVLOG). These assets belong to the `03b --vintage 2026` build, which produces the separate
 locked table `validation_full_chain_results_2026.csv`. They are **not** used by, and cannot affect,
-the 2025 locked results above.
+the 2025 locked results above. `setup/03b` detects which vintage a bundle needs and defaults to it,
+so you do not have to track this by hand — it stops and shows the split if a bundle directory mixes
+both.
 
-| Asset | Role | SHA256 |
+**Bundles** (→ `source_data/`):
+
+| Test case | Bundle | SHA256 |
 |---|---|---|
-| `17664c37-…_a900b507….zip` | Recycled-HDPE-flake bundle — the causal co-product consumption case | `cfb579d9a60034d70fad4a0e6bfb58d1dfcc28e4b428b6442618868769c21bae` |
-| `U.S._electricity_baseline_v1.2026-06.0.zip` | 2026-06 baseline library (also pinned in `setup/03b`) | `fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143` |
-| `Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx` | openLCA reference export (full-chain) — distributed-copy pin only, see the boxed note above | `d3d65b1f8986bc8354071a756b7c6036c9573116caf91adf122a7cd6dd0aaa5b` |
-| `f7b7280d-…_a900b507….zip` | Recycled-PET-flake bundle — builds and solves, but **no openLCA export exists yet**, so it is not a validation case | `5eaac06844c8e134bd43d588ad45dcf8f2a7faa3caad5261776502666a525051` |
+| Recycled HDPE flake; at plant | `17664c37-…_a900b507….zip` (proc v00.01.029) | `cfb579d9a60034d70fad4a0e6bfb58d1dfcc28e4b428b6442618868769c21bae` |
+| Recycled PET flake; at plant | `f7b7280d-…_a900b507….zip` (proc v00.01.025) | `5eaac06844c8e134bd43d588ad45dcf8f2a7faa3caad5261776502666a525051` |
+| Chlorine; chlor-alkali electrolysis | `a3e150d0-…_a900b507….zip` (proc v00.01.022) | `7491b15382589dff4bb6a4c1cf80b8a438d0c84230d0a687f7e914d1ff5ae34e` |
+| Hardboard; at hardboard plant | `ca1d1dfa-…_a900b507….zip` (proc v00.01.012) | `b229a1832328e63c18330661aea7f138859c5b0ddec9baa39131697b31d27593` |
+| Soybean oil; crude, degummed | `88aee762-…_a900b507….zip` (proc v00.00.015) | `0c6a97d9446766ca7d4dc30fea997fb8a031c393629020f802fcd88dd936f7dd` |
+
+**Background + openLCA reference exports** (→ `source_data/`; export hashes pin the maintainer's
+distributed copies only — see the boxed note above):
+
+| Asset | SHA256 |
+|---|---|
+| `U.S._electricity_baseline_v1.2026-06.0.zip` (also pinned in `setup/03b`) | `fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143` |
+| `Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx` | `d3d65b1f8986bc8354071a756b7c6036c9573116caf91adf122a7cd6dd0aaa5b` |
+| `Recycled_postconsumer_polyethylene_terephthalate__PET__flake__at_plant___RNA.xlsx` | `e101e5f883709eb190f59544733208da14792c3669bbf968dbe9f29d295811c0` |
+| `Chlorine__chlor_alkali_electrolysis__at_plant___US.xlsx` | `c031f56568ef279d2bee6b0a1f03b55541b65176d2d97bee176f21c8c21b5c35` |
+| `Hardboard__at_hardboard_plant___RNA.xlsx` | `72622e49c9719e10377940d4e90a9e8fb42c3bd49b7434f9c1420ebd5de6426c` |
+| `Soybean_oil__crude__degummed__at_plant___RNA.xlsx` | `be681554eb0f50cb92d144e73761e85301f79fed33c799827c168679933e92e1` |
+
+> **The soybean case reports soy meal, not oil.** The process `Soybean oil; crude, degummed; at
+> plant` declares **`Soy meal; at plant` (4131 kg) as its quantitative reference**, with the oil as
+> the co-product (physical split: meal 0.8051 / oil 0.1949). Both engines therefore report soy meal,
+> and the openLCA export correctly names it as the Product. This is USLCI's modelling, not a setup
+> error — do not "fix" it.
 
 ### openLCA reference exports (hashes first pinned 2026-07-04)
 
@@ -141,6 +180,7 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
 | 2026-07-02 | parent project; conda `asp-lca-bw25` (py 3.11.x, bw2data 4.7, bw2calc 2.5.0) | Original locked run — 40/40 within 5%, 35/40 within 1%, max dev 2.71% (petroleum ecotox/cancer/non-cancer) |
 | 2026-07-04 | **this repo**, post-port; conda `asp-lca-bw25` (py 3.11.15, bw2data 4.7, bw2calc 2.5.0, pandas 3.0.3) | `validation_full_chain_results.csv` reproduced **byte-for-byte**; all four `charts/validation/*.png` reproduced byte-for-byte |
 | 2026-07-07 | **this repo**, post-rename; conda `asp-lca-bw25` (py 3.11.15, bw2data 4.7, bw2calc 2.5.0, pandas 3.0.3) | brightway project renamed `asphalt-lca` → `fedefl-build-bw25` (`config.py`); full setup chain (`01→02→03b→03`) rebuilt from scratch under the new name, harness re-run → `validation_full_chain_results.csv` reproduced **byte-for-byte** (empty `git diff`). Confirms the project name is non-load-bearing. |
+| 2026-07-23 | **this repo**, `--vintage 2026` build | **Five new cases validated** from a fresh openLCA operator session: recycled-PET flake, chlorine (chlor-alkali), hardboard, soybean oil — joining HDPE flake and steel. **60/60 cells within 0.001%** (max 0.00077%). First non-degenerate allocation grids in the test set: chlorine's 3-way physical split (NaOH .5453 / Cl₂ .4357 / H₂ .019), hardboard's 7 co-products, soy's .8051/.1949. Locked in `validation_full_chain_results_2026.csv`; the 2025 table was untouched (vintage guard skipped its three grid-dependent cases). |
 | 2026-07-21 | **this repo**; branch `release-prep-phase1-2` | **Re-locked** after the `isAvoidedProduct` fix in `setup/03` (byproduct energy-recovery credits — chiefly landfill-gas electricity — were being imported as burdens). Closed the last petroleum residual: **all 40 cells now within 0.1% of openLCA** (every cell rounds to 1.000); corn and cement tightened too. Supersedes the earlier "crude-electricity / reference-completeness" reading of the petroleum gap. All 41 pytest checks pass. |
 
 ## Known limitations of this package (honest scope)
@@ -172,8 +212,7 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
   splits (petroleum's 9-product physical grid; the HDPE case's causal grids).
 - Direct mode currently covers petroleum only — it is the only case with a kg-basis openLCA export.
   (Mode switching itself is no longer a source edit: `--mode {full_chain,direct}`.)
-- The causal-allocation co-product **consumption** path is now covered: the recycled-HDPE-flake case
-  (`17664c37…`, a `--vintage 2026` build) consumes causal co-products from the MRF-sorting processes
-  and reproduces openLCA within 0.01% on all 10 categories, locked in
-  `validation_full_chain_results_2026.csv`. (The recycled-PET-flake case builds and solves too, but has
-  no openLCA reference export yet, so it is not validated.)
+- The causal-allocation co-product **consumption** path is covered twice over: the
+  recycled-HDPE-flake (`17664c37…`) and recycled-PET-flake (`f7b7280d…`) cases both consume causal
+  co-products from the MRF-sorting processes and reproduce openLCA within 0.001% on all 10
+  categories, locked in `validation_full_chain_results_2026.csv`.

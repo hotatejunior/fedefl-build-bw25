@@ -83,6 +83,7 @@ def test_build_manifest_shape_is_stable():
         target={"uuid": "A", "name": "clean proc"},
         project="fedefl-build-bw25",
         databases={USLCI: {"activity_count": 1}},
+        electricity_vintage={"vintage": "2025", "status": "ok"},
         methods=[["TRACI", "2.2", "Global warming"]],
         packages={"bw2calc": "2.5.0"},
         provenance_source={"available": True},
@@ -92,7 +93,69 @@ def test_build_manifest_shape_is_stable():
     )
     assert m["schema"] == rm.SCHEMA
     assert set(m) == {
-        "schema", "generated", "target", "project", "databases", "methods",
-        "packages", "provenance_source", "solved_system", "completeness", "results",
+        "schema", "generated", "target", "project", "databases", "electricity_vintage",
+        "methods", "packages", "provenance_source", "solved_system", "completeness",
+        "results",
     }
     assert m["completeness"]["fully_linked"] is True
+
+
+# =============================================================================
+# electricity-vintage attestation
+#
+# A build injects exactly one baseline vintage and it materially moves any result
+# with grid electricity upstream — recomputing the locked cases against the wrong
+# vintage shifts them ~10% (corn 0.887-1.025, cement 0.929-1.052), which reads as
+# a bad number rather than a bad build. The manifest has to say which grid it was.
+# =============================================================================
+USLCI_DB = "uslci-subset"
+ELEC_DB = "electricity-baseline"
+
+
+def _vint(uslci=..., baseline=...):
+    dbs = {}
+    if uslci is not ...:
+        dbs[USLCI_DB] = {"electricity_vintage": uslci}
+    if baseline is not ...:
+        dbs[ELEC_DB] = {"electricity_vintage": baseline}
+    return rm.summarize_electricity_vintage(dbs, USLCI_DB, ELEC_DB)
+
+
+def test_matching_stamps_report_the_vintage():
+    v = _vint(uslci="2026", baseline="2026")
+    assert v == {"vintage": "2026", "status": "ok"}
+
+
+def test_unstamped_build_is_reported_as_unattestable_not_guessed():
+    v = _vint(uslci=None, baseline=None)
+    assert v["vintage"] is None and v["status"] == "unstamped"
+    assert "cannot be attested" in v["note"]
+
+
+def test_missing_databases_are_treated_as_unstamped():
+    assert rm.summarize_electricity_vintage({}, USLCI_DB, ELEC_DB)["status"] == "unstamped"
+
+
+def test_disagreeing_stamps_are_flagged_inconsistent():
+    # 03b re-run at a new vintage without re-running 03: the injected grid is
+    # 2026 while everything reading the stamp still believes 2025.
+    v = _vint(uslci="2025", baseline="2026")
+    assert v["status"] == "inconsistent"
+    assert v["vintage"] is None, "must not pick a side when the build disagrees"
+    assert v["uslci_db_vintage"] == "2025" and v["baseline_db_vintage"] == "2026"
+    assert "setup/03" in v["note"]
+
+
+def test_one_sided_stamp_still_reports_the_known_vintage():
+    assert _vint(uslci="2025", baseline=None)["vintage"] == "2025"
+    assert _vint(uslci=None, baseline="2026")["vintage"] == "2026"
+
+
+def test_manifest_carries_the_vintage_block():
+    m = rm.build_manifest(
+        generated="2026-07-23T00:00:00Z", target={}, project="p", databases={},
+        electricity_vintage={"vintage": "2026", "status": "ok"},
+        methods=[], packages={}, provenance_source=None,
+        solved_system={}, completeness={}, results=[])
+    assert m["electricity_vintage"] == {"vintage": "2026", "status": "ok"}
+    assert m["schema"] == "validation-manifest/2"

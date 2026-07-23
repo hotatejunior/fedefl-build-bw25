@@ -94,6 +94,25 @@ TARGETS_FULL = {
     # 2025 table. Validated within 0.01% on all 10 categories (2026-vintage build).
     "17664c37-72c0-4813-a4b9-93f962962c63":
         SOURCE_DATA /"Recycled_postconsumer_high_density_polyethylene__HDPE__flake__at_plant___RNA_July_20.xlsx",
+    # --- 2026-vintage cases added 2026-07-23 (operator session) -------------
+    # PET flake: the second causal co-product CONSUMPTION case (its own target
+    # process is NO_ALLOCATION; the allocation work is upstream in MRF sorting).
+    "f7b7280d-f372-3a4b-86cf-caa588ca67ea":
+        SOURCE_DATA /"Recycled_postconsumer_polyethylene_terephthalate__PET__flake__at_plant___RNA.xlsx",
+    # The three PHYSICAL_ALLOCATION multi-output cases -- the first non-degenerate
+    # allocation grids in the test set (USLCI's ECONOMIC factors are all 0/1, see
+    # the 2026-07-23 census in VALIDATION_LOG).
+    #   chlorine   3 products, NaOH .5453 / Cl2 .4357 / H2 .019
+    #   hardboard  7 products, .8634 -> .0016, deepest linked upstream in USLCI
+    #   soy        2 products, meal .8051 / oil .1949  -- NOTE the process is named
+    #              for the oil but its QUANTITATIVE REFERENCE is Soy meal; at plant,
+    #              so both engines report soy meal. openLCA export confirmed.
+    "a3e150d0-770e-4e2a-9b19-f7daa8cda38b":
+        SOURCE_DATA /"Chlorine__chlor_alkali_electrolysis__at_plant___US.xlsx",
+    "ca1d1dfa-fd3c-35f1-bea7-a037251deb04":
+        SOURCE_DATA /"Hardboard__at_hardboard_plant___RNA.xlsx",
+    "88aee762-4aa0-301f-b579-cca5d636aa0d":
+        SOURCE_DATA /"Soybean_oil__crude__degummed__at_plant___RNA.xlsx",
 }
 
 # The default vintage: cases at this vintage write the git-tracked locked CSV;
@@ -111,6 +130,10 @@ EXPECTED_VINTAGE = {
     "62993671-574c-3fc5-b66a-6be3bb21ad3d": "2025",  # cement
     "ac54bc7d-5db5-3b4f-9175-5dd02f678312": None,    # steel — no electricity
     "17664c37-72c0-4813-a4b9-93f962962c63": "2026",  # HDPE flake (post-beta)
+    "f7b7280d-f372-3a4b-86cf-caa588ca67ea": "2026",  # PET flake
+    "a3e150d0-770e-4e2a-9b19-f7daa8cda38b": "2026",  # chlorine, chlor-alkali
+    "ca1d1dfa-fd3c-35f1-bea7-a037251deb04": "2026",  # hardboard
+    "88aee762-4aa0-301f-b579-cca5d636aa0d": "2026",  # soybean oil (ref = soy meal)
 }
 
 # Density (kg/m3) for processes whose production exchange is in volume units.

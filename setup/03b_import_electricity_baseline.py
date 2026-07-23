@@ -41,6 +41,7 @@ from pathlib import Path
 import bw2data as bd
 
 from olca_library import OlcaLibrary, read_library
+from vintage_detect import classify_bundle, decide_vintage, format_conflict
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
@@ -78,6 +79,10 @@ BUNDLE_GLOB = "????????-????-????-????-????????????_*.zip"
 #   fetch_target -- where an auto-download lands.
 #   url / sha256 -- canonical release artifact on the Federal LCA Commons GitHub
 #                   and its whole-file hash (checked on download only).
+#   grid_uuid    -- that release's US-average grid process ("Electricity; at
+#                   user; consumption mix - US - US"). Same name every release,
+#                   different UUID -- which is what makes it the vintage marker
+#                   the bundles are auto-classified by (see vintage_detect).
 VINTAGES = {
     "2025": {
         "hand_placed":  DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2025-06.0_from_olca",
@@ -85,6 +90,7 @@ VINTAGES = {
         "url": "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/"
                "downloads/U.S._electricity_baseline_v1.2025-06.0.zip",
         "sha256": "9fec32a8b5f75560c93d6a34986ee5e1166cd3d1cd257616172a3e041cab2815",
+        "grid_uuid": "7068192a-999c-39b6-bf66-234a294bdf92",
     },
     "2026": {
         "hand_placed":  DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2026-06.0.zip",
@@ -92,9 +98,11 @@ VINTAGES = {
         "url": "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/"
                "downloads/U.S._electricity_baseline_v1.2026-06.0.zip",
         "sha256": "fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143",
+        "grid_uuid": "75d4be66-12a7-30b3-bc57-fa724c941b0e",
     },
 }
-DEFAULT_VINTAGE = "2025"
+DEFAULT_VINTAGE = "2025"   # only used when no bundle names a grid node at all
+GRID_UUIDS = {v: c["grid_uuid"] for v, c in VINTAGES.items()}
 
 
 # =============================================================================
@@ -280,19 +288,22 @@ def resolve_library(explicit: Path | None, fetch: bool, cfg: dict) -> Path:
 # =============================================================================
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--vintage", choices=sorted(VINTAGES), default=DEFAULT_VINTAGE,
-                     help=f"electricity-baseline vintage to inject (default "
-                          f"{DEFAULT_VINTAGE}). The 4 locked cases use 2025; the "
-                          f"HDPE/PET bundles require 2026. One vintage per build.")
+    ap.add_argument("--vintage", choices=sorted(VINTAGES), default=None,
+                     help="electricity-baseline vintage to inject. Default: "
+                          "auto-detected from the bundles' own grid references "
+                          "(the 4 locked cases resolve to 2025; the HDPE/PET and "
+                          "2026-drop bundles to 2026). One vintage per build; pass "
+                          "this explicitly to override detection or to break a "
+                          "mixed-bundle tie.")
     ap.add_argument("--library", type=Path, default=None,
-                     help="explicit path to a baseline library zip, overriding "
-                          "--vintage's auto-detect/fetch (still stamped as --vintage)")
+                     help="explicit path to a baseline library zip, overriding the "
+                          "vintage's auto-detect/fetch (still stamped with the "
+                          "selected vintage)")
     ap.add_argument("--no-fetch", action="store_true",
                      help="don't download the baseline if it's missing locally")
     ap.add_argument("--bundle-dir", type=Path, default=DEFAULT_BUNDLE_DIR,
                      help="directory to glob USLCI bundle zips from")
     args = ap.parse_args()
-    cfg = VINTAGES[args.vintage]
 
     bd.projects.set_current(PROJECT_NAME)
     if not bd.projects.twofive:
@@ -301,21 +312,46 @@ def main():
     if BIOSPHERE_DB not in bd.databases:
         raise RuntimeError("Run setup/01_setup_biosphere_fedefl.py first.")
 
-    library = resolve_library(args.library, fetch=not args.no_fetch, cfg=cfg)
-    print(f"Electricity-baseline vintage: {args.vintage}  (library: {library.name})")
-
     bundle_zips = sorted(args.bundle_dir.glob(BUNDLE_GLOB))
     if not bundle_zips:
         raise SystemExit(f"No bundle zips found in {args.bundle_dir}")
 
+    # Scan first: the same pass that finds providers to inject also tells us
+    # which baseline vintage the bundles were built against.
     print(f"Scanning {len(bundle_zips)} bundle(s) in {args.bundle_dir} for external providers...")
     external: dict[str, dict] = {}
+    verdicts: dict[str, dict] = {}
     for bpath in bundle_zips:
         found = find_external_providers(bpath)
-        print(f"  {bpath.name}: {len(found)} external provider(s) referenced")
+        verdicts[bpath.name] = classify_bundle(found, GRID_UUIDS)
+        print(f"  {bpath.name}: {len(found)} external provider(s) referenced"
+              f"  [grid vintage: {verdicts[bpath.name]['vintage'] or 'n/a'}]")
         for uid, info in found.items():
             entry = external.setdefault(uid, {**info, "referenced_by": set()})
             entry["referenced_by"] |= info["referenced_by"]
+
+    decision = decide_vintage(verdicts, explicit=args.vintage, default=DEFAULT_VINTAGE)
+    if decision["conflict"]:
+        raise SystemExit("\n" + format_conflict(decision))
+
+    vintage = decision["vintage"]
+    cfg = VINTAGES[vintage]
+    if decision["source"] == "detected":
+        print(f"\nAuto-detected electricity-baseline vintage: {vintage} "
+              f"(from {sum(len(b) for b in decision['groups'].values())} bundle(s); "
+              f"override with --vintage)")
+    elif decision["source"] == "default":
+        print(f"\nNo bundle references a baseline grid node — falling back to "
+              f"the default vintage {vintage}.")
+    else:
+        detected = [v for v in decision["groups"] if v != vintage]
+        print(f"\nElectricity-baseline vintage: {vintage} (set explicitly)")
+        if detected:
+            print(f"  NOTE: bundle references also point at {', '.join(sorted(detected))} — "
+                  f"those bundles will not link to this build's grid.")
+
+    library = resolve_library(args.library, fetch=not args.no_fetch, cfg=cfg)
+    print(f"Using library: {library.name}")
 
     print(f"\n{len(external)} distinct external provider(s) referenced across all bundles.")
 
@@ -362,12 +398,12 @@ def main():
     # onto 'uslci-subset' and the validation harness asserts against it, so a
     # case can never be silently diffed against the wrong-vintage grid (a build
     # is single-vintage; mixing 2025 cases with a 2026 grid is the footgun).
-    bd.databases[INJECTED_DB_NAME]["electricity_vintage"] = args.vintage
+    bd.databases[INJECTED_DB_NAME]["electricity_vintage"] = vintage
     bd.databases[INJECTED_DB_NAME]["electricity_library"] = lib.name
     bd.databases.flush()
 
     print(f"\nDatabase '{INJECTED_DB_NAME}' written — {len(db_data)} processes "
-          f"(electricity_vintage = {args.vintage}).")
+          f"(electricity_vintage = {vintage}).")
 
 
 if __name__ == "__main__":

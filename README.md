@@ -43,7 +43,7 @@ scripts are deliberately numbered and single-purpose.
 | `setup/00_build_flow_conversion_table.py` | Parse the full USLCI zip for substance-specific unit-conversion factors (rebuild-only; ships with a prebuilt table) |
 | `setup/01_setup_biosphere_fedefl.py` | Load FEDEFL elementary flows into brightway |
 | `setup/02_setup_traci22.py` | Load TRACI 2.2 characterization factors, mapped to FEDEFL UUIDs |
-| `setup/03b_import_electricity_baseline.py` | Inject the US electricity baseline (an openLCA library package) into brightway as aggregated background — run before `03`; auto-fetches the library |
+| `setup/03b_import_electricity_baseline.py` | Inject the US electricity baseline (an openLCA library package) into brightway as aggregated background — run before `03`; auto-fetches the library and auto-detects which baseline vintage your bundles need |
 | `setup/03_import_uslci.py` | Parse per-process USLCI JSON-LD exports → brightway database |
 | `setup/olca_library.py` | Standalone decoder for openLCA library (matrix) packages |
 | `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results |
@@ -82,6 +82,12 @@ The full USLCI zip that `setup/00` parses ships as a prebuilt table already, so 
 unless you rebuild it. The electricity baseline is sourced automatically: `setup/03b` downloads the
 version-pinned library from the Federal LCA Commons GitHub and verifies its SHA256 before use (pass
 `--no-fetch` to require a local copy, or `--library` to point at your own).
+
+> **Which baseline vintage?** You don't have to know. The US-average grid node is renamed-in-place
+> across baseline releases — same name, different UUID each vintage — and a build injects exactly
+> one. `setup/03b` reads which vintage your bundles actually reference and defaults to it. If your
+> `source_data/` mixes bundles from different releases it stops and shows you the split, since one
+> build cannot satisfy both. `--vintage {2025|2026}` overrides the detection.
 
 That leaves the **USLCI process bundles**, which you download by hand from
 [LCA Commons](https://www.lcacommons.gov). Pick each unit process you want to analyze and download it
@@ -144,8 +150,12 @@ linking, and the LCIA solve — not a validation of any study's real-world resul
 deliberately apples-to-apples: identical USLCI JSON-LD is fed to both engines, so any difference is
 attributable to the pipeline, not to data-version drift.
 
-Across four locked test cases (petroleum refining, corn, Portland cement, steel billets), **all 40
-category × process cells reproduce openLCA within 0.1%** — every cell rounds to a ratio of 1.000. The
+Across nine test cases, **all 100 category × process cells reproduce openLCA within 0.1%** — every
+cell rounds to a ratio of 1.000. They run as two builds, because the US electricity baseline renames
+its grid node between releases and a build carries one vintage: 40 cells on the 2025 baseline
+(petroleum refining, corn, Portland cement, steel billets) and 60 on the 2026 baseline (chlorine,
+hardboard, soy meal, recycled HDPE flake, recycled PET flake, plus steel again — it has no grid
+electricity, so it runs on either). The
 last gap to close was petroleum's toxicity categories: they traced to a single importer bug (brightway
 was not honoring USLCI's `isAvoidedProduct` flag, so byproduct energy-recovery *credits* — chiefly the
 landfill-gas electricity that displaces grid power — were imported as burdens). Fixing it snapped all
@@ -155,10 +165,12 @@ it has no supply chain to solve, it isolates the LCIA math and flow mapping, so 
 pinned to the foreground, the background, or both. It validates at 1.000, so full-chain coverage
 rests on petroleum, corn, and cement.)
 
-A fifth case, **recycled-HDPE flake**, validates separately within 0.01% on all 10 categories. It is
-the case that exercises the engine's most intricate path — consumption of a *causal-allocation
-co-product* — and it runs on its own build because its bundle is pinned to a newer electricity-grid
-vintage (see [`validation/README.md`](validation/README.md)).
+The 2026-baseline cases are where allocation actually gets stressed. **Chlorine** (chlor-alkali)
+splits three ways, **hardboard** seven, and **soybean oil** two — the first non-degenerate allocation
+grids in the test set, all reproducing openLCA within 0.001%. **Recycled HDPE and PET flake** exercise
+the engine's most intricate path, consumption of a *causal-allocation co-product*. One honest gap:
+economic allocation can't be tested against USLCI at all — every one of its 29 economic-allocation
+processes assigns 0.0 or 1.0, so no real economic split exists in the data to check against.
 
 **What this does *not* cover** stays with the practitioner: whether the allocation choices, system
 boundary, cutoffs, and data vintage are appropriate for *your* study is a modeling judgment the
@@ -245,6 +257,6 @@ a `--vintage 2026` build (locked in `validation_full_chain_results_2026.csv`).
 
 ## Roadmap
 
-- **Now:** the general pipeline is built, audited, and validated against openLCA — four locked test cases at full parity (40/40 cells within 0.1%), plus the recycled-HDPE-flake case covering causal co-product consumption.
+- **Now:** the general pipeline is built, audited, and validated against openLCA — nine test cases at full parity (100/100 cells within 0.1%), spanning physical, causal, and no-allocation processes across two electricity-baseline vintages.
 - **Next:** full USLCI database import (~10,000 processes) with fast process selection, replacing per-process downloads.
 - **Then:** dynamic LCA — time-resolved, parameterized, scenario-swept impact modeling on top of this engine, run programmatically and faster than the incumbent GUI tools.

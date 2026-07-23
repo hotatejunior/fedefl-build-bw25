@@ -48,8 +48,9 @@ engine). See CLAUDE.md for the script table and run order.
   process: its uniform grid means the co-product activity is the reference activity rescaled by
   exactly λ_co/λ_ref = 1.158249156 on all 20 non-product exchanges, matching the JSON factors at
   full precision; non-uniform grids are pinned by synthetic fixtures in `tests/test_allocation.py`.
-  openLCA parity for a *consumed* causal co-product is still pending a Phase 3.1 test case (the
-  USLCI recycling/MRF sector has real consumers — recovered HDPE/PET from sorting processes).
+  openLCA parity for a *consumed* causal co-product was confirmed 2026-07-21/23 by the recycled
+  HDPE-flake and PET-flake cases, which consume MRF-sorting co-products through exactly this path and
+  reproduce openLCA within 0.001% on all 10 categories.
 - **Per-process downloads, not the full USLCI zip.** LCA Commons bundles each process with its full
   upstream, so a handful of target processes arrive with their complete supply chains without
   importing the entire ~10,000-process database.
@@ -104,8 +105,11 @@ Condensed; the full diagnostic narrative for each lives in the parent project's 
   was correct throughout, and the residual was always brightway's missing (then sign-flipped) landfill
   credit.
 
-Outcome: **all 40 category × process cells validate within 0.1% of openLCA** — every cell rounds to a
-BW/OL ratio of 1.000. Full clean parity; the petroleum residual is closed. See `VALIDATION_REPORT.md`.
+Outcome: **all 40 category × process cells then in the test set validate within 0.1% of openLCA** —
+every cell rounds to a BW/OL ratio of 1.000. Full clean parity; the petroleum residual is closed. Five
+further cases added 2026-07-23 (chlorine, hardboard, soy meal, PET flake, alongside HDPE flake) took
+the total to **100 cells, all within 0.1%** — they landed on 1.000 on first run, having been validated
+after every fix above had already shipped. See `VALIDATION_REPORT.md`.
 
 **⚠️ Superseded 2026-07-21 — kept as history; the diagnosis in this paragraph was wrong.** The
 petroleum residual was not a reference artifact and not about crude electricity — it was brightway's
@@ -150,6 +154,41 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   resolution ambiguous AND would flip the locked cases' stray direct 2026 references. Verified: 2025
   build reproduces the locked CSV byte-for-byte (machine-epsilon float noise only), the guard trips on
   a 2026 stamp, pytest green.
+- **Electricity vintage exposed at run time (2026-07-23).** The vintage stamp existed on the
+  databases and the harness guarded on it, but `general/` never read it — no console line, no
+  manifest field. A practitioner running `general/04` against a 2025-era process on a 2026 build got
+  materially different numbers with nothing on screen saying which grid produced them (measured on
+  this build: corn 0.887–1.025 and cement 0.929–1.052 versus their locked 2025 values, two cells
+  outside ±5%). Since the manifest's whole purpose is "audit any individual result", omitting the one
+  field that determines the background electricity undercut the claim. `general/04` now prints the
+  vintage in its target block — computed before the manifest section so `--no-manifest` runs still
+  report it — and `run_manifest.summarize_electricity_vintage()` records it in the manifest
+  (`schema` bumped to `validation-manifest/2`). It also names two states rather than hiding them:
+  `unstamped` (a build predating the stamp — unattributable, not wrong) and **`inconsistent`**, where
+  the baseline DB and the USLCI DB carry *different* stamps because `03b` was re-run without
+  re-running `03`. That last one is the dangerous case: the injected grid is the new vintage while
+  everything reading the stamp — the harness's own guard included — believes the old one.
+  Same visibility gap at the chart layer: `validation/06`'s auto-detect glob
+  (`validation_*_results.csv`) never matched the vintage-tagged `…_results_2026.csv`, so the 2026
+  results had been silently uncharted since tagging was introduced. The glob now matches, and both
+  the output filename and the chart title carry the vintage — necessary because both tables report
+  `mode=full_chain`, so untagged output would have overwritten the locked 2025 images.
+- **Electricity-baseline vintage auto-detection (2026-07-23).** The vintage selector (above) worked
+  but made the operator carry the knowledge: pick `--vintage` correctly or get a build whose grid the
+  bundles never referenced. The bundles already encode the answer — their `defaultProvider` entries
+  name a specific US-average grid UUID — so `setup/03b` now reads it. The same bundle scan that
+  discovers which library processes to inject also classifies each bundle's vintage
+  (`setup/vintage_detect.py`, pure + unit-tested), and `--vintage` defaults to the detected value.
+  **The trap, found while implementing: presence is not the test.** Every locked 2025 bundle also
+  contains a single stray reference to the *2026* node (79–80 citations of `7068192a` against 1 of
+  `75d4be66`), so a "does this bundle mention the 2026 UUID?" detector classifies **every** bundle in
+  the repo as 2026 — silently injecting the wrong background for the four locked cases. Detection is
+  therefore by **dominance** (most-referenced wins), with an exact tie and a no-grid-reference bundle
+  both returning "undecided" rather than a guess. A vintage-agnostic bundle (steel billets: zero
+  external providers) constrains nothing and doesn't block detection. A **mixed** bundle directory
+  hard-stops and prints the split by vintage, because one build cannot satisfy both — this is the
+  normal state of `source_data/` once 2026-drop cases sit alongside the locked four.
+  `--vintage` still overrides everything, and `--library` still points at an arbitrary library file.
 - **New-process protocol hardening (2026-07-20)** — worked example: adding "Corn; at field" on a
   fresh machine hard-stopped on `p*km`, then (with passthrough toggled) `general/04` failed with
   `UnknownObject`. Root causes and fixes, all in `setup/03`:

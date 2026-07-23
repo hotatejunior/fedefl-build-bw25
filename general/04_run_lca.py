@@ -312,11 +312,29 @@ scenario_label = SCENARIO_LABEL if SCENARIO_LABEL is not None else target_act["n
 # State it everywhere a score appears so nobody misreads a per-m3 number as per-kg.
 functional_unit = f"1 {target_act.get('unit') or 'unit'}"
 
+# Which electricity-baseline vintage this build injected. A build carries exactly
+# one, and it materially moves any result with grid electricity upstream (~10% on
+# the locked cases), so state it up front rather than leaving it implicit in the
+# build log. Computed here, not in the manifest block, so --no-manifest runs still
+# report it.
+_db_stamps = {
+    _n: {"electricity_vintage": bd.databases[_n].get("electricity_vintage")}
+    for _n in (USLCI_DB, ELECTRICITY_BASELINE_DB) if _n in bd.databases
+}
+electricity_vintage = run_manifest.summarize_electricity_vintage(
+    _db_stamps, USLCI_DB, ELECTRICITY_BASELINE_DB)
+
 print(f"=== Target: '{target_act['name']}' ===")
 print(f"    UUID:     {target_act['code']}")
 print(f"    Scenario: {scenario_label}")
 print(f"    Functional unit: {functional_unit} (the process's reference unit — "
       f"every score below is per {functional_unit} of this product)")
+if electricity_vintage["status"] == "ok":
+    print(f"    Electricity baseline: {electricity_vintage['vintage']} vintage "
+          f"(background grid for this run)")
+else:
+    print(f"    Electricity baseline: {electricity_vintage['status'].upper()} — "
+          f"{electricity_vintage['note']}")
 print()
 
 # Validate output paths before spending time on LCA.
@@ -489,6 +507,11 @@ if MANIFEST_JSON is not None:
             _md = bd.databases[_dbn]
             manifest_dbs[_dbn] = {"activity_count": _md.get("number"),
                                   "modified": _md.get("modified")}
+            # Stamped by setup/03b (baseline DB) and copied by setup/03 (USLCI DB).
+            # Absent on builds predating the stamp — recorded only where present.
+            if _md.get("electricity_vintage") is not None:
+                manifest_dbs[_dbn]["electricity_vintage"] = _md.get("electricity_vintage")
+
 
     manifest = run_manifest.build_manifest(
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -503,6 +526,7 @@ if MANIFEST_JSON is not None:
         },
         project=PROJECT_NAME,
         databases=manifest_dbs,
+        electricity_vintage=electricity_vintage,
         methods=[[m[0], m[1], m[2], method_units[m]] for m in traci_methods],
         packages=_pkg_versions(["bw2data", "bw2calc", "bw2io", "fedelemflowlist",
                                 "lciafmt", "numpy", "pandas"]),
