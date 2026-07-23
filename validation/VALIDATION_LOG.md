@@ -806,3 +806,26 @@ vintage-tagged tables — its auto-detect glob (`validation_*_results.csv`) did 
 `…_results_2026.csv`, so the 2026 results had never been charted; fixed, and chart filenames + titles
 now carry the vintage so a tagged run cannot overwrite the locked 2025 images. **This machine's build is now
 2026**; reproducing the locked 2025 table requires `03b --vintage 2025` + `03` first.
+
+### 2026-07-23 (later) — direct-mode coverage re-scoped: steel is a second LCIA-math check
+
+Ledger #8 had recorded "direct mode covers petroleum only" as an open gap. Measurement says that
+overstated it. Steel has zero linked technosphere inputs, so its solve contributes nothing and its
+**direct and full-chain scores are bit-identical** — verified across all 10 categories (direct/full
+ratio 1.0000 on every one). Its standard `Impacts` export is therefore already a direct-mode check,
+validating FEDEFL flow mapping, TRACI CFs, and unit conversion on a second, independent 92-flow set.
+
+Direct mode serves two purposes, and they are covered differently:
+
+| Purpose | Coverage |
+|---|---|
+| Isolate the LCIA math (CFs, mapping, units) | petroleum **and steel** — two independent flow sets |
+| Separate a process's own emissions from its background | petroleum only — still open |
+
+The second is the real remaining gap, and it is case-specific rather than generic: measured
+direct/full-chain shares are petroleum <0.01%, cement up to 76%, steel 100%. So steel cannot stand in
+for cement — a cement or corn direct export would be needed to attribute a hypothetical cement
+disagreement to foreground vs. solve. Lower priority than the old phrasing implied: the CF table and
+flow list are shared across every case, and two processes already confirm them.
+
+No engine change; locked tables untouched.

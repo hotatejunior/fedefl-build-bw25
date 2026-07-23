@@ -328,6 +328,12 @@ the second. Where direct-mode exports exist, direct-mode CFs match exactly (Appe
 localized the former petroleum residual to the solve — specifically the avoided-product sign bug in
 how one supply-chain node was imported, now fixed.
 
+The LCIA-math check does not rest on petroleum alone. Steel has no linked upstream, so its direct and
+full-chain scores are bit-identical and its standard export doubles as a direct check on a second,
+independent set of 92 elementary flows. What only petroleum currently covers is separating a
+process's *own* emissions from its background — and that split is strongly case-specific: petroleum's
+direct emissions are under 0.01% of its full-chain result, while cement's reach 76%.
+
 ## E. Full results — brightway / openLCA ratio (full chain, per 1 kg)
 
 | Category | Petroleum | Corn | Cement | Steel |

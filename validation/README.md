@@ -242,8 +242,15 @@ byte-for-byte.
 - **Absolute scores are reproducible to ~1e-14, not bit-for-bit.** The figure depends on which
   bundles share the build (see "What is *not* a replication check" above). The parity claim is the
   ±0.1% gate, which the harness enforces and prints; the locked CSVs are a reference table.
-- Direct mode currently covers petroleum only — it is the only case with a kg-basis openLCA export.
-  (Mode switching itself is no longer a source edit: `--mode {full_chain,direct}`.)
+- **Direct mode has one explicit case (petroleum), but the LCIA-math check it provides covers two
+  processes.** Steel has no linked upstream, so its direct and full-chain scores are bit-identical
+  and its standard export already validates flow mapping, CFs, and unit conversion on a second,
+  independent set of 92 elementary flows. What petroleum alone still covers is the other purpose of
+  direct mode — separating a process's *own* emissions from its background. That split is
+  case-specific (petroleum's direct share is <0.01% of its full-chain result; cement's reaches 76%),
+  so a cement or corn direct export would be needed to attribute a hypothetical disagreement there
+  to foreground vs. solve. (Mode switching itself is no longer a source edit:
+  `--mode {full_chain,direct}`.)
 - The causal-allocation co-product **consumption** path is covered twice over: the
   recycled-HDPE-flake (`17664c37…`) and recycled-PET-flake (`f7b7280d…`) cases both consume causal
   co-products from the MRF-sorting processes and reproduce openLCA within 0.001% on all 10
