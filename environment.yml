@@ -31,6 +31,10 @@ dependencies:
   - seaborn=0.13.2
   - openpyxl=3.1.5
 
+  # Test/dev only (not needed to run the pipeline). Unpinned — the tests in
+  # tests/ don't depend on pytest internals.
+  - pytest
+
   - pip
 
   # brightway25 engine + EPA open-data packages, installed via pip.
@@ -38,9 +42,23 @@ dependencies:
   # only from EPA's GitHub. Pinned to the exact commits the validation study ran
   # against (the versions they report — 1.3.1 / 1.2.0 — are not unique release
   # tags, so a commit pin is the only reproducible reference).
+  #
+  # IMPORTANT — why fedelemflowlist is NOT on its own line:
+  # lciafmt's own metadata declares an *unpinned* direct dependency
+  #   fedelemflowlist @ git+https://github.com/USEPA/fedelemflowlist.git#egg=fedelemflowlist
+  # pip refuses two *different* direct-URL references for the same package, so
+  # listing fedelemflowlist@<commit> here alongside lciafmt makes the whole pip
+  # section fail with ResolutionImpossible — i.e. `conda env create` never
+  # succeeded as this file was originally written. We therefore pin only lciafmt
+  # and let it pull fedelemflowlist transitively. That still lands the
+  # validation-study commit: fedelemflowlist's default-branch HEAD is
+  # d2d690fb5585101080b2e7ca492a0822ba11846d (verified 2026-07-09). esupy is
+  # likewise pulled unpinned from GitHub, as it always was. To *hard-pin*
+  # fedelemflowlist's commit, a single pip pass can't do it — install two-pass:
+  #   pip install "git+https://github.com/USEPA/fedelemflowlist.git@d2d690fb5585101080b2e7ca492a0822ba11846d"
+  #   pip install --no-deps "git+https://github.com/USEPA/lciaformatter.git@48d19af11965994378e9febe0cca2d5822a0776d"
   - pip:
       - bw2data==4.7
       - bw2calc==2.5.0
       - bw2io==0.9.17
-      - git+https://github.com/USEPA/fedelemflowlist.git@d2d690fb5585101080b2e7ca492a0822ba11846d
       - git+https://github.com/USEPA/lciaformatter.git@48d19af11965994378e9febe0cca2d5822a0776d

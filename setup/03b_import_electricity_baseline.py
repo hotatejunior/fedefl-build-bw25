@@ -41,6 +41,7 @@ from pathlib import Path
 import bw2data as bd
 
 from olca_library import OlcaLibrary, read_library
+from vintage_detect import classify_bundle, decide_vintage, format_conflict
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
@@ -53,30 +54,55 @@ from config import PROJECT_NAME, BIOSPHERE_DB, ELECTRICITY_BASELINE_DB as INJECT
 # the version-specific subfolder name is a data version pin, not a machine path,
 # and stays hardcoded on purpose.
 DEFAULT_BUNDLE_DIR = Path(os.environ.get("SOURCE_DATA_DIR", REPO_ROOT / "source_data"))
-DEFAULT_LIBRARY_PATH = DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2025-06.0_from_olca"
 BUNDLE_GLOB = "????????-????-????-????-????????????_*.zip"
 
-# Canonical upstream copy of the baseline library, version-pinned in the
-# filename and hosted on the Federal LCA Commons curation team's GitHub
-# ("USLCI Support Content Downloads"). Fetched on demand so a fresh checkout
-# doesn't have to source it by hand -- unlike the full USLCI JSON-LD bundles,
-# the libraries DO have stable versioned GitHub URLs (see DEVLOG).
+# -----------------------------------------------------------------------------
+# Per-vintage baseline library config.
+# -----------------------------------------------------------------------------
+# The pipeline injects exactly ONE electricity-baseline vintage per build. The
+# US-average node is named identically across releases ("Electricity; at user;
+# consumption mix - US - US") but carries a DIFFERENT UUID each vintage
+# (7068192a in 2025-06, 75d4be66 in 2026-06), so injecting two at once would
+# make name-based provider resolution ambiguous AND would flip the locked
+# cases' stray 2026 references -- see DEVLOG / the vintage-UUID note.
 #
-# BASELINE_SHA256 is the whole-file hash of the exact release artifact GitHub
-# serves; a mismatch means upstream re-issued the file and we stop rather than
-# silently ingest something different (same guard pattern setup/00 uses for the
-# conversion table). NOTE: a locally re-exported copy -- e.g. one zipped
-# straight out of openLCA, like DEFAULT_LIBRARY_PATH's `_from_olca` file -- has
-# byte-identical *members* but a different *container* hash, so the check is
-# only applied to what WE download, never to a file the user placed by hand.
-BASELINE_URL = (
-    "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/downloads/"
-    "U.S._electricity_baseline_v1.2025-06.0.zip"
-)
-BASELINE_SHA256 = "9fec32a8b5f75560c93d6a34986ee5e1166cd3d1cd257616172a3e041cab2815"
-# Where a fetched copy lands. Distinct filename from DEFAULT_LIBRARY_PATH so an
-# auto-fetched artifact and a hand-exported one stay distinguishable by name.
-FETCH_TARGET = DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2025-06.0.zip"
+# Match the vintage to the reference export you diff against: the 4 locked
+# validation cases were exported against 2025-06; the newer HDPE/PET bundles
+# hardcode the 2026-06 US-average provider UUID and must be built + validated
+# against 2026-06.
+#
+# Per entry:
+#   hand_placed  -- a copy dropped in source_data. May be an openLCA re-export
+#                   whose *container* hash differs from the release artifact
+#                   (byte-identical members, different zip), so it is NOT hash-
+#                   checked; only what WE download is verified.
+#   fetch_target -- where an auto-download lands.
+#   url / sha256 -- canonical release artifact on the Federal LCA Commons GitHub
+#                   and its whole-file hash (checked on download only).
+#   grid_uuid    -- that release's US-average grid process ("Electricity; at
+#                   user; consumption mix - US - US"). Same name every release,
+#                   different UUID -- which is what makes it the vintage marker
+#                   the bundles are auto-classified by (see vintage_detect).
+VINTAGES = {
+    "2025": {
+        "hand_placed":  DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2025-06.0_from_olca",
+        "fetch_target": DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2025-06.0.zip",
+        "url": "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/"
+               "downloads/U.S._electricity_baseline_v1.2025-06.0.zip",
+        "sha256": "9fec32a8b5f75560c93d6a34986ee5e1166cd3d1cd257616172a3e041cab2815",
+        "grid_uuid": "7068192a-999c-39b6-bf66-234a294bdf92",
+    },
+    "2026": {
+        "hand_placed":  DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2026-06.0.zip",
+        "fetch_target": DEFAULT_BUNDLE_DIR / "U.S._electricity_baseline_v1.2026-06.0.zip",
+        "url": "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/"
+               "downloads/U.S._electricity_baseline_v1.2026-06.0.zip",
+        "sha256": "fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143",
+        "grid_uuid": "75d4be66-12a7-30b3-bc57-fa724c941b0e",
+    },
+}
+DEFAULT_VINTAGE = "2025"   # only used when no bundle names a grid node at all
+GRID_UUIDS = {v: c["grid_uuid"] for v, c in VINTAGES.items()}
 
 
 # =============================================================================
@@ -199,18 +225,19 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def fetch_baseline(target: Path) -> Path:
-    """Download the pinned baseline library to `target` and verify its SHA256.
+def fetch_baseline(cfg: dict) -> Path:
+    """Download the vintage's pinned baseline library and verify its SHA256.
     Writes to a `.part` temp file first so an interrupted or corrupt fetch never
     leaves a half-written file where the reader would try to consume it; on a
     hash mismatch, deletes the download and aborts -- upstream changed the
     artifact and a human should look before we ingest it.
     """
+    target, url, expected = cfg["fetch_target"], cfg["url"], cfg["sha256"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Fetching electricity baseline library from:\n  {BASELINE_URL}")
+    print(f"Fetching electricity baseline library from:\n  {url}")
     tmp = target.with_suffix(target.suffix + ".part")
     try:
-        with urllib.request.urlopen(BASELINE_URL, timeout=120) as resp, \
+        with urllib.request.urlopen(url, timeout=120) as resp, \
                 open(tmp, "wb") as out:
             shutil.copyfileobj(resp, out)
     except urllib.error.URLError as e:
@@ -218,41 +245,42 @@ def fetch_baseline(target: Path) -> Path:
         raise SystemExit(f"Download failed: {e}")
 
     got = _sha256(tmp)
-    if got != BASELINE_SHA256:
+    if got != expected:
         tmp.unlink(missing_ok=True)
         raise SystemExit(
             "Downloaded baseline failed hash check -- upstream artifact changed.\n"
-            f"  expected {BASELINE_SHA256}\n"
+            f"  expected {expected}\n"
             f"  got      {got}\n"
             "Refusing to ingest. If this is an intentional upstream re-issue, "
-            "verify the new file and update BASELINE_SHA256."
+            "verify the new file and update the vintage's sha256 in VINTAGES."
         )
     tmp.replace(target)
     print(f"  verified SHA256, saved {target.stat().st_size:,} bytes -> {target}")
     return target
 
 
-def resolve_library(explicit: Path | None, fetch: bool) -> Path:
-    """Pick the library zip to read. An explicit --library always wins (and must
-    exist). Otherwise prefer an existing hand-placed default, then an existing
-    fetched copy; if neither is present, fetch it (unless --no-fetch).
+def resolve_library(explicit: Path | None, fetch: bool, cfg: dict) -> Path:
+    """Pick the library zip to read for the selected vintage. An explicit
+    --library always wins (and must exist). Otherwise prefer an existing
+    hand-placed copy, then an existing fetched copy; if neither is present,
+    fetch it (unless --no-fetch).
     """
     if explicit is not None:
         if not explicit.exists():
             raise SystemExit(f"Library not found: {explicit}")
         return explicit
-    if DEFAULT_LIBRARY_PATH.exists():
-        return DEFAULT_LIBRARY_PATH
-    if FETCH_TARGET.exists():
-        return FETCH_TARGET
+    if cfg["hand_placed"].exists():
+        return cfg["hand_placed"]
+    if cfg["fetch_target"].exists():
+        return cfg["fetch_target"]
     if not fetch:
         raise SystemExit(
-            f"Baseline library not found (looked for '{DEFAULT_LIBRARY_PATH.name}' "
-            f"and '{FETCH_TARGET.name}' in {DEFAULT_BUNDLE_DIR}).\n"
+            f"Baseline library not found (looked for '{cfg['hand_placed'].name}' "
+            f"and '{cfg['fetch_target'].name}' in {DEFAULT_BUNDLE_DIR}).\n"
             "Drop the file there by hand, or omit --no-fetch to download it "
             "automatically."
         )
-    return fetch_baseline(FETCH_TARGET)
+    return fetch_baseline(cfg)
 
 
 # =============================================================================
@@ -260,9 +288,17 @@ def resolve_library(explicit: Path | None, fetch: bool) -> Path:
 # =============================================================================
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--vintage", choices=sorted(VINTAGES), default=None,
+                     help="electricity-baseline vintage to inject. Default: "
+                          "auto-detected from the bundles' own grid references "
+                          "(the 4 locked cases resolve to 2025; the HDPE/PET and "
+                          "2026-drop bundles to 2026). One vintage per build; pass "
+                          "this explicitly to override detection or to break a "
+                          "mixed-bundle tie.")
     ap.add_argument("--library", type=Path, default=None,
-                     help="path to the openLCA electricity baseline library zip "
-                          "(default: auto-detect in source_data, else fetch)")
+                     help="explicit path to a baseline library zip, overriding the "
+                          "vintage's auto-detect/fetch (still stamped with the "
+                          "selected vintage)")
     ap.add_argument("--no-fetch", action="store_true",
                      help="don't download the baseline if it's missing locally")
     ap.add_argument("--bundle-dir", type=Path, default=DEFAULT_BUNDLE_DIR,
@@ -276,20 +312,46 @@ def main():
     if BIOSPHERE_DB not in bd.databases:
         raise RuntimeError("Run setup/01_setup_biosphere_fedefl.py first.")
 
-    library = resolve_library(args.library, fetch=not args.no_fetch)
-
     bundle_zips = sorted(args.bundle_dir.glob(BUNDLE_GLOB))
     if not bundle_zips:
         raise SystemExit(f"No bundle zips found in {args.bundle_dir}")
 
+    # Scan first: the same pass that finds providers to inject also tells us
+    # which baseline vintage the bundles were built against.
     print(f"Scanning {len(bundle_zips)} bundle(s) in {args.bundle_dir} for external providers...")
     external: dict[str, dict] = {}
+    verdicts: dict[str, dict] = {}
     for bpath in bundle_zips:
         found = find_external_providers(bpath)
-        print(f"  {bpath.name}: {len(found)} external provider(s) referenced")
+        verdicts[bpath.name] = classify_bundle(found, GRID_UUIDS)
+        print(f"  {bpath.name}: {len(found)} external provider(s) referenced"
+              f"  [grid vintage: {verdicts[bpath.name]['vintage'] or 'n/a'}]")
         for uid, info in found.items():
             entry = external.setdefault(uid, {**info, "referenced_by": set()})
             entry["referenced_by"] |= info["referenced_by"]
+
+    decision = decide_vintage(verdicts, explicit=args.vintage, default=DEFAULT_VINTAGE)
+    if decision["conflict"]:
+        raise SystemExit("\n" + format_conflict(decision))
+
+    vintage = decision["vintage"]
+    cfg = VINTAGES[vintage]
+    if decision["source"] == "detected":
+        print(f"\nAuto-detected electricity-baseline vintage: {vintage} "
+              f"(from {sum(len(b) for b in decision['groups'].values())} bundle(s); "
+              f"override with --vintage)")
+    elif decision["source"] == "default":
+        print(f"\nNo bundle references a baseline grid node — falling back to "
+              f"the default vintage {vintage}.")
+    else:
+        detected = [v for v in decision["groups"] if v != vintage]
+        print(f"\nElectricity-baseline vintage: {vintage} (set explicitly)")
+        if detected:
+            print(f"  NOTE: bundle references also point at {', '.join(sorted(detected))} — "
+                  f"those bundles will not link to this build's grid.")
+
+    library = resolve_library(args.library, fetch=not args.no_fetch, cfg=cfg)
+    print(f"Using library: {library.name}")
 
     print(f"\n{len(external)} distinct external provider(s) referenced across all bundles.")
 
@@ -331,7 +393,17 @@ def main():
         del bd.databases[INJECTED_DB_NAME]
 
     bd.Database(INJECTED_DB_NAME).write(db_data)
-    print(f"\nDatabase '{INJECTED_DB_NAME}' written — {len(db_data)} processes.")
+
+    # Stamp the injected vintage onto the database metadata. setup/03 copies this
+    # onto 'uslci-subset' and the validation harness asserts against it, so a
+    # case can never be silently diffed against the wrong-vintage grid (a build
+    # is single-vintage; mixing 2025 cases with a 2026 grid is the footgun).
+    bd.databases[INJECTED_DB_NAME]["electricity_vintage"] = vintage
+    bd.databases[INJECTED_DB_NAME]["electricity_library"] = lib.name
+    bd.databases.flush()
+
+    print(f"\nDatabase '{INJECTED_DB_NAME}' written — {len(db_data)} processes "
+          f"(electricity_vintage = {vintage}).")
 
 
 if __name__ == "__main__":

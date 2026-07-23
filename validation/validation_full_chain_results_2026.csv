@@ -1,0 +1,61 @@
+process,mode,category,bw_score,ol_score,ratio_bw_ol
+Steel; billets; at plant,full_chain,Acidification,0.005473843112318378,0.005473843084,1.0000000051733997
+Steel; billets; at plant,full_chain,Eutrophication (Freshwater),5.1868520066393e-06,5.186852035193971e-06,0.9999999944947974
+Steel; billets; at plant,full_chain,Eutrophication (Marine),-0.000928664506869518,-0.0009286645896637276,0.9999999108459496
+Steel; billets; at plant,full_chain,Freshwater ecotoxicity,-2.4289534695000095,-2.4289535226288343,0.9999999781268664
+Steel; billets; at plant,full_chain,Global warming,2.0441094232247825,2.0441092954971998,1.0000000624856915
+Steel; billets; at plant,full_chain,Human health - cancer,3.7494140223569144e-10,3.749413974575998e-10,1.0000000127435693
+Steel; billets; at plant,full_chain,Human health - non-cancer,-6.034232981412588e-08,-6.034233137332169e-08,0.9999999741608291
+Steel; billets; at plant,full_chain,Human health - particulate matter,8.33295845316859e-05,8.332958511111111e-05,0.9999999930465847
+Steel; billets; at plant,full_chain,Ozone depletion,3.8792929749570824e-09,3.879293e-09,0.9999999935444635
+Steel; billets; at plant,full_chain,Smog formation,0.06035168490755945,0.06035168084116594,1.0000000673782976
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Acidification,0.0008513154298420466,0.0008513200966531415,0.9999945181476236
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Eutrophication (Freshwater),5.183368539928321e-07,5.183373693345419e-07,0.9999990057793625
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Eutrophication (Marine),0.0002857102564422344,0.0002857118151912001,0.9999945443314459
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Freshwater ecotoxicity,5.49988399194642,5.499886261897876,0.9999995872730184
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Global warming,0.5197197864220093,0.5197218847042194,0.9999959626825965
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - cancer,1.2055521281875637e-08,1.2055526551657401e-08,0.9999995628741938
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - non-cancer,2.1953159317379265e-06,2.1953167760875496e-06,0.9999996153859743
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Human health - particulate matter,6.47583043682136e-05,6.475847737939543e-05,0.9999973283624193
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Ozone depletion,1.918959050539528e-09,1.918973856191381e-09,0.9999922845994981
+"Recycled postconsumer high-density polyethylene, HDPE, flake; at plant",full_chain,Smog formation,0.02767367575616882,0.027673852316855246,0.9999936199454849
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Acidification,0.0008077617755507415,0.0008077652404837889,0.9999957104702285
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Eutrophication (Freshwater),8.144686015531108e-07,8.144688705324312e-07,0.9999996697488018
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Eutrophication (Marine),0.00025278697695758765,0.0002527881579011319,0.999995328327268
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Freshwater ecotoxicity,8.556498430729688,8.55649919902204,0.9999999102094987
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Global warming,0.5574783097509671,0.5574797351259959,0.9999974431805517
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Human health - cancer,1.8715362768470356e-08,1.8715364390627193e-08,0.9999999133248595
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Human health - non-cancer,3.4153497467483112e-06,3.4153499629904127e-06,0.9999999366852288
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Human health - particulate matter,7.649022388411645e-05,7.649032990570584e-05,0.9999986139216615
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Ozone depletion,2.488149924128351e-09,2.488158652673197e-09,0.9999964919661226
+"Recycled postconsumer polyethylene terephthalate, PET, flake; at plant",full_chain,Smog formation,0.02410145263804393,0.02410158191542878,0.9999946361452413
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Acidification,0.0019374417652133406,0.0019374428145163582,0.9999994584082639
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Eutrophication (Freshwater),4.543958465641345e-06,4.543958836027075e-06,0.9999999184883175
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Eutrophication (Marine),0.0005324271286334097,0.0005324274556410604,0.9999993858174533
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Freshwater ecotoxicity,12.61415886177775,12.614159704886898,0.9999999331616874
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Global warming,0.9435659097133999,0.9435666406616614,0.9999992253347777
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Human health - cancer,2.780546431738158e-08,2.7805465691908646e-08,0.9999999505662994
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Human health - non-cancer,5.047665587231275e-06,5.04766586102034e-06,0.9999999457592732
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Human health - particulate matter,8.033011014057204e-05,8.033013324348531e-05,0.9999997124004114
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Ozone depletion,1.7828482775452013e-08,1.7828483254612775e-08,0.9999999731238628
+Chlorine; chlor-alkali electrolysis; at plant,full_chain,Smog formation,0.04905360809720062,0.049053639418936444,0.9999993614798781
+Hardboard; at hardboard plant,full_chain,Acidification,0.00634338123592998,0.006343382379821944,0.9999998196716049
+Hardboard; at hardboard plant,full_chain,Eutrophication (Freshwater),1.464367653729361e-07,1.4643685303960398e-07,0.9999994013346637
+Hardboard; at hardboard plant,full_chain,Eutrophication (Marine),0.0010023217660505759,0.0010023220608404175,0.9999997058930925
+Hardboard; at hardboard plant,full_chain,Freshwater ecotoxicity,1.381153717938232,1.3811542597236939,0.9999996077299418
+Hardboard; at hardboard plant,full_chain,Global warming,2.1222753431668573,2.122275510774938,0.9999999210243534
+Hardboard; at hardboard plant,full_chain,Human health - cancer,4.767285116910199e-09,4.767286246068122e-09,0.9999997631445094
+Hardboard; at hardboard plant,full_chain,Human health - non-cancer,5.730457577844381e-07,5.730459606341412e-07,0.9999996460149498
+Hardboard; at hardboard plant,full_chain,Human health - particulate matter,0.00033804303852857253,0.00033804306846527235,0.9999999114411665
+Hardboard; at hardboard plant,full_chain,Ozone depletion,5.097215558558484e-09,5.097217551386343e-09,0.999999609036138
+Hardboard; at hardboard plant,full_chain,Smog formation,0.11214194899981342,0.11214197842426445,0.9999997376143043
+"Soybean oil; crude, degummed; at plant",full_chain,Acidification,0.0020345195002879775,0.0020345198610081977,0.9999998227000743
+"Soybean oil; crude, degummed; at plant",full_chain,Eutrophication (Freshwater),5.039538429365909e-05,5.039538492210237e-05,0.9999999875297454
+"Soybean oil; crude, degummed; at plant",full_chain,Eutrophication (Marine),0.0005136700422454114,0.0005136701386811767,0.9999998122612976
+"Soybean oil; crude, degummed; at plant",full_chain,Freshwater ecotoxicity,3.5628269035003717,3.5628276498171214,0.9999997905268446
+"Soybean oil; crude, degummed; at plant",full_chain,Global warming,0.4734603408568798,0.47346055456354247,0.9999995486283692
+"Soybean oil; crude, degummed; at plant",full_chain,Human health - cancer,5.23940463271471e-09,5.239406163161774e-09,0.9999997078968463
+"Soybean oil; crude, degummed; at plant",full_chain,Human health - non-cancer,9.362919606506836e-07,9.362922203025468e-07,0.9999997226807427
+"Soybean oil; crude, degummed; at plant",full_chain,Human health - particulate matter,7.643408326587039e-05,7.643410630972419e-05,0.9999996985134659
+"Soybean oil; crude, degummed; at plant",full_chain,Ozone depletion,2.2690606085339386e-09,2.2690628069774617e-09,0.999999031122666
+"Soybean oil; crude, degummed; at plant",full_chain,Smog formation,0.04208260873435155,0.042082621576564894,0.9999996948333336

@@ -1,0 +1,67 @@
+# CI — RELEASE_PLAN Phase 4.1 tail.
+#
+# unit-tests: runs on every push/PR. Creates the pinned conda environment from
+#   environment.yml and runs the pytest suite. Integration tests that need the
+#   built brightway project or external data assets skip themselves (see
+#   pytest.ini / tests/*.py), so this job needs no data provisioning.
+#
+# validation: manual-only (workflow_dispatch). The full parity harness needs the
+#   external source_data/ assets (USLCI bundles, TRACI json, electricity
+#   baseline, ~130 MB openLCA reference exports) and a built brightway project —
+#   neither exists on GitHub-hosted runners. The job is data-gated: it probes
+#   for source_data/ (e.g. on a self-hosted, data-provisioned runner) and exits
+#   with a clear notice when absent instead of failing.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create pinned conda environment
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+
+      - name: Run pytest suite
+        shell: bash -el {0}
+        run: python -m pytest
+
+  validation:
+    # Data-gated parity harness — run manually on a runner that has source_data/
+    # assembled (README "Getting started") and the setup chain already built.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check data availability
+        id: data
+        run: |
+          if [ -d "${SOURCE_DATA_DIR:-source_data}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::source_data/ not present on this runner — validation harness skipped. See README 'Getting started' for assembling the data folder."
+          fi
+
+      - name: Create pinned conda environment
+        if: steps.data.outputs.present == 'true'
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+
+      - name: Run parity harness (byte-for-byte check)
+        if: steps.data.outputs.present == 'true'
+        shell: bash -el {0}
+        run: |
+          python validation/05_validate_uslci.py --mode full_chain
+          git diff --exit-code validation/validation_full_chain_results.csv

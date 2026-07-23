@@ -21,7 +21,10 @@ Requires: setup/01, setup/02, setup/03 to have been run on this machine.
 import argparse
 import atexit
 import csv
+import importlib.metadata
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -29,19 +32,22 @@ import bw2data as bd
 import bw2calc as bc
 
 from foreground_importer import load_foreground_csv, fg_uuid
+import run_manifest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, METHOD_ROOT, REPO_ROOT
+from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, ELECTRICITY_BASELINE_DB,
+                    METHOD_ROOT, REPO_ROOT)
 
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
 # =============================================================================
-PROCESS_UUID      = "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71"  # petroleum refining, US
+PROCESS_UUID      = "1cbbcd09-ea17-3d9b-bc34-2cf42efe26ba_a900b507109a80c21db983e5f13f283f4a84aa51"  # petroleum refining, US
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
                             # required when CSV has >1 process; ignored without CSV
 OUTPUT_CSV        = REPO_ROOT / "lca_results.csv"        # CLI --output resolves against CWD instead
 CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions.csv"  # per-process scores; set None to skip
+MANIFEST_JSON     = REPO_ROOT / run_manifest.MANIFEST_FILENAME  # per-run audit manifest; set None to skip
 SCENARIO_LABEL    = None   # human label for this run; defaults to target process name
 
 FOREGROUND_DB   = "foreground"
@@ -61,6 +67,10 @@ parser.add_argument("--contributions",     default=None, help="Contributions CSV
 parser.add_argument("--scenario",          default=None, help="Scenario label for output CSVs (default: target process name)")
 parser.add_argument("--no-contributions",  action="store_true", dest="no_contributions",
                     help="Skip writing the per-process contributions CSV")
+parser.add_argument("--manifest",          default=None,
+                    help="Audit manifest JSON path (default: validation_manifest.json at repo root)")
+parser.add_argument("--no-manifest",        action="store_true", dest="no_manifest",
+                    help="Skip writing the per-run audit manifest")
 args = parser.parse_args()
 
 if args.uuid:
@@ -77,6 +87,10 @@ if args.scenario:
     SCENARIO_LABEL = args.scenario
 if args.no_contributions:
     CONTRIBUTIONS_CSV = None
+if args.manifest:
+    MANIFEST_JSON = args.manifest
+if args.no_manifest:
+    MANIFEST_JSON = None
 
 if args.foreground is not None and args.uuid is not None:
     print(f"NOTE: --foreground and --uuid both provided — --uuid '{PROCESS_UUID}' will be ignored.")
@@ -293,9 +307,34 @@ else:
 
 scenario_label = SCENARIO_LABEL if SCENARIO_LABEL is not None else target_act["name"]
 
+# The demand is always {target_act: 1.0}, i.e. 1 unit of the process's OWN
+# reference unit — which is not necessarily mass (petroleum at refinery is m3).
+# State it everywhere a score appears so nobody misreads a per-m3 number as per-kg.
+functional_unit = f"1 {target_act.get('unit') or 'unit'}"
+
+# Which electricity-baseline vintage this build injected. A build carries exactly
+# one, and it materially moves any result with grid electricity upstream (~10% on
+# the locked cases), so state it up front rather than leaving it implicit in the
+# build log. Computed here, not in the manifest block, so --no-manifest runs still
+# report it.
+_db_stamps = {
+    _n: {"electricity_vintage": bd.databases[_n].get("electricity_vintage")}
+    for _n in (USLCI_DB, ELECTRICITY_BASELINE_DB) if _n in bd.databases
+}
+electricity_vintage = run_manifest.summarize_electricity_vintage(
+    _db_stamps, USLCI_DB, ELECTRICITY_BASELINE_DB)
+
 print(f"=== Target: '{target_act['name']}' ===")
 print(f"    UUID:     {target_act['code']}")
 print(f"    Scenario: {scenario_label}")
+print(f"    Functional unit: {functional_unit} (the process's reference unit — "
+      f"every score below is per {functional_unit} of this product)")
+if electricity_vintage["status"] == "ok":
+    print(f"    Electricity baseline: {electricity_vintage['vintage']} vintage "
+          f"(background grid for this run)")
+else:
+    print(f"    Electricity baseline: {electricity_vintage['status'].upper()} — "
+          f"{electricity_vintage['note']}")
 print()
 
 # Validate output paths before spending time on LCA.
@@ -319,7 +358,7 @@ if contrib_path:
 # =============================================================================
 # LCA ACROSS ALL 10 TRACI 2.2 CATEGORIES
 # =============================================================================
-print("=== LCIA results ===")
+print(f"=== LCIA results — per {functional_unit} of '{target_act['name']}' ===")
 results       = []
 contributions = []
 
@@ -348,10 +387,11 @@ for method in traci_methods:
     score = lca.score
     unit  = method_units[method]
     results.append({
-        "scenario": scenario_label,
-        "method":   method[2],
-        "score":    score,
-        "unit":     unit,
+        "scenario":        scenario_label,
+        "method":          method[2],
+        "score":           score,
+        "unit":            unit,
+        "functional_unit": functional_unit,
     })
     print(f"  {method[2]:45s}  {score:.6g}  {unit}")
 
@@ -369,6 +409,7 @@ for method in traci_methods:
                 "db":                 info["db"],
                 "contribution_score": float(contrib),
                 "unit":               unit,
+                "functional_unit":    functional_unit,
             })
 
 if all(r["score"] == 0.0 for r in results):
@@ -383,7 +424,8 @@ print()
 # WRITE OUTPUT CSV
 # =============================================================================
 with open(out_path, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=["scenario", "method", "score", "unit"])
+    writer = csv.DictWriter(f, fieldnames=["scenario", "method", "score", "unit",
+                                           "functional_unit"])
     writer.writeheader()
     writer.writerows(results)
 print(f"Results written to: {out_path}")
@@ -393,11 +435,133 @@ if contrib_path and contributions:
         writer = csv.DictWriter(
             f,
             fieldnames=["scenario", "method", "process_name", "process_uuid",
-                        "db", "contribution_score", "unit"],
+                        "db", "contribution_score", "unit", "functional_unit"],
         )
         writer.writeheader()
         writer.writerows(contributions)
     print(f"Contributions written to: {contrib_path} ({len(contributions)} rows)")
+
+# =============================================================================
+# PER-RUN AUDIT MANIFEST  (validation_manifest.json)
+# =============================================================================
+# Emits a provenance + per-result completeness record alongside the scores, so a
+# user can audit THIS result — not just the four locked test cases (RELEASE_PLAN
+# Phase 4.4 / ledger #9). The completeness view crosses this result's solved
+# supply chain against the per-process import diagnostics setup/03 persists to
+# uslci_db_provenance.json. Pure assembly logic lives in run_manifest.py.
+if MANIFEST_JSON is not None:
+    # Resolve every solved-technosphere activity to a (db, code) pair. lca.dicts
+    # keys are opaque brightway ids in bw25, so go through bd.get_activity — the
+    # same resolution the contributions block uses.
+    solved_keys = []
+    for _k in lca.dicts.activity:
+        try:
+            _a = bd.get_activity(_k)
+            solved_keys.append((_a.key[0], _a["code"]))
+        except Exception:
+            solved_keys.append(("unknown", str(_k)))
+
+    prov_path = Path(REPO_ROOT) / run_manifest.DB_PROVENANCE_FILENAME
+    provenance_processes = {}
+    prov_source = {"available": False, "path": str(prov_path)}
+    if prov_path.exists():
+        try:
+            prov_doc = json.loads(prov_path.read_text(encoding="utf-8"))
+            provenance_processes = prov_doc.get("processes", {})
+            sidecar_count = prov_doc.get("db_activity_count")
+            live_count = bd.databases[USLCI_DB].get("number") if USLCI_DB in bd.databases else None
+            prov_source = {
+                "available": True,
+                "path": str(prov_path),
+                "generated": prov_doc.get("generated"),
+                "db_activity_count": sidecar_count,
+                "live_db_activity_count": live_count,
+                "matches_live_db": (sidecar_count == live_count),
+            }
+            if sidecar_count != live_count:
+                print(f"WARNING: {run_manifest.DB_PROVENANCE_FILENAME} records {sidecar_count} "
+                      f"activities but '{USLCI_DB}' currently has {live_count} — the sidecar looks "
+                      f"stale, so completeness may be inaccurate. Re-run setup/03_import_uslci.py.")
+        except (ValueError, OSError) as e:
+            print(f"WARNING: could not read {prov_path}: {e} — completeness will be limited.")
+    else:
+        print(f"NOTE: {run_manifest.DB_PROVENANCE_FILENAME} not found at repo root — completeness "
+              f"section will be limited. Re-run setup/03_import_uslci.py to generate it.")
+
+    completeness = run_manifest.summarize_supply_chain_completeness(
+        solved_keys, provenance_processes, USLCI_DB, [ELECTRICITY_BASELINE_DB],
+    )
+
+    def _pkg_versions(names):
+        out = {}
+        for _n in names:
+            try:
+                out[_n] = importlib.metadata.version(_n)
+            except importlib.metadata.PackageNotFoundError:
+                out[_n] = None
+        return out
+
+    manifest_dbs = {}
+    for _dbn in (BIOSPHERE_DB, USLCI_DB, ELECTRICITY_BASELINE_DB, FOREGROUND_DB):
+        if _dbn in bd.databases:
+            _md = bd.databases[_dbn]
+            manifest_dbs[_dbn] = {"activity_count": _md.get("number"),
+                                  "modified": _md.get("modified")}
+            # Stamped by setup/03b (baseline DB) and copied by setup/03 (USLCI DB).
+            # Absent on builds predating the stamp — recorded only where present.
+            if _md.get("electricity_vintage") is not None:
+                manifest_dbs[_dbn]["electricity_vintage"] = _md.get("electricity_vintage")
+
+
+    manifest = run_manifest.build_manifest(
+        generated=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        target={
+            "uuid":            target_act["code"],
+            "name":            target_act["name"],
+            "unit":            target_act.get("unit"),
+            "functional_unit": functional_unit,
+            "location":        target_act.get("location"),
+            "scenario":        scenario_label,
+            "source":          "foreground" if FOREGROUND_CSV is not None else "uslci",
+        },
+        project=PROJECT_NAME,
+        databases=manifest_dbs,
+        electricity_vintage=electricity_vintage,
+        methods=[[m[0], m[1], m[2], method_units[m]] for m in traci_methods],
+        packages=_pkg_versions(["bw2data", "bw2calc", "bw2io", "fedelemflowlist",
+                                "lciafmt", "numpy", "pandas"]),
+        provenance_source=prov_source,
+        solved_system={
+            "activity_count": len(solved_keys),
+            "biosphere_flow_count": len(lca.dicts.biosphere),
+        },
+        completeness=completeness,
+        results=results,
+    )
+
+    # JSON-safe coercion: LCIA scores are numpy floats and DB 'modified' may be a
+    # datetime — neither is serializable by default.
+    def _json_default(o):
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.integer):
+            return int(o)
+        if hasattr(o, "isoformat"):
+            return o.isoformat()
+        return str(o)
+
+    manifest_out = Path(MANIFEST_JSON)
+    try:
+        manifest_out.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(f"Cannot create output directory for '{manifest_out}': {e}")
+    manifest_out.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False, default=_json_default),
+        encoding="utf-8",
+    )
+    print(f"Audit manifest written to: {manifest_out}")
+    if not completeness["fully_linked"]:
+        print("  NOTE: this result is not fully linked — see completeness.notes in the manifest.")
 
 # =============================================================================
 # CLEANUP

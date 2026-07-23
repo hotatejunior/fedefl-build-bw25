@@ -1,0 +1,11 @@
+process,mode,category,bw_score,ol_score,ratio_bw_ol
+Petroleum refining; at refinery,direct,Acidification,4.942214842454107e-05,4.976285158855145e-05,0.9931534638161942
+Petroleum refining; at refinery,direct,Eutrophication (Freshwater),0.0,0.0,
+Petroleum refining; at refinery,direct,Eutrophication (Marine),2.1100015577525563e-06,2.1245474108091494e-06,0.9931534344761678
+Petroleum refining; at refinery,direct,Freshwater ecotoxicity,0.001164131433624362,0.0011721566915469347,0.9931534256636103
+Petroleum refining; at refinery,direct,Global warming,0.22619999841720784,0.22775937011682132,0.9931534246041616
+Petroleum refining; at refinery,direct,Human health - cancer,2.314495830451791e-11,2.330451411439318e-11,0.993153437609037
+Petroleum refining; at refinery,direct,Human health - non-cancer,7.532639445792272e-10,7.584567699753675e-10,0.9931534325993175
+Petroleum refining; at refinery,direct,Human health - particulate matter,2.514902000868361e-05,2.532239207415267e-05,0.9931534088501052
+Petroleum refining; at refinery,direct,Ozone depletion,3.821618015824933e-09,3.847963370978977e-09,0.9931534288104875
+Petroleum refining; at refinery,direct,Smog formation,0.00030233984966688274,0.00030442410305724955,0.9931534547710408

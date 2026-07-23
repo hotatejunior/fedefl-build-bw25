@@ -17,6 +17,8 @@ Requires: setup/01_setup_biosphere_fedefl.py must have been run first.
 import os
 import sys
 import hashlib
+import importlib.metadata
+from datetime import datetime, timezone
 from pathlib import Path
 import zipfile
 import json
@@ -100,13 +102,19 @@ WITHIN_FP = {
     # Volume → m3
     "m3": 1.0,   "l": 1e-3,    "ml": 1e-6,
     "gal": 3.78541e-3,  "gal (us liq)": 3.78541e-3,  "gal (us fl)": 3.78541e-3,
+    "gal (imp)": 4.54609e-3,
     "cu ft": 0.0283168,  "ft3": 0.0283168,
     # Energy → MJ
     "mj": 1.0,   "kj": 1e-3,   "gj": 1e3,    "kwh": 3.6,
     "btu": 1.05506e-3,
     "mmbtu": 1055.06,   "mm btu": 1055.06,   "mmBtu": 1055.06,
-    # Transport → t*km
+    # Transport (freight) → t*km
     "t*km": 1.0, "tkm": 1.0,   "t*mi": 1.60934,  "kg*km": 1e-3,
+    # Transport (passenger) → p*km (person-kilometre; already reference unit)
+    "p*km": 1.0,
+    # Duration → h (USLCI service flows, e.g. chainsawing/skidding, are defined
+    # and consumed as "1 h of <service>"; h is their reference unit)
+    "h": 1.0,
     # Area → m2
     "m2": 1.0,
     # Area × time → m2*a (land use; already reference unit)
@@ -123,14 +131,31 @@ WITHIN_FP = {
     "usd": 1.0,  "$": 1.0,  "us$": 1.0,
 }
 
+# Case-SENSITIVE entries, checked before the lowercase fallback: units whose
+# meaning changes with case. "Mg" (megagram = tonne, used by the recycling/MRF
+# sector) would otherwise collide with "mg" (milligram) in the case-insensitive
+# lookup — a silent 1e9 error. A census of the full USLCI unit universe
+# (30 strings) found Mg/mg to be the only case collision.
+_WITHIN_FP_EXACT = {"Mg": 1e3}
+
 # Case-insensitive lookup built from WITHIN_FP. All keys are lowercased at
 # definition time so lookup just needs unit.lower(). Explicit lowercase entries
 # in WITHIN_FP (e.g. "mmbtu") are already correct.
 _WITHIN_FP_LOWER = {k.lower(): v for k, v in WITHIN_FP.items()}
 
-# Accumulates unit strings not found in _WITHIN_FP_LOWER during import.
-# Reported after the main loop — add missing units to WITHIN_FP and rerun.
-UNKNOWN_UNITS: set = set()
+# Accumulates unit strings not found in _WITHIN_FP_LOWER during import, mapped to
+# the flow UUIDs seen carrying them (so the hard-stop message can say WHERE).
+# Enforced before the DB is written — add missing units to WITHIN_FP and rerun.
+UNKNOWN_UNITS: dict = {}   # unit string -> set of flow UUIDs
+
+# Unknown-unit policy (ledger #7). An unrecognized unit string is passed through
+# at face value in normalize() -- a silent wrong number ("a wrong number wearing a
+# plausible one's clothes"). By DEFAULT the build HARD-STOPS if any unknown unit
+# was encountered, checked before '{USLCI_DB}' is written. Set the
+# ALLOW_UNIT_PASSTHROUGH=1 environment variable to permit passthrough with a loud
+# warning instead (exploratory imports only — never for results you intend to use).
+ALLOW_UNIT_PASSTHROUGH = os.environ.get(
+    "ALLOW_UNIT_PASSTHROUGH", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
@@ -150,9 +175,11 @@ def normalize(amount: float, unit: str, fp_uuid: str, flow_uuid: str,
     Returns (normalized_amount, ref_unit_str).
     Falls back to (amount, unit) when data is missing so import never crashes.
     """
-    within = _WITHIN_FP_LOWER.get(unit.lower() if unit else "")
+    within = _WITHIN_FP_EXACT.get(unit) if unit else None
     if within is None:
-        UNKNOWN_UNITS.add(unit)
+        within = _WITHIN_FP_LOWER.get(unit.lower() if unit else "")
+    if within is None:
+        UNKNOWN_UNITS.setdefault(unit, set()).add(flow_uuid)
         return amount, unit   # unrecognised unit — pass through
 
     if not cross_property:
@@ -188,23 +215,73 @@ if BIOSPHERE_DB not in bd.databases:
 # =============================================================================
 # LOAD ALL PROCESSES AND FLOWS FROM ZIPS
 # =============================================================================
-# Sort oldest-first by file modification time so newer zips overwrite older ones
-# when the same process UUID appears in multiple exports (e.g. a corrected re-download).
+# When the same process UUID appears in multiple exports (e.g. a corrected
+# re-download), precedence is decided by the process's OWN embedded dataset
+# version + lastChange timestamp -- NOT by file modification time (ledger #5).
+# mtime does not survive copies/clones, so two users with identical bundles could
+# otherwise build different databases; version/lastChange live inside the JSON and
+# are identical on every machine. Zips are iterated in a deterministic filename
+# order purely so the "equal version" tie-break is reproducible too.
+def _parse_version(v):
+    """'00.01.014' -> (0, 1, 14); non-numeric parts -> 0; missing -> () (lowest)."""
+    if not v:
+        return ()
+    parts = []
+    for part in str(v).split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+def _proc_precedence(data):
+    """Sort key for choosing between two copies of the same process UUID. Higher =
+    newer: primarily the dataset version, then the lastChange timestamp (ISO-8601
+    Zulu strings sort chronologically)."""
+    return (_parse_version(data.get("version")), data.get("lastChange") or "")
+
 zip_files = sorted(
     BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
-    key=lambda p: p.stat().st_mtime
+    key=lambda p: p.name
 )
+
+# Guard against silently ignored bundles: a zip that LOOKS like a JSON-LD process
+# export (has openlca.json + processes/) but whose filename doesn't match the
+# required <uuid>_<hash>.zip pattern would otherwise vanish without a trace — the
+# operator thinks their process imported when it didn't. Renamed downloads are the
+# usual cause; keep the original LCA Commons filename. The full-DB zip (named in
+# the conversion table's _meta) is a build-time source, not a bundle — excluded.
+_full_db_zip = _meta.get("source_zip", "")
+for _zp in sorted(BUNDLE_DIR.glob("*.zip")):
+    if _zp in zip_files or _zp.name == _full_db_zip:
+        continue
+    try:
+        with zipfile.ZipFile(_zp) as _z:
+            _names = _z.namelist()
+            if "openlca.json" in _names and any(n.startswith("processes/") for n in _names):
+                print(
+                    f"WARNING: {_zp.name} looks like a process bundle but does NOT match the "
+                    f"required '<uuid>_<hash>.zip' naming pattern — it will be IGNORED.\n"
+                    f"  Restore the original LCA Commons filename (the process UUID + export hash) "
+                    f"if you want it imported."
+                )
+    except zipfile.BadZipFile:
+        pass
+
 if not zip_files:
     raise SystemExit(
         f"No process zip files found in {BUNDLE_DIR}. Download per-process exports "
-        f"from LCA Commons and place them there (same dir 03b scans)."
+        f"from LCA Commons and place them there (same dir 03b scans). Bundle zips "
+        f"must keep their original '<uuid>_<hash>.zip' filenames (see WARNINGs above, "
+        f"if any, for zips that were skipped on naming grounds)."
     )
 
 print(f"Found {len(zip_files)} process zip(s).")
 
 all_processes = {}  # proc_uuid -> process dict
+_proc_keys    = {}  # proc_uuid -> precedence key of the copy currently kept
 all_flows     = {}  # flow_uuid -> flow dict
-overwritten_processes = set()  # UUIDs resolved by newer zip winning
+version_resolved = set()  # UUIDs where copies differed in version/lastChange
 
 for zpath in zip_files:
     with zipfile.ZipFile(zpath) as z:
@@ -212,10 +289,17 @@ for zpath in zip_files:
             if name.startswith("processes/") and name.endswith(".json"):
                 data = json.loads(z.read(name))
                 uid = data.get("@id")
-                if uid:
-                    if uid in all_processes:
-                        overwritten_processes.add(uid)
-                    all_processes[uid] = data
+                if not uid:
+                    continue
+                key = _proc_precedence(data)
+                if uid in all_processes:
+                    if key == _proc_keys[uid]:
+                        continue  # identical version — benign duplicate, keep first-seen
+                    version_resolved.add(uid)
+                    if key < _proc_keys[uid]:
+                        continue  # incoming copy is older — keep the newer incumbent
+                all_processes[uid] = data
+                _proc_keys[uid]    = key
             elif name.startswith("flows/") and name.endswith(".json"):
                 data = json.loads(z.read(name))
                 uid = data.get("@id")
@@ -223,9 +307,10 @@ for zpath in zip_files:
                     all_flows[uid] = data
 
 print(f"  {len(all_processes)} unique processes, {len(all_flows)} unique flows.")
-if overwritten_processes:
-    print(f"  NOTE: {len(overwritten_processes)} process UUID(s) appeared in multiple zips "
-          f"— kept data from the newest file (by modification time).")
+if version_resolved:
+    print(f"  NOTE: {len(version_resolved)} process UUID(s) appeared in multiple zips with "
+          f"differing versions — kept the highest dataset version / lastChange "
+          f"(deterministic across machines).")
 print()
 
 # =============================================================================
@@ -275,7 +360,12 @@ for proc_uuid, proc in all_processes.items():
 external_provider_uuids = set()
 flow_to_external_process = {}
 external_uuid_to_name = {}
+# The electricity-baseline vintage 03b injected (e.g. "2025" / "2026"), copied
+# onto uslci-subset below so the validation harness can assert a case is diffed
+# against the matching-vintage grid. None if 03b predates the stamp.
+electricity_vintage = None
 if EXTERNAL_PROVIDER_DB in bd.databases:
+    electricity_vintage = bd.databases[EXTERNAL_PROVIDER_DB].get("electricity_vintage")
     for act in bd.Database(EXTERNAL_PROVIDER_DB):
         external_provider_uuids.add(act["code"])
         external_uuid_to_name[act["code"]] = act["name"]
@@ -284,7 +374,9 @@ if EXTERNAL_PROVIDER_DB in bd.databases:
             flow_to_external_process.setdefault(ref_flow_uuid, set()).add(act["code"])
     print(f"Loaded {len(external_provider_uuids)} external provider process(es) "
           f"({len(flow_to_external_process)} distinct reference flow(s)) "
-          f"from '{EXTERNAL_PROVIDER_DB}'.")
+          f"from '{EXTERNAL_PROVIDER_DB}'"
+          + (f" [electricity_vintage = {electricity_vintage}]."
+             if electricity_vintage else "."))
 
 
 def _candidate_name(db_name, proc_uuid):
@@ -336,162 +428,14 @@ def _resolve_provider(exc, flow_uuid):
     return None, None, False
 
 
-# Mass flow-property UUID in the USLCI/FEDEFL flow-property tables.
-_MASS_FP_UUID = "93a60a56-a3c8-11da-a746-0800200b9a66"
+# Allocation logic lives in setup/allocation.py (extracted verbatim so it is
+# unit-testable with synthetic openLCA JSON — see tests/test_allocation.py).
+# The thin wrapper binds this script's normalize() and FLOW_CONV table.
+from allocation import allocation_for, causal_coproducts, coproduct_multipliers
 
 
 def _allocation_for(proc, proc_uuid):
-    """Compute one multi-output process's reference-product allocation, plus the
-    per-output data needed to correctly re-basis consumers of its NON-reference
-    co-products.
-
-    A multi-output process is imported as ONE brightway activity: its production
-    exchange is the *reference* product's native yield and its inputs/biosphere
-    exchanges are scaled by the reference product's allocation factor. A consumer
-    that draws a co-product must not inherit the reference product's basis (that
-    was the co-product allocation bug -- see DEVLOG).
-
-    Returns (alloc_factor, ref_flow_uuid, per_output, method, causal_factors):
-      alloc_factor  -- scalar factor applied to every input/biosphere exchange
-                       (reference product's own share; 1.0 for single-output).
-                       For "causal" this is only a fallback for exchanges lacking
-                       a causal factor -- see causal_factors.
-      ref_flow_uuid -- reference product flow UUID (None for single-output or a
-                       reference-on-input waste-treatment process).
-      per_output    -- {flow_uuid: (native_yield, alloc)} for every PRODUCT_FLOW
-                       output. `alloc` is computed by the SAME method used for
-                       the reference product so co-product multipliers stay
-                       internally consistent. Empty for single-output and causal.
-      method        -- "single" | "native" | "mass" | "causal".
-      causal_factors-- {exchange_internalId: factor} for the reference product,
-                       for CAUSAL_ALLOCATION processes; None otherwise. Causal
-                       allocation is per-exchange (each input/emission carries its
-                       own factor per product), so it cannot be flattened to one
-                       scalar without mis-allocating every exchange whose causal
-                       factor differs from the mass fraction.
-
-    Raises the same malformed/uncomputable errors the previous inline logic did.
-    """
-    output_products = []  # (flow_uuid, native_yield, mass_kg)
-    ref_flow_uuid = None
-    for exc in proc.get("exchanges", []):
-        if exc.get("isInput") or exc.get("flow", {}).get("flowType") != "PRODUCT_FLOW":
-            continue
-        flow_uuid_e = exc.get("flow", {}).get("@id")
-        fp_uuid_e   = exc.get("flowProperty", {}).get("@id", "")
-        amount_e    = exc.get("amount", 0.0)
-        unit_e      = exc.get("unit", {}).get("name", "")
-        # Native yield in the flow's own reference unit.
-        norm_e, _ = normalize(amount_e, unit_e, fp_uuid_e, flow_uuid_e)
-        # Convert to kg for the mass-fraction fallback denominator.
-        # FLOW_CONV factor semantics: factor = (other fp units) per (ref fp unit).
-        flow_conv = FLOW_CONV.get(flow_uuid_e, {})
-        ref_fp    = flow_conv.get("ref_fp_uuid", "")
-        convs     = flow_conv.get("conversions", {})
-        if ref_fp == _MASS_FP_UUID:
-            mass_kg = norm_e                                    # ref already kg
-        elif _MASS_FP_UUID in convs:
-            mass_kg = norm_e * convs[_MASS_FP_UUID]["factor"]   # e.g. m3 × (kg/m3)
-        else:
-            mass_kg = 0.0                                       # no mass conversion
-        output_products.append((flow_uuid_e, norm_e, mass_kg))
-        if exc.get("isQuantitativeReference"):
-            ref_flow_uuid = flow_uuid_e
-
-    if len(output_products) <= 1:
-        return 1.0, ref_flow_uuid, {}, "single", None
-
-    if ref_flow_uuid is None:
-        raise RuntimeError(
-            f"Multi-output process '{proc.get('name', proc_uuid)}' (proc UUID: {proc_uuid}) "
-            f"has {len(output_products)} product outputs but no isQuantitativeReference flag. "
-            f"Cannot determine which output is the reference product for allocation.\n"
-            f"  Output flow UUIDs: {[u for u, _, _ in output_products]}"
-        )
-
-    # Prefer openLCA's own pre-computed factor for this process's declared
-    # defaultAllocationMethod over a from-scratch mass fraction. USLCI does NOT
-    # default to mass/physical allocation uniformly -- 9 of 18 multi-output
-    # processes across the 4 test-case bundles use ECONOMIC_ or CAUSAL_
-    # allocation (corn, soybeans, both steel co-product processes, several
-    # paper/pulp mill processes). PHYSICAL/ECONOMIC give one factor per product
-    # (a scalar applied to all inputs); CAUSAL gives a factor per *exchange* per
-    # product -- handled separately below. Falls back to a from-scratch mass
-    # fraction only when the process ships no usable native factor at all.
-    default_method = proc.get("defaultAllocationMethod")
-    total_mass = sum(m for _, _, m in output_products if m > 0)
-
-    if default_method == "CAUSAL_ALLOCATION":
-        # Per-exchange allocation: build the reference product's factor for each
-        # input/emission exchange, keyed by its internalId. Flattening this to a
-        # single scalar (native lookup returns nothing for causal, so the old
-        # code fell back to the mass fraction) mis-allocates every exchange whose
-        # causal factor differs from that fraction -- e.g. the cellulosic-ethanol
-        # process over-attributed forest-residue feedstock to ethanol 1.83x.
-        causal_factors = {}
-        for af in proc.get("allocationFactors", []):
-            if (af.get("allocationType") == "CAUSAL_ALLOCATION"
-                    and af.get("product", {}).get("@id") == ref_flow_uuid
-                    and "exchange" in af):
-                iid = af["exchange"].get("internalId")
-                if iid is not None:
-                    causal_factors[iid] = af["value"]
-        # Mass-fraction fallback for any *added* exchange that somehow lacks a
-        # causal factor (in the observed data only the product outputs lack one,
-        # and outputs are never added to the activity). per_output is left empty:
-        # a causal co-product's burden is per-exchange, so the scalar co-product
-        # multiplier cannot represent it -- the pre-pass skips causal here and
-        # warns if any causal co-product is actually consumed.
-        ref_mass = next(m for f, _, m in output_products if f == ref_flow_uuid)
-        fallback = (ref_mass / total_mass) if total_mass else 1.0
-        return fallback, ref_flow_uuid, {}, "causal", causal_factors
-
-    def _native(flow_uuid):
-        return next(
-            (af["value"] for af in proc.get("allocationFactors", [])
-             if af.get("allocationType") == default_method
-             and af.get("product", {}).get("@id") == flow_uuid
-             and "exchange" not in af),  # exclude per-exchange CAUSAL breakdowns
-            None
-        )
-
-    ref_native = _native(ref_flow_uuid)
-
-    per_output = {}
-    if ref_native is not None:
-        method = "native"
-        alloc_factor = ref_native
-        for flow_uuid, yld, _mass in output_products:
-            per_output[flow_uuid] = (yld, _native(flow_uuid))
-    else:
-        method = "mass"
-        ref_mass = next(m for f, _, m in output_products if f == ref_flow_uuid)
-        if ref_mass == 0.0:
-            _ref_exc = next(
-                (e for e in proc.get("exchanges", [])
-                 if e.get("isQuantitativeReference") and not e.get("isInput")),
-                {}
-            )
-            _ref_unit = _ref_exc.get("unit", {}).get("name", "<unknown>")
-            _ref_fp   = _ref_exc.get("flowProperty", {}).get("@id", "<unknown>")
-            raise RuntimeError(
-                f"Allocation failed for multi-output process '{proc.get('name', proc_uuid)}' "
-                f"(proc UUID: {proc_uuid}):\n"
-                f"  Ref product flow UUID : {ref_flow_uuid}\n"
-                f"  Unit in JSON          : {_ref_unit}\n"
-                f"  Flow property UUID    : {_ref_fp}\n"
-                f"  FLOW_CONV entry exists: {ref_flow_uuid in FLOW_CONV}\n"
-                f"  Mass property UUID    : {_MASS_FP_UUID}\n"
-                f"  No usable '{default_method}' allocationFactors entry for this product, and "
-                f"no mass conversion available for a from-scratch fallback either.\n"
-                f"  Fix: add a mass conversion for this flow in setup/00_build_flow_conversion_table.py "
-                f"and regenerate FLOW_CONV, or handle it as a service flow (not a mass-allocatable product)."
-            )
-        alloc_factor = ref_mass / total_mass
-        for flow_uuid, yld, mass_kg in output_products:
-            per_output[flow_uuid] = (yld, (mass_kg / total_mass) if total_mass else None)
-
-    return alloc_factor, ref_flow_uuid, per_output, method, None
+    return allocation_for(proc, proc_uuid, normalize=normalize, flow_conv=FLOW_CONV)
 
 
 # =============================================================================
@@ -521,8 +465,12 @@ total_tech_unlinked  = 0
 total_tech_ambiguous = 0
 ambiguous_examples   = []
 total_causal_fallback = 0          # causal exchanges that fell back to the scalar
-total_causal_coproduct_links = 0   # links consuming a causal process's co-product
+total_causal_coproduct_links = 0   # links redirected to a causal co-product activity
 causal_coproduct_examples = []
+total_waste_treatment_links = 0    # non-reference WASTE_FLOW outputs sent to a treatment provider
+waste_treatment_examples = []
+total_avoided_product_links = 0    # exchanges flagged isAvoidedProduct — credited (sign-flipped)
+avoided_product_examples = []
 
 # =============================================================================
 # PRE-PASS: allocation factors + co-product re-basis multipliers
@@ -545,7 +493,12 @@ causal_coproduct_examples = []
 alloc_cache = {}                 # proc_uuid -> scalar alloc_factor (native/mass/fallback)
 causal_cache = {}                # proc_uuid -> {exchange_internalId: ref-product factor}
 coproduct_multiplier = {}        # (supplier_proc_uuid, output_flow_uuid) -> m
-causal_coproduct_flows = set()   # non-ref product flows of causal processes (unsupported as inputs)
+# Causal co-products can't be scalar-re-based (their burden is per-exchange), so
+# each gets its OWN activity, built from its own column of the causal factor grid.
+# Consumers are redirected to that activity at the link site — no multiplier.
+causal_coproduct_info = {}       # (proc_uuid, co_flow_uuid) -> {"column", "fallback", "yield"}
+causal_coproduct_key  = {}       # (proc_uuid, co_flow_uuid) -> (USLCI_DB_NAME, code)
+causal_coproduct_consumed = set()  # (proc_uuid, co_flow_uuid) actually drawn by a consumer
 skipped_multipliers = []         # (proc_uuid, flow_uuid) where m was uncomputable
 n_multi_native = 0
 n_multi_mass   = 0
@@ -568,47 +521,72 @@ for _puuid, _proc in all_processes.items():
         n_multi_causal += 1
         if len(multi_examples) < 5:
             multi_examples.append(f"{_proc.get('name', _puuid)} (causal, {len(_causal)} per-exchange factors)")
-        # Causal co-products can't be scalar-re-based (their burden is per-exchange).
-        # Record their flows so the build loop can warn if any is consumed as an input.
-        for _e in _proc.get("exchanges", []):
-            if (not _e.get("isInput") and not _e.get("isQuantitativeReference")
-                    and _e.get("flow", {}).get("flowType") == "PRODUCT_FLOW"):
-                causal_coproduct_flows.add(_e["flow"]["@id"])
+        # Each causal co-product gets a dedicated activity built from its own
+        # factor column. Key it now (pre-pass) so consumers built before the
+        # supplier can already link to it.
+        for _fuuid, _info in causal_coproducts(_proc, _puuid, normalize, FLOW_CONV).items():
+            causal_coproduct_info[(_puuid, _fuuid)] = _info
+            causal_coproduct_key[(_puuid, _fuuid)] = (USLCI_DB_NAME, f"{_puuid}__co__{_fuuid}")
     # Co-product multipliers: only for scalar-allocated processes (native/mass).
     # single-output and causal have empty per_output -> no multipliers.
     if _method in ("single", "causal") or _ref_flow is None:
         continue
-    _ref_yield, _ref_alloc = _per_output[_ref_flow]
-    for _flow_uuid, (_tgt_yield, _tgt_alloc) in _per_output.items():
-        if _flow_uuid == _ref_flow:
-            continue
-        if not _ref_alloc or not _ref_yield or not _tgt_yield or _tgt_alloc is None:
-            skipped_multipliers.append((_puuid, _flow_uuid))
-            continue
-        coproduct_multiplier[(_puuid, _flow_uuid)] = (
-            (_ref_yield * _tgt_alloc) / (_tgt_yield * _ref_alloc)
-        )
+    _mults, _skipped = coproduct_multipliers(_per_output, _ref_flow)
+    for _flow_uuid, _m in _mults.items():
+        coproduct_multiplier[(_puuid, _flow_uuid)] = _m
+    skipped_multipliers.extend((_puuid, _f) for _f in _skipped)
 
-for proc_uuid, proc in all_processes.items():
-    key = (USLCI_DB_NAME, proc_uuid)
+# Per-process import diagnostics (RELEASE_PLAN 4.4 / ledger #9). The same
+# match/link outcomes tallied into the globals below, kept PER process so
+# general/04 can report completeness for a specific result's supply chain rather
+# than the whole DB. Persisted to uslci_db_provenance.json after the write; this
+# is purely additive and never touches db_data, so the LCIA harness is unaffected.
+proc_provenance = {}
+
+# Build jobs: every process's reference activity (co_flow None), plus one extra
+# activity per causal co-product (co_flow set), built from the same JSON process
+# but with the co-product's own per-exchange factor column and its own yield as
+# the production exchange.
+_build_jobs = [(_puuid, None) for _puuid in all_processes]
+_build_jobs += sorted(causal_coproduct_info)  # (proc_uuid, co_flow_uuid), deterministic order
+
+for proc_uuid, co_flow in _build_jobs:
+    proc = all_processes[proc_uuid]
     exchanges = []
     ref_unit = "unit"
+    pdiag = {"bio_matched": 0, "bio_unmatched": 0, "tech_linked": 0,
+             "tech_external": 0, "tech_unlinked": 0, "tech_ambiguous": 0}
 
-    # Reference product's allocation factor(s), computed once in the pre-pass.
-    # For native/mass allocation this is one scalar applied to every input/
-    # biosphere exchange; for causal allocation each exchange has its own factor
-    # (keyed by internalId), with alloc_factor as the fallback. Co-product
+    # Allocation factor(s), computed once in the pre-pass. For native/mass
+    # allocation this is one scalar applied to every input/biosphere exchange;
+    # for causal allocation each exchange has its own factor (keyed by
+    # internalId), with alloc_factor as the fallback. Scalar co-product
     # consumers are re-based separately, at their link site, via
-    # coproduct_multiplier. 1.0 for single-output.
-    alloc_factor    = alloc_cache[proc_uuid]
-    causal_factors  = causal_cache.get(proc_uuid)
+    # coproduct_multiplier. 1.0 for single-output. A causal co-product job uses
+    # the CO-PRODUCT's own factor column and mass-fraction fallback.
+    if co_flow is None:
+        key = (USLCI_DB_NAME, proc_uuid)
+        alloc_factor    = alloc_cache[proc_uuid]
+        causal_factors  = causal_cache.get(proc_uuid)
+    else:
+        key = causal_coproduct_key[(proc_uuid, co_flow)]
+        alloc_factor    = causal_coproduct_info[(proc_uuid, co_flow)]["fallback"]
+        causal_factors  = causal_coproduct_info[(proc_uuid, co_flow)]["column"]
 
     for exc in proc.get("exchanges", []):
         flow_ref  = exc.get("flow", {})
         flow_uuid = flow_ref.get("@id")
         flow_type = flow_ref.get("flowType", "")
         is_input  = exc.get("isInput", False)
-        is_ref    = exc.get("isQuantitativeReference", False)
+        # Production exchange: the quantitative reference for a normal job, the
+        # co-product's own output exchange for a causal co-product job (there
+        # the actual reference product falls through to the else branch and is
+        # dropped like any other non-reference product output).
+        if co_flow is None:
+            is_ref = exc.get("isQuantitativeReference", False)
+        else:
+            is_ref = (not is_input and flow_uuid == co_flow
+                      and flow_type == "PRODUCT_FLOW")
 
         if flow_uuid is None:
             raise RuntimeError(
@@ -666,11 +644,43 @@ for proc_uuid, proc in all_processes.items():
                         "type":   "biosphere",
                     })
                     total_bio_matched += 1
+                    pdiag["bio_matched"] += 1
                 else:
                     total_bio_unmatched += 1
+                    pdiag["bio_unmatched"] += 1
 
-            elif flow_type in ("PRODUCT_FLOW", "WASTE_FLOW") and is_input:
+            elif (is_input and flow_type in ("PRODUCT_FLOW", "WASTE_FLOW")) \
+                    or (not is_input and flow_type == "WASTE_FLOW"):
+                # Technosphere link. Two directions resolve the same way:
+                #   - a consumed INPUT (product or waste feedstock), and
+                #   - a WASTE_FLOW OUTPUT sent to a treatment provider. openLCA
+                #     models disposal as the generator OUTPUTTING a waste flow
+                #     whose defaultProvider is the treatment process (whose own
+                #     reference is that waste flow as an input). The waste amount
+                #     is a positive consumption of the treatment service, so it
+                #     links exactly like an input. Without this, every waste-to-
+                #     treatment output was silently dropped and the treatment
+                #     burden (e.g. landfill methane) was omitted entirely.
+                # NON-reference PRODUCT_FLOW outputs are co-products, handled by
+                # allocation / coproduct_multiplier — deliberately NOT linked here.
                 norm_amount, norm_unit = normalize(amount, unit, fp_uuid, flow_uuid)
+
+                # Avoided products are CREDITS, not burdens. USLCI marks byproduct
+                # energy/material recovery this way (isInput=true + isAvoidedProduct
+                # =true): e.g. MSW landfilling / combustion recovering landfill-gas
+                # electricity, which displaces grid power. openLCA subtracts these;
+                # a brightway technosphere input with a positive stored amount is a
+                # positive consumption (burden), so flip the sign to turn the
+                # avoided consumption into the credit openLCA computes. Without this,
+                # the landfill-gas electricity credit was imported as a burden and
+                # sign-flipped petroleum's grid-dominated toxicity result.
+                if exc.get("isAvoidedProduct", False):
+                    norm_amount = -norm_amount
+                    total_avoided_product_links += 1
+                    if len(avoided_product_examples) < 5:
+                        avoided_product_examples.append(
+                            f"{proc.get('name', proc_uuid)} avoids "
+                            f"{flow_ref.get('name', flow_uuid)} ({norm_amount:.4g} {norm_unit})")
                 target_db, target_proc, was_ambiguous = _resolve_provider(exc, flow_uuid)
                 if was_ambiguous:
                     # Several candidate producers (bundle-internal and/or
@@ -678,6 +688,7 @@ for proc_uuid, proc in all_processes.items():
                     # defaultProvider hint didn't match any of them -- non-
                     # fatal: leave unlinked/cutoff rather than guess.
                     total_tech_ambiguous += 1
+                    pdiag["tech_ambiguous"] += 1
                     hinted_uuid = (exc.get("defaultProvider") or {}).get("@id")
                     candidates = ({(USLCI_DB_NAME, u) for u in flow_to_process.get(flow_uuid, set())} |
                                   {(EXTERNAL_PROVIDER_DB, u) for u in flow_to_external_process.get(flow_uuid, set())})
@@ -686,36 +697,56 @@ for proc_uuid, proc in all_processes.items():
                         f"(hint {hinted_uuid!r} unresolved; {len(candidates)} candidates: {sorted(candidates)})"
                     )
                 if target_proc:
-                    # Safety net: a consumer drawing a CAUSAL process's non-
-                    # reference co-product cannot be scalar-re-based (its burden
-                    # is per-exchange), and no coproduct_multiplier is built for
-                    # it. Does not occur in the current bundles (both causal
-                    # co-products go unconsumed); warn loudly if that changes.
-                    if flow_uuid in causal_coproduct_flows:
+                    co_key = causal_coproduct_key.get((target_proc, flow_uuid))
+                    if co_key is not None:
+                        # This exchange draws a CAUSAL process's non-reference
+                        # co-product. Its burden is per-exchange, so no scalar
+                        # multiplier can re-base it through the reference
+                        # activity — link instead to the co-product's dedicated
+                        # activity (built from its own factor column), which is
+                        # natively in the co-product's own units. No multiplier.
+                        causal_coproduct_consumed.add((target_proc, flow_uuid))
                         total_causal_coproduct_links += 1
                         if len(causal_coproduct_examples) < 5:
                             causal_coproduct_examples.append(
                                 f"{proc.get('name', proc_uuid)} draws causal co-product flow {flow_uuid}")
-                    # Re-basis co-product draws. When this exchange targets a
-                    # NON-reference output of a multi-output supplier, the
-                    # supplier's single brightway activity is built on its
-                    # reference product's yield+allocation; convert the request
-                    # into the equivalent reference-product amount that carries
-                    # this co-product's own allocated burden. 1.0 (no-op) for
-                    # reference products, single-output suppliers, and external
-                    # (aggregated) providers.
-                    m = coproduct_multiplier.get((target_proc, flow_uuid), 1.0)
-                    exchanges.append({
-                        "input":  (target_db, target_proc),
-                        "amount": norm_amount * m,
-                        "unit":   norm_unit,
-                        "type":   "technosphere",
-                    })
+                        exchanges.append({
+                            "input":  co_key,
+                            "amount": norm_amount,
+                            "unit":   norm_unit,
+                            "type":   "technosphere",
+                        })
+                    else:
+                        # Re-basis scalar co-product draws. When this exchange
+                        # targets a NON-reference output of a multi-output
+                        # supplier, the supplier's single brightway activity is
+                        # built on its reference product's yield+allocation;
+                        # convert the request into the equivalent reference-
+                        # product amount that carries this co-product's own
+                        # allocated burden. 1.0 (no-op) for reference products,
+                        # single-output suppliers, and external (aggregated)
+                        # providers.
+                        m = coproduct_multiplier.get((target_proc, flow_uuid), 1.0)
+                        exchanges.append({
+                            "input":  (target_db, target_proc),
+                            "amount": norm_amount * m,
+                            "unit":   norm_unit,
+                            "type":   "technosphere",
+                        })
                     total_tech_linked += 1
+                    pdiag["tech_linked"] += 1
                     if target_db == EXTERNAL_PROVIDER_DB:
                         total_tech_external += 1
+                        pdiag["tech_external"] += 1
+                    if not is_input:  # a waste-treatment output link
+                        total_waste_treatment_links += 1
+                        if len(waste_treatment_examples) < 5:
+                            waste_treatment_examples.append(
+                                f"{proc.get('name', proc_uuid)} sends {flow_ref.get('name', flow_uuid)} "
+                                f"to {external_uuid_to_name.get(target_proc) or (all_processes.get(target_proc) or {}).get('name', target_proc)}")
                 else:
                     total_tech_unlinked += 1
+                    pdiag["tech_unlinked"] += 1
 
     if not any(e["type"] == "production" for e in exchanges):
         raise RuntimeError(
@@ -728,20 +759,125 @@ for proc_uuid, proc in all_processes.items():
     raw_loc = location.get("name", "") if isinstance(location, dict) else ""
     location_name = LOCATION_MAP.get(raw_loc, raw_loc) or "GLO"
 
+    if co_flow is None:
+        act_name = proc.get("name", proc_uuid)
+    else:
+        _co_flow_name = (all_flows.get(co_flow) or {}).get("name", co_flow)
+        act_name = f"{proc.get('name', proc_uuid)} [causal co-product: {_co_flow_name}]"
+
     db_data[key] = {
-        "name":     proc.get("name", proc_uuid),
-        "code":     proc_uuid,
+        "name":     act_name,
+        "code":     key[1],
         "location": location_name,
         "unit":     ref_unit,
         "exchanges": exchanges,
     }
 
+    # Keyed by activity code so general/04's manifest can look any solved
+    # activity up directly (main jobs: code == proc_uuid, unchanged).
+    proc_provenance[key[1]] = {
+        "name":       act_name,
+        "version":    proc.get("version"),
+        "lastChange": proc.get("lastChange"),
+        **({"coproduct_of": proc_uuid, "coproduct_flow": co_flow}
+           if co_flow is not None else {}),
+        **pdiag,
+    }
+
+# Hard-stop if a CONSUMED causal co-product has no factor column at all — its
+# activity would then be built entirely on the mass-fraction fallback, i.e. a
+# flattened scalar wearing per-exchange clothes. Unconsumed co-products may pass
+# (their activities are inert); partial holes use the counted fallback, same as
+# the reference-product side.
+_empty_consumed = [(p, f) for (p, f) in causal_coproduct_consumed
+                   if not causal_coproduct_info[(p, f)]["column"]]
+if _empty_consumed:
+    raise RuntimeError(
+        f"{len(_empty_consumed)} consumed causal co-product(s) have NO per-exchange "
+        f"factor column in their process JSON — build STOPPED before writing "
+        f"'{USLCI_DB_NAME}'.\n"
+        f"  Their activities would silently degrade to a flat mass-fraction split, "
+        f"which is exactly the mis-allocation causal handling exists to prevent.\n"
+        f"  Affected (process UUID, co-product flow UUID):\n"
+        + "\n".join(f"    {p}  {f}" for p, f in _empty_consumed)
+    )
+
+def _unknown_units_detail():
+    """One line per unknown unit, with up to 3 example flows so the operator can
+    see WHERE the unit occurs and judge whether it touches their target."""
+    lines = []
+    for u in sorted(UNKNOWN_UNITS):
+        flows = sorted(UNKNOWN_UNITS[u])
+        examples = ", ".join(
+            f"'{all_flows.get(f, {}).get('name', '?')}' ({f})" for f in flows[:3]
+        )
+        more = f" (+{len(flows) - 3} more flows)" if len(flows) > 3 else ""
+        lines.append(f'    "{u}" — e.g. {examples}{more}')
+    return "\n".join(lines)
+
+# Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
+# means silently wrong exchange amounts; refuse to build a database that contains
+# them unless the operator has explicitly opted into passthrough.
+if UNKNOWN_UNITS and not ALLOW_UNIT_PASSTHROUGH:
+    raise RuntimeError(
+        f"{len(UNKNOWN_UNITS)} unrecognized unit string(s) encountered — build STOPPED before "
+        f"writing '{USLCI_DB_NAME}'.\n"
+        f"  These exchanges would be passed through WITHOUT unit conversion, i.e. silently wrong "
+        f"amounts. Add each unit to WITHIN_FP (with its factor to the flow-property reference unit) "
+        f"and rerun, or set the ALLOW_UNIT_PASSTHROUGH=1 environment variable to import anyway "
+        f"with a warning (NOT recommended for study use):\n"
+        + _unknown_units_detail()
+    )
+
 bd.Database(USLCI_DB_NAME).write(db_data)
 
-print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes.")
+# Carry the electricity-baseline vintage stamp (from 03b) onto this database, so
+# the validation harness can assert each case is diffed against the grid vintage
+# its openLCA reference export used. A build is single-vintage by design.
+if electricity_vintage is not None:
+    bd.databases[USLCI_DB_NAME]["electricity_vintage"] = electricity_vintage
+    bd.databases.flush()
+
+print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes"
+      + (f" [electricity_vintage = {electricity_vintage}]." if electricity_vintage else "."))
 print(f"  Biosphere exchanges: {total_bio_matched} matched, {total_bio_unmatched} unmatched")
 print(f"  Technosphere exchanges: {total_tech_linked} linked "
       f"({total_tech_external} via '{EXTERNAL_PROVIDER_DB}'), {total_tech_unlinked} unlinked")
+
+# Persist per-process import diagnostics for general/04's per-run audit manifest
+# (RELEASE_PLAN 4.4 / ledger #9). Filename mirrors run_manifest.DB_PROVENANCE_FILENAME
+# in general/; kept as a local literal to avoid setup/ importing from general/.
+_DB_PROVENANCE_PATH = REPO_ROOT / "uslci_db_provenance.json"
+
+def _pkg_versions(names):
+    out = {}
+    for _n in names:
+        try:
+            out[_n] = importlib.metadata.version(_n)
+        except importlib.metadata.PackageNotFoundError:
+            out[_n] = None
+    return out
+
+_db_provenance = {
+    "schema":               "uslci-db-provenance/1",
+    "generated":            datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    "project":              PROJECT_NAME,
+    "database":             USLCI_DB_NAME,
+    "db_activity_count":    len(db_data),
+    "external_provider_db": EXTERNAL_PROVIDER_DB,
+    "packages":             _pkg_versions(["bw2data", "bw2io", "bw2calc",
+                                           "fedelemflowlist", "lciafmt"]),
+    "totals": {
+        "bio_matched":    total_bio_matched,   "bio_unmatched":  total_bio_unmatched,
+        "tech_linked":    total_tech_linked,   "tech_external":  total_tech_external,
+        "tech_unlinked":  total_tech_unlinked, "tech_ambiguous": total_tech_ambiguous,
+    },
+    "processes": proc_provenance,
+}
+_DB_PROVENANCE_PATH.write_text(
+    json.dumps(_db_provenance, indent=2, ensure_ascii=False), encoding="utf-8"
+)
+print(f"  Provenance sidecar: {_DB_PROVENANCE_PATH} ({len(proc_provenance)} processes)")
 
 if total_bio_unmatched:
     print("\n  Note: unmatched biosphere flows are elementary flows whose UUIDs are not")
@@ -765,12 +901,25 @@ if n_multi_native or n_multi_mass or n_multi_causal:
 if total_causal_fallback:
     print(f"\n  Note: {total_causal_fallback} exchange(s) in causal-allocation process(es) lacked a "
           f"per-exchange factor and used the mass-fraction fallback.")
-if total_causal_coproduct_links:
-    print(f"\n  WARNING: {total_causal_coproduct_links} technosphere link(s) consume a CAUSAL "
-          f"process's NON-reference co-product, which cannot be correctly re-based by the scalar "
-          f"co-product multiplier (its burden is per-exchange). These are UNDER-supported — the "
-          f"consumer gets the reference product's basis. Handle explicitly if this matters:")
+if causal_coproduct_info:
+    print(f"\n  Causal co-products: {len(causal_coproduct_info)} dedicated activit(ies) built "
+          f"from per-exchange factor columns; {total_causal_coproduct_links} consuming link(s) "
+          f"redirected to them ({len(causal_coproduct_consumed)} distinct co-product(s) consumed)."
+          + ("" if not causal_coproduct_examples else " Examples:"))
     for ex in causal_coproduct_examples[:5]:
+        print(f"    {ex}")
+if total_waste_treatment_links:
+    print(f"\n  Waste treatment: {total_waste_treatment_links} WASTE_FLOW output(s) linked to a "
+          f"treatment provider (disposal burden, e.g. landfill methane, now charged to the "
+          f"generating process)." + ("" if not waste_treatment_examples else " Examples:"))
+    for ex in waste_treatment_examples[:5]:
+        print(f"    {ex}")
+if total_avoided_product_links:
+    print(f"\n  Avoided products: {total_avoided_product_links} exchange(s) flagged "
+          f"isAvoidedProduct credited (sign-flipped), matching openLCA (e.g. landfill-gas / "
+          f"combustion electricity displacing grid power)." +
+          ("" if not avoided_product_examples else " Examples:"))
+    for ex in avoided_product_examples[:5]:
         print(f"    {ex}")
 if skipped_multipliers:
     print(f"\n  WARNING: {len(skipped_multipliers)} co-product output(s) could not be re-based "
@@ -779,11 +928,11 @@ if skipped_multipliers:
     for puuid, fuuid in skipped_multipliers[:5]:
         print(f"    process {puuid}, flow {fuuid}")
 if UNKNOWN_UNITS:
+    # Only reachable when ALLOW_UNIT_PASSTHROUGH=1 (otherwise the build raised above).
     print(f"\n  WARNING: {len(UNKNOWN_UNITS)} unrecognized unit string(s) encountered during import.")
-    print(f"  These exchanges were passed through without unit conversion — amounts may be wrong.")
-    print(f"  Add the following to WITHIN_FP and rerun:")
-    for u in sorted(UNKNOWN_UNITS):
-        print(f"    \"{u}\": <conversion_factor>")
+    print(f"  ALLOW_UNIT_PASSTHROUGH is set, so these were passed through WITHOUT unit conversion")
+    print(f"  — amounts may be silently wrong. Add the following to WITHIN_FP and rerun without the flag:")
+    print(_unknown_units_detail())
 
 # =============================================================================
 # SUMMARY
