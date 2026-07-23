@@ -123,12 +123,14 @@ results were computed against.
 > - **Inputs** (USLCI bundles, electricity baseline, full USLCI zip): the hash **is** a replication
 >   gate. Both engines must ingest these exact bytes, so `shasum -c` against the pins below is a
 >   real go/no-go — a mismatch means you are not running the validated comparison.
-> - **openLCA reference exports** (the `.xlsx`): the hash pins only the maintainer's **distributed
->   copy**, for download integrity. It is **not** something you can reproduce. openLCA bakes
->   timestamps, row ordering, and formatting into each file, so regenerating these in your own
->   openLCA (the intended path — see [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md))
->   yields a **different hash even when the numbers are identical**. The replication gate for the
->   openLCA side is the **harness agreeing within tolerance**, not a byte match.
+> - **openLCA reference exports** (the `.xlsx`): the hash is a **provenance record** — it identifies
+>   exactly which files the published results were computed against, so the maintainer can tell later
+>   whether a given export is the one behind a locked table. It is **not** a check you can run:
+>   openLCA bakes timestamps, row ordering, and formatting into each file, so regenerating these in
+>   your own openLCA (the intended path — see
+>   [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md)) yields a **different
+>   hash even when the numbers are identical**. The gate for the openLCA side is the **harness
+>   agreeing within tolerance**, not a byte match.
 
 ### USLCI supply-chain bundles (→ `source_data/`)
 
@@ -173,7 +175,7 @@ both.
 | Soybean oil; crude, degummed | `88aee762-…_a900b507….zip` (proc v00.00.015) | `0c6a97d9446766ca7d4dc30fea997fb8a031c393629020f802fcd88dd936f7dd` |
 
 **Background + openLCA reference exports** (→ `source_data/`; export hashes pin the maintainer's
-distributed copies only — see the boxed note above):
+a provenance record of the files behind the published results, not a download check — see the boxed note above):
 
 | Asset | SHA256 |
 |---|---|
@@ -192,8 +194,9 @@ distributed copies only — see the boxed note above):
 
 ### openLCA reference exports (hashes first pinned 2026-07-04)
 
-These hashes identify the maintainer's distributed copies only; see the boxed note above — a peer
-regenerating in openLCA will not (and is not expected to) reproduce them byte-for-byte.
+These hashes record which files the published results were computed against; see the boxed note
+above — a peer regenerating in openLCA will not (and is not expected to) reproduce them
+byte-for-byte.
 
 | Export | Mode | SHA256 |
 |---|---|---|
@@ -215,15 +218,11 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
 
 ## Known limitations of this package (honest scope)
 
-- The openLCA reference exports (~130 MB of xlsx) are **not committed** to the repo (they are
-  git-ignored; see `.gitignore`). The intended replication path is that a peer **regenerates them in
-  their own openLCA 2.6** — a step-by-step guide is in
-  [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md). The maintainer's copies
-  may additionally be attached as a **GitHub Release asset** (a convenience mirror / fast path for
-  running the harness without a full openLCA session), but that is optional — the reference numbers
-  are meant to be reproduced, not downloaded and trusted. (A Zenodo DOI is reserved for a citable
-  release of the whole tool later, not for these data files; Git LFS was rejected — cost + client
-  tooling for files nobody needs in the working tree.)
+- The openLCA reference exports (~290 MB of xlsx) are **not distributed** — not committed (they are
+  git-ignored) and not attached to releases. Checking parity means generating the openLCA side in
+  your own openLCA 2.6; [`REGENERATING_REFERENCE_EXPORTS.md`](REGENERATING_REFERENCE_EXPORTS.md) is
+  the step-by-step guide. (A Zenodo DOI is reserved for a citable release of the whole tool later,
+  not for these data files.)
 - The steel test case is a 1-process bundle, and that is deliberate: it is the **foreground-only
   (Layer 1) control**, the same aggregated inventory characterized by both engines, so that a
   discrepancy can be localized to the foreground (CFs, units, flow mapping) versus the background

@@ -30,22 +30,28 @@ any individual result they compute, not just the locked test cases.
 > (empty `git diff`), confirming the project name is non-load-bearing (logged in
 > `validation/README.md`). Items 1 (LICENSE — MIT, © 2026 Harrison Watson) and 2 (CITATION.cff +
 > "Maintainer, citation & reporting issues" README section, GitHub Issues as contact) DONE. Item 3
-> (reference-data hosting) DECIDED — peers regenerate in their own openLCA; hosted files are an
-> optional GitHub Release mirror; regeneration guide written; hash semantics clarified. **All of
-> Phase 1 is now complete except uploading the release-asset mirror at tag time (Phase 5).**
+> (reference-data hosting) DECIDED — peers regenerate in their own openLCA; regeneration guide
+> written; hash semantics clarified. (The optional release-asset mirror was dropped at tag time —
+> see item 3.) **Phase 1 is complete.**
 
 1. **LICENSE** (blocker — without it peers legally can't touch the code). Leading candidate for an
    openly-shared scientific tool: BSD-3-Clause or MIT; check license compatibility notes for
    fedelemflowlist/lciafmt (both EPA/public-domain-ish) before choosing.
 2. **CITATION.cff + named maintainer/contact** in README ("report discrepancies here").
-3. **Reference-data hosting — DECIDED 2026-07-07.** The peer group will **regenerate** the openLCA
-   exports in their own openLCA 2.6, so the hosted files are a *convenience mirror*, not the
-   canonical object. Decision:
+3. **Reference-data hosting — DECIDED 2026-07-07, simplified 2026-07-23.** The peer group
+   **regenerates** the openLCA exports in their own openLCA 2.6. That is now the only path — the
+   exports are not distributed at all. Decision:
    - **Regeneration is the primary path.** Wrote `validation/REGENERATING_REFERENCE_EXPORTS.md`
      (openLCA session steps + the exact sheet/cell format `05` parses, distilled from
      `VALIDATION_LOG.md`).
-   - **Optional mirror = GitHub Release asset** attached to `v0.1.0-beta` (free, no client tooling,
-     tag-locked). Not yet uploaded; do at tag time (Phase 5).
+   - ~~**Optional mirror = GitHub Release asset** attached to `v0.1.0-beta`~~ **DROPPED
+     2026-07-23 at tag time.** The mirror would have served a middle audience that doesn't exist:
+     a casual reader does at most one spot-check in their own openLCA, and anything reaching formal
+     peer review gets fully independent verification, where a maintainer-supplied export is
+     irrelevant either way. Running the harness against the maintainer's own export only confirms
+     the maintainer reported honestly — it produces no independent evidence. Regeneration is the
+     only documented path. Reversible: the files can be attached to the existing release at any
+     time if a peer actually wants them.
    - **Zenodo/DOI reserved for a citable release of the whole tool later**, not for these data files.
      **Git LFS rejected** (recurring cost + client-side `git lfs` friction for files nobody needs in
      the working tree).
@@ -342,5 +348,4 @@ Struck after the 2026-07-23 census: a full-chain steel re-pull (ledger #3, close
 an additional ECONOMIC case (degenerate throughout USLCI). Check each bundle's grid vintage before
 the openLCA session — new LCA Commons pulls are 2026.
 
-**Then Phase 5:** upload the reference-export mirror as a release
-asset, tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
+**Then Phase 5:** tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
