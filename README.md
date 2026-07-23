@@ -150,8 +150,10 @@ last gap to close was petroleum's toxicity categories: they traced to a single i
 was not honoring USLCI's `isAvoidedProduct` flag, so byproduct energy-recovery *credits* — chiefly the
 landfill-gas electricity that displaces grid power — were imported as burdens). Fixing it snapped all
 of petroleum, and tightened corn and cement, to exact agreement. (One caveat: the steel bundle is a
-single process with no upstream, so for steel full-chain ≡ direct — it exercises the LCIA math but not
-the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.)
+single process with no upstream, and it's there on purpose — as the foreground-only control. Because
+it has no supply chain to solve, it isolates the LCIA math and flow mapping, so a discrepancy can be
+pinned to the foreground, the background, or both. It validates at 1.000, so full-chain coverage
+rests on petroleum, corn, and cement.)
 
 A fifth case, **recycled-HDPE flake**, validates separately within 0.01% on all 10 categories. It is
 the case that exercises the engine's most intricate path — consumption of a *causal-allocation

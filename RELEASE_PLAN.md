@@ -104,13 +104,44 @@ any individual result they compute, not just the four locked test cases.
      recycled-HDPE-flake case covers it (MRF-sorting causal co-products), validated within 0.01% on a
      `--vintage 2026` build. Recycled-PET-flake is a second such case, built and solving, but blocked
      on an openLCA reference export.
-   - ≥1 additional ECONOMIC and ≥1 PHYSICAL multi-output case from new sectors (chemicals,
-     plastics, wood products).
-   - Re-pull a **full-chain steel bundle** so steel actually tests the solve.
-   - For each: download bundle, pin hash, openLCA export with baseline mounted + US-avg provider
-     linked (the documented product-system setup), extend `TARGETS_FULL`, run, append to
-     VALIDATION_LOG.
+   - ~~≥1 additional ECONOMIC multi-output case~~ **STRUCK 2026-07-23 — not achievable with USLCI
+     data.** A census of all 1,342 processes in the full USLCI zip found 60 multi-output processes:
+     27 ECONOMIC, 28 PHYSICAL, 5 CAUSAL. **All 29 processes that declare `ECONOMIC_ALLOCATION` have
+     degenerate factors — every factor is exactly 0.0 or 1.0**, i.e. one product absorbs 100% of the
+     burden and the co-products get zero. Zero processes in the database have two or more economic
+     factors strictly between 0 and 1. (Verified directly: `Containerboard; at mill` declares
+     `ECONOMIC_ALLOCATION` with `[containerboard 1.0, tall oil 0.0, turpentine 0.0]`.) The locked
+     corn case already covers this degenerate path — its factors are `[0.0, 1.0]` too. Adding another
+     one would consume an operator session and test nothing new. **The economic-allocation
+     *arithmetic* is therefore untestable against USLCI**; state this as a scope limitation rather
+     than pretending to cover it.
+   - **≥1 additional PHYSICAL multi-output case — this is where the value is.** Unlike economic,
+     physical allocation has real splits. Ranked candidates (all confirmed multi-output with genuine
+     factor spreads and linked upstream providers):
 
+     | Target | UUID | Products / split | Depth (techIn / linked / bio) | Why |
+     |---|---|---|---|---|
+     | **Chlorine; chlor-alkali electrolysis; at plant** | `a3e150d0-770e-4e2a-9b19-f7daa8cda38b` | NaOH 0.5453 / Cl₂ 0.4357 / H₂ 0.019 | 21 / 15 / 44 | **First pick.** The textbook multi-output chemical process, and the most balanced three-way physical split in USLCI. Chemicals = a genuinely new sector. |
+     | **Hardboard; at hardboard plant** | `ca1d1dfa-fd3c-35f1-bea7-a037251deb04` | 7 products, 0.8634 → 0.0016 | 63 / 48 / 46 | **Second pick.** Deepest upstream of any candidate (48 linked providers) *and* the widest co-product fan. Stresses allocation breadth and the solve together. Wood products = new sector. |
+     | Soybean oil; crude, degummed; at plant | `88aee762-4aa0-301f-b579-cca5d636aa0d` | meal 0.8051 / oil 0.1949 | 10 / 7 / 3 | Cheapest export; clean two-way split that is easy to hand-check. Good third if session time allows. |
+     | Cellulosic fiberboard; uncoated; at plant | `cced9535-72f6-3b3a-b3c0-ce21b98eea2b` | 5 products, 0.961 → 0.0042 | 63 / 42 / 33 | Alternative to hardboard; similar depth, more lopsided split. |
+     | Medium density fiberboard, MDF; at MDF mill | `4e01da4a-71e5-3d9d-93c3-0f0a230f2735` | 5 products, 0.844 → 0.0001 | 25 / 16 / 10 | Has a 1e-4 factor — useful for probing small-factor numerics. |
+
+   - ~~Re-pull a **full-chain steel bundle** so steel actually tests the solve~~ **DROPPED
+     2026-07-23 — steel is the foreground-only control and stays that way; ledger #3 closed by
+     disclosure.** Steel billets was chosen early as the Layer 1 control (foreground only, no solve)
+     precisely so discrepancies could be localized to foreground vs. background vs. both; it does
+     that job and validates at 1.000. Upgrading it isn't possible anyway: the six large
+     `Steel; * coil/plate/sections; at plant` processes look substantial (~740 exchanges) but carry
+     **zero** technosphere inputs with a `defaultProvider` alongside ~690 elementary flows each —
+     labelled unit processes while being strictly foreground, the whole upstream aggregated into one
+     inventory. Re-pulling one would exercise the solve no more than the present bundle does.
+     **Decision: do not pursue; state steel's role plainly** rather than shipping a thin case that
+     technically solves.
+   - For each: download bundle, pin hash, **check the bundle's grid vintage** (see
+     `REGENERATING_REFERENCE_EXPORTS.md` → "Which baseline vintage"), openLCA export with the
+     matching baseline mounted + US-avg provider linked, extend `TARGETS_FULL` *and*
+     `EXPECTED_VINTAGE`, run, append to VALIDATION_LOG.
 2. ~~**Demystify the petroleum 2.7% (ecotox/cancer/non-cancer) mechanistically.**~~ **RESOLVED
    2026-07-21** — not a background-aggregation effect and not a reference issue. `setup/03` was
    ignoring USLCI's `isAvoidedProduct` flag, so the landfill-gas electricity credit on the
@@ -251,7 +282,7 @@ has either verified it against evidence or replaced the claim with a tested one.
 |---|---|---|---|
 | 1 | **Causal co-product consumption path** (`setup/03`, `_allocation_for` + link-site re-basis) | Most intricate code in the repo; written by Claude with confident comments; was exercised by **zero** validation cells | **CLOSED 2026-07-21** — the recycled-HDPE-flake case (`17664c37…`) consumes causal co-products from the MRF-sorting processes (non-uniform allocation grids) and reproduces openLCA **within 0.01%** on all 10 categories (`--vintage 2026` build, locked `validation_full_chain_results_2026.csv`). Path validated against a real case. |
 | 2 | **Petroleum toxicity residual** | Accepted as "long feedback loop, within tolerance" without a proven mechanism | **CLOSED 2026-07-21.** Real root cause: `setup/03` did not honor USLCI's `isAvoidedProduct` flag, so the MSW-landfilling landfill-gas electricity *credit* was imported as a *burden* (sign-flipped). Petroleum toxicity is ~99% grid electricity, so that one exchange was the entire gap (openLCA landfilling −0.072 vs BW +0.072 on ecotox). Fix credits avoided-product exchanges → all 40 cells within 0.1% of openLCA, 41/41 pytest. The 2026-07-17 "pre-correction crude electricity" diagnosis was a **misattribution** (superseded); openLCA was correct throughout. |
-| 3 | **Steel framed as a full-chain case** | 1-process bundle ⇒ full-chain ≡ direct; report presents 4 full-chain cases | Disclosure DONE — `validation/README.md` (2026-07-04) + `VALIDATION_REPORT.md` Honest-scope (2026-07-07). Full-chain re-pull still OPEN (Phase 3.1) |
+| 3 | **Steel framed as a full-chain case** | 1-process bundle ⇒ full-chain ≡ direct; report presents 4 full-chain cases | **CLOSED 2026-07-23 by correcting the framing, not by adding a case.** The original error was presenting steel as a fourth *full-chain* case; it was in fact chosen early as the **Layer 1 (foreground-only) control** — an aggregated inventory characterized by both engines with no solve, so that any discrepancy could be localized to foreground (CFs/units/mapping) vs. background (parser/allocation/linking) vs. both. It fills that role and validates at 1.000 on all 10 categories. Docs now state that role rather than implying a missing full-chain case. Upgrading is also impossible: the census found USLCI's steel datasets are labelled unit processes but are strictly foreground, upstream pre-aggregated into a single inventory. Full-chain coverage rests on petroleum, corn, cement — plus HDPE flake on the 2026 build. |
 | 4 | **TRACI CF hash printed, not enforced** (`setup/02`) | QC protocol calls for version logging; enforcement asymmetry vs `03b` never challenged | DONE 2026-07-07, committed `34cdef8` — both CF source files' SHA256 pinned + hard-enforced, mirroring `03b` |
 | 5 | **mtime duplicate-zip precedence** (`setup/03`) | Same file rejects mtime for the conversion-table check but uses it for zip precedence; inconsistency not caught in audit | DONE 2026-07-07, committed `34cdef8` — precedence now by per-process `(version, lastChange)`, deterministic across machines |
 | 6 | **"Validated" language** | Report/README language drifted from "engine parity" to "can be trusted" without the distinction being challenged | ADDRESSED 2026-07-07 — reworded to "engine parity on identical inputs" in README/VALIDATION_REPORT/CLAUDE.md; practitioner responsibility stated explicitly. Confirm wording holds on next read-through |
@@ -298,10 +329,16 @@ results were computed in, which is correct and should stay.
 - `charts/general/*.png` regenerated on the current engine (they were two correctness fixes stale).
 
 **NEXT STEP — Phase 3, which needs openLCA operator sessions (not codeable):**
-1. Re-pull a **full-chain steel bundle** so steel exercises the solve (ledger #3).
-2. openLCA reference export for **recycled-PET flake** — the case already builds and solves.
-3. ≥1 **ECONOMIC** and ≥1 **PHYSICAL** multi-output case from a new sector.
+1. **Chlorine; chlor-alkali electrolysis** (`a3e150d0-…`) — the real three-way physical split; top
+   priority, tests allocation arithmetic nothing currently covers.
+2. **Hardboard; at hardboard plant** (`ca1d1dfa-…`) — 7 co-products, deepest linked upstream in USLCI.
+3. openLCA reference export for **recycled-PET flake** (`f7b7280d-…`) — bundle already on disk; a
+   second exercise of the causal *consumption* path (the target process itself is `NO_ALLOCATION`).
 4. **Direct-mode exports beyond petroleum** (ledger #8).
+
+Struck after the 2026-07-23 census: a full-chain steel re-pull (ledger #3, closed by disclosure) and
+an additional ECONOMIC case (degenerate throughout USLCI). Check each bundle's grid vintage before
+the openLCA session — new LCA Commons pulls are 2026.
 
 **Then Phase 5:** confirm CI is green on GitHub, upload the reference-export mirror as a release
 asset, tag `v0.1.0-beta`, open the PR, share with 2–3 peers.

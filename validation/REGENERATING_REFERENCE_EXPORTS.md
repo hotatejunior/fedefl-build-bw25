@@ -33,12 +33,45 @@ Filenames matter: they are hardcoded in `TARGETS_FULL` / `TARGETS_DIRECT` at the
 ## Prerequisites
 
 - **openLCA 2.6** (the version the locked results were computed against).
-- The **US Electricity Baseline library, `v1.2025-06.0`** — the exact version openLCA mounted (later
-  baseline versions renamed UUIDs and will reintroduce drift). Hash pinned in
+- The **US Electricity Baseline library** — **at the vintage the bundle itself references.** For the
+  four locked cases that is `v1.2025-06.0`. It is **not** automatically the right answer for a new
+  bundle; see "Which baseline vintage" immediately below. Hashes pinned in
   [`README.md`](README.md) / [`VALIDATION_LOG.md`](VALIDATION_LOG.md).
-- The four **USLCI supply-chain bundles** (openLCA JSON-LD), each hash-pinned in
+- The **USLCI supply-chain bundles** (openLCA JSON-LD), each hash-pinned in
   [`README.md`](README.md). These are the *same* bundles brightway imports — feeding both engines
   identical JSON-LD is the whole point of the comparison.
+
+### Which baseline vintage — check, don't assume
+
+The US-average grid node is **named identically across baseline releases but carries a different
+UUID per vintage**. A bundle hardcodes one of them, and mounting the other in openLCA silently
+compares against a grid the bundle never referenced.
+
+| Baseline release | US-average grid UUID |
+|---|---|
+| `v1.2025-06.0` | `7068192a-999c-39b6-bf66-234a294bdf92` |
+| `v1.2026-06.0` | `75d4be66-…` |
+
+**Check any bundle before you open openLCA:**
+
+```bash
+unzip -p source_data/<bundle>.zip "processes/*.json" | grep -o -e 7068192a -e 75d4be66 | sort | uniq -c
+```
+
+Whichever UUID dominates is the vintage that bundle wants; mount that baseline. (A handful of stray
+references to the other vintage is normal — the four locked bundles show 85× `7068192a` and 1×
+`75d4be66`. Go with the dominant one.)
+
+> **New bundles from LCA Commons are 2026-vintage.** Everything in the July-2026 drop — recycled HDPE
+> flake, recycled PET flake, "Corn; at field" — references `75d4be66` **exclusively** (91, 91, and 86
+> references, zero to 2025). If you are pulling a fresh bundle today, expect to mount
+> `v1.2026-06.0`, not the 2025 baseline the four locked cases use.
+
+On the brightway side this is the `setup/03b --vintage {2025|2026}` flag. **A build injects exactly
+one vintage**, stamps it onto the database, and `05_validate_uslci.py` hard-skips any case whose
+expected vintage doesn't match the build — so a mismatch shows up as a `SKIP:` line, not a wrong
+number. Add the new case's expected vintage to `EXPECTED_VINTAGE` in `05_validate_uslci.py` when you
+add it to `TARGETS_FULL`.
 
 ## The openLCA session — per test case
 
@@ -58,8 +91,10 @@ matches by importing that same baseline via `setup/03b`.
 4. **Link the US-average grid provider** for petroleum, corn, and cement. Each has a direct
    `Electricity, AC, 120 V` input that ships with **no default provider** (a product-system setup gap
    on the openLCA side). Manually link it to the US average consumption mix, provider UUID
-   **`7068192a-999c-39b6-bf66-234a294bdf92`**. This is what the `_AVG_ELEC_SELECTION` in the
-   filenames records. **Steel has no electricity input — skip this step for steel.**
+   **`7068192a-999c-39b6-bf66-234a294bdf92`** — note this is the **2025** node; for a 2026-vintage
+   bundle link `75d4be66-…` instead (see "Which baseline vintage" above). This is what the
+   `_AVG_ELEC_SELECTION` in the filenames records. **Steel has no electricity input — skip this step
+   for steel.**
 5. **Build the product system for the target process** — *after* step 4, so the manual provider link
    is captured in the system. Target UUIDs:
    - Petroleum refining: `0aaf1e13-5d80-37f9-b7bb-81a6b8965c71`
@@ -72,7 +107,9 @@ matches by importing that same baseline via `setup/03b`.
 7. **Calculate with TRACI 2.2.** Use the same TRACI 2.2 method file the pipeline uses (10 categories).
 8. **Export to Excel** and confirm the sheets below are present.
 
-> **Steel is direct-only.** Its bundle contains a single process with no upstream, so its `Impacts`
+> **Steel is direct-only by design** — it is the foreground-only (Layer 1) control, included so
+> discrepancies can be localized to foreground vs. background. Its bundle contains a single process
+> with no upstream, so its `Impacts`
 > sheet already equals a direct result. No product-system solve is exercised for steel — full-chain
 > coverage rests on petroleum, corn, and cement (see [`README.md`](README.md), "Known limitations").
 
@@ -107,7 +144,7 @@ Also useful: each standard export carries a **`Calculation setup`** sheet — ch
 Place the four full-chain files in `source_data/` (and the direct file in `validation/`), then:
 
 ```bash
-python validation/05_validate_uslci.py     # VALIDATION_MODE = "full_chain"
+python validation/05_validate_uslci.py     # --mode full_chain is the default
 ```
 
 Expect every BW/OL ratio inside ±5% — in fact all 40 cells reproduce openLCA within 0.1% (every cell
@@ -116,3 +153,8 @@ rounds to 1.000). The harness overwrites
 exports reproduce the locked comparison. Rows flagged `!` are outside tolerance — if you get those,
 re-check steps 2 (library mounted), 4 (electricity provider linked), and 6 (1 kg basis), which are
 the three setup choices that most affect the full-chain numbers.
+
+**If a case prints `SKIP:` instead of a row**, its expected vintage doesn't match the build — the
+guard is doing its job. Rebuild against the matching baseline (`setup/03b --vintage <year>` then
+`setup/03`) and re-run. A non-2025 build writes a vintage-tagged CSV (e.g.
+`validation_full_chain_results_2026.csv`) so it can never overwrite the locked 2025 table.

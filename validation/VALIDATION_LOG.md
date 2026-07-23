@@ -717,3 +717,48 @@ above are kept verbatim as the record of the wrong path — see the forward poin
 Repo state: `validation_full_chain_results.csv` re-locked (40/40 at 1.000);
 `validation_full_chain_results_2026.csv` added (steel + HDPE, 2026 build); `charts/validation/*`
 regenerated; 41/41 pytest pass. Commit `2f9eb3c`.
+
+### 2026-07-23 — USLCI allocation census: economic allocation is untestable, steel is aggregated
+
+Census of all 1,342 processes in the full USLCI zip, run to choose Phase 3.1 test cases from evidence
+rather than by picking sectors by intuition. **60 multi-output processes: 27 ECONOMIC, 28 PHYSICAL,
+5 CAUSAL.** Two findings changed the plan:
+
+- **Every `ECONOMIC_ALLOCATION` process in USLCI is degenerate.** All 29 have factors of exactly 0.0
+  or 1.0 — one product absorbs 100% of the burden, co-products get zero. **Zero** processes have two
+  or more economic factors strictly between 0 and 1. Confirmed directly on `Containerboard; at mill`,
+  whose `allocationFactors` list `ECONOMIC_ALLOCATION` = `[containerboard 1.0, tall oil 0.0,
+  turpentine 0.0]`. The locked **corn** case is the same shape (`[0.0, 1.0]`).
+  ⇒ The economic-allocation *arithmetic* cannot be validated against USLCI at all, because USLCI
+  never actually divides a burden economically. Corn already covers the degenerate path. Phase 3.1's
+  "≥1 additional ECONOMIC case" is **struck**, and recorded as a scope limitation instead.
+- **USLCI steel is strictly foreground ⇒ ledger #3 closed by correcting steel's framing.** The six
+  large `Steel; * coil/plate/sections; at plant` processes (~740 exchanges each) have **zero**
+  technosphere inputs with a `defaultProvider` and ~690 elementary flows apiece. They are *labelled*
+  unit processes but behave like **system processes**: the entire upstream is aggregated into one
+  inventory rather than linked. Re-pulling one would not exercise the solve any more than the present
+  steel billets bundle does.
+  **Decision (2026-07-23): do not pursue — and restate steel's actual role.** Steel billets was
+  chosen early as the **Layer 1 control** of the layered design at the top of this log: an aggregated
+  inventory vector characterized by both engines, no solve, so a discrepancy could be localized to
+  the foreground (CFs, units, flow mapping), the background (parser, allocation, provider linking),
+  or the combination. It does that job — 1.000 on all ten categories, inside Layer 1's ≤0.1% target —
+  which is what let the petroleum residual be attributed to the background side with confidence. The
+  earlier framing ("a fourth full-chain case, full-chain re-pull pending") was the actual defect;
+  `VALIDATION_REPORT.md` / `validation/README.md` / `README.md` now state the control role and its
+  corollary (steel exercises none of the solve) instead of implying a missing case.
+
+By contrast PHYSICAL allocation has real splits and is worth the operator sessions — best candidate
+`Chlorine; chlor-alkali electrolysis; at plant` (`a3e150d0-770e-4e2a-9b19-f7daa8cda38b`), a genuine
+three-way NaOH 0.5453 / Cl₂ 0.4357 / H₂ 0.019 split with 15 linked upstream providers. Ranked
+shortlist with UUIDs in `RELEASE_PLAN.md` Phase 3.1.
+
+Also confirmed this session: **every bundle in the July-2026 LCA Commons drop is 2026-vintage** —
+recycled HDPE flake, recycled PET flake, and "Corn; at field" reference the 2026 grid node
+(`75d4be66`) 91/91/86 times and the 2025 node (`7068192a`) **zero** times, while the locked-case
+bundles from the June drop reference 2025 85 times. Any newly pulled bundle therefore needs a
+`--vintage 2026` build and a 2026 baseline mounted in openLCA.
+`REGENERATING_REFERENCE_EXPORTS.md` previously told the operator to mount 2025 unconditionally and
+has been corrected.
+
+No engine change; locked CSVs untouched.

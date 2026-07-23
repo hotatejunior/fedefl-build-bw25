@@ -91,7 +91,7 @@ results were computed against.
 | Petroleum refining; at refinery | `0aaf1e13-…_00a04057….zip` (proc v00.01.014) | `e2a81f9e77fb4336eaf7e09e726dbbaec899834b631fc3a13152572fbc6f78f7` |
 | Corn; whole plant; at field | `11256034-…_00a04057….zip` (proc v00.00.019) | `455ff132881e3f30b8c859918de1cebd9057a700b56c7491b5f734b09191ce57` |
 | Portland cement; at plant | `62993671-…_00a04057….zip` (proc v00.00.018) | `c53bfd7d35549ffb29aad3a445051f0a5fe9e961690aa19ab6dd17b29e6afcc5` |
-| Steel; billets; at plant | `ac54bc7d-…_00a04057….zip` (proc v00.02.020, **1-process bundle** — no upstream, so full-chain ≡ direct for this case) | `b5ee3e935369a7f4c54f290a3eb60c87a8404f7a2503176d7b17fb2e6162d95e` |
+| Steel; billets; at plant | `ac54bc7d-…_00a04057….zip` (proc v00.02.020, **1-process bundle** — the foreground-only Layer 1 control, so full-chain ≡ direct for this case) | `b5ee3e935369a7f4c54f290a3eb60c87a8404f7a2503176d7b17fb2e6162d95e` |
 
 ### Background / method assets (→ `source_data/`)
 
@@ -154,8 +154,24 @@ regenerating in openLCA will not (and is not expected to) reproduce them byte-fo
   are meant to be reproduced, not downloaded and trusted. (A Zenodo DOI is reserved for a citable
   release of the whole tool later, not for these data files; Git LFS was rejected — cost + client
   tooling for files nobody needs in the working tree.)
-- The steel test case is a 1-process bundle: it exercises LCIA math and biosphere mapping but not
-  the technosphere solve. Full-chain coverage rests on petroleum, corn, and cement.
+- The steel test case is a 1-process bundle, and that is deliberate: it is the **foreground-only
+  (Layer 1) control**, the same aggregated inventory characterized by both engines, so that a
+  discrepancy can be localized to the foreground (CFs, units, flow mapping) versus the background
+  (parser, allocation, linking) versus both. It validates at 1.000 on all ten categories, so the
+  foreground layer is clean. The corollary is that steel exercises **none** of the technosphere
+  solve — full-chain coverage rests on petroleum, corn, and cement (plus HDPE flake on the 2026
+  build). Steel cannot be upgraded into a full-chain case either: a 2026-07-23 census found USLCI's
+  steel datasets are labelled unit processes but are strictly foreground, with the whole upstream
+  aggregated into one elementary-flow inventory (~740 exchanges, ~690 elementary flows, zero
+  default-provider inputs), so it stays in the role it was chosen for.
+- **Economic allocation is covered only in its degenerate form, and cannot be covered otherwise with
+  USLCI data.** All 29 processes in USLCI that declare `ECONOMIC_ALLOCATION` have factors of exactly
+  0.0 or 1.0 — one product takes 100% of the burden and the co-products take none. No process in the
+  database splits a burden economically, so the corn case (factors `[0.0, 1.0]`) already covers
+  everything USLCI can exercise. Physical and causal allocation, by contrast, are tested against real
+  splits (petroleum's 9-product physical grid; the HDPE case's causal grids).
+- Direct mode currently covers petroleum only — it is the only case with a kg-basis openLCA export.
+  (Mode switching itself is no longer a source edit: `--mode {full_chain,direct}`.)
 - The causal-allocation co-product **consumption** path is now covered: the recycled-HDPE-flake case
   (`17664c37…`, a `--vintage 2026` build) consumes causal co-products from the MRF-sorting processes
   and reproduces openLCA within 0.01% on all 10 categories, locked in

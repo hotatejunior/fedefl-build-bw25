@@ -139,11 +139,24 @@ This is a *validation in progress*, not a finished certification.
   guard against "the code was fit to these examples" is more examples — the plan is to pull additional
   processes from other manufacturing sectors and re-run this same check. (Recycled-PET-flake is a sixth
   candidate — it builds and solves, but has no openLCA reference export yet.)
-- **Steel is a direct-mode case, not a fourth full-chain one.** The steel billets bundle contains a
-  **single process with no upstream supply chain**, so for steel full-chain ≡ direct: it validates
-  the LCIA math and biosphere mapping but exercises **none** of the technosphere solve (parser,
-  allocation, provider linking). Genuine full-chain coverage rests on petroleum, corn, and cement.
-  Re-pulling steel as a full-chain bundle is on the roadmap.
+- **Steel is the foreground-only control, by design — not a fourth full-chain case.** The steel
+  billets bundle is a single process with no upstream supply chain, so for steel full-chain ≡ direct.
+  That is the point of including it: it is the **Layer 1 control** in the layered validation design
+  (see `validation/VALIDATION_LOG.md`, "Validation design") — the same aggregated inventory vector
+  characterized by both engines, isolating LCIA math and biosphere mapping from the technosphere
+  solve. Chosen early so that any discrepancy could be **localized**: a gap that shows up in steel
+  implicates the foreground layer (CFs, unit conversion, flow mapping); a gap that shows up only in
+  petroleum/corn/cement implicates the background (parser, allocation, provider linking); a gap in
+  both implicates the combination. Steel reproduces openLCA at 1.000 on all ten categories, so the
+  foreground layer is clean and residuals elsewhere are attributable to the solve — which is exactly
+  how the petroleum residual was eventually cornered.
+  The honest corollary stands: steel exercises **none** of the technosphere solve, so genuine
+  full-chain coverage rests on petroleum, corn, and cement (plus HDPE flake on the 2026 build). It is
+  also not extensible — a 2026-07-23 census found USLCI's steel datasets are labelled unit processes
+  while being strictly foreground, with the entire upstream aggregated into a single elementary-flow
+  inventory (the large `Steel; * coil; at plant` datasets carry ~740 exchanges and ~690 elementary
+  flows with **zero** default-provider inputs). Full-chain steel is not available in this database, so
+  steel stays in the role it was chosen for.
 - **Avoided products beyond the four locked cases are lightly exercised.** The `isAvoidedProduct`
   fix that closed petroleum is a general correctness change, but the locked cases only activate a
   handful of avoided-product exchanges (chiefly the landfill-gas electricity credit). One rare
