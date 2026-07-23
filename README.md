@@ -6,9 +6,6 @@ This is a reusable, code-first LCA engine built on a fully open, EPA-aligned dat
 clean, reproducible recipe for doing US-context LCA in code — something that does not currently exist
 in the public domain in published form.
 
-> **Provenance.** This pipeline spun out of a larger (private) LCA project, where it began as the
-> background-inventory engine for an asphalt dynamic-LCA study and grew into a general-purpose
-> pipeline. This repo is the extracted, streamlined engine.
 
 ---
 
