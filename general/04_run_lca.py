@@ -35,8 +35,12 @@ from foreground_importer import load_foreground_csv, fg_uuid
 import run_manifest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, ELECTRICITY_BASELINE_DB,
-                    METHOD_ROOT, REPO_ROOT)
+from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
+                    ELECTRICITY_BASELINE_DB, METHOD_ROOT, REPO_ROOT)
+
+# USLCI_DB is rebound by --database below; keep the configured default so the
+# provenance sidecar's filename convention stays anchored to it.
+USLCI_DB_DEFAULT = USLCI_DB
 
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
@@ -71,8 +75,18 @@ parser.add_argument("--manifest",          default=None,
                     help="Audit manifest JSON path (default: validation_manifest.json at repo root)")
 parser.add_argument("--no-manifest",        action="store_true", dest="no_manifest",
                     help="Skip writing the per-run audit manifest")
+parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLCI_FULL_DB],
+                    help=f"Which USLCI build to run against (default: {USLCI_DB}, the "
+                         f"per-process bundle set the locked validation cases were computed "
+                         f"against). '{USLCI_FULL_DB}' is the whole-database build from "
+                         f"USLCI_FULL_DB=1 setup/03_import_uslci.py.")
 args = parser.parse_args()
 
+if args.database:
+    # Rebound before any use below. The bundle build and the full-database build
+    # are separate brightway databases (see config.USLCI_FULL_DB); everything
+    # downstream — solve, contributions, audit manifest — reads this name.
+    USLCI_DB = args.database
 if args.uuid:
     PROCESS_UUID = args.uuid
 if args.foreground:
@@ -105,7 +119,15 @@ if not bd.projects.twofive:
 if BIOSPHERE_DB not in bd.databases:
     raise RuntimeError(f"'{BIOSPHERE_DB}' not found. Run setup/01_setup_biosphere_fedefl.py first.")
 if USLCI_DB not in bd.databases:
-    raise RuntimeError(f"'{USLCI_DB}' not found. Run setup/03_import_uslci.py first.")
+    _hint = ("Run 'USLCI_FULL_DB=1 python setup/03_import_uslci.py' to build it."
+             if USLCI_DB == USLCI_FULL_DB else
+             "Run setup/03_import_uslci.py first.")
+    raise RuntimeError(
+        f"'{USLCI_DB}' not found. {_hint}\n"
+        f"  USLCI builds present: "
+        f"{[n for n in (USLCI_DB, USLCI_FULL_DB) if n in bd.databases] or 'none'}"
+    )
+print(f"USLCI build: '{USLCI_DB}' ({bd.databases[USLCI_DB].get('number')} activities)")
 
 traci_methods = sorted(m for m in bd.methods if m[:2] == METHOD_ROOT)
 if not traci_methods:
@@ -461,31 +483,43 @@ if MANIFEST_JSON is not None:
         except Exception:
             solved_keys.append(("unknown", str(_k)))
 
-    prov_path = Path(REPO_ROOT) / run_manifest.DB_PROVENANCE_FILENAME
+    prov_filename = run_manifest.db_provenance_filename(USLCI_DB, USLCI_DB_DEFAULT)
+    prov_path = Path(REPO_ROOT) / prov_filename
     provenance_processes = {}
     prov_source = {"available": False, "path": str(prov_path)}
     if prov_path.exists():
         try:
             prov_doc = json.loads(prov_path.read_text(encoding="utf-8"))
-            provenance_processes = prov_doc.get("processes", {})
-            sidecar_count = prov_doc.get("db_activity_count")
-            live_count = bd.databases[USLCI_DB].get("number") if USLCI_DB in bd.databases else None
-            prov_source = {
-                "available": True,
-                "path": str(prov_path),
-                "generated": prov_doc.get("generated"),
-                "db_activity_count": sidecar_count,
-                "live_db_activity_count": live_count,
-                "matches_live_db": (sidecar_count == live_count),
-            }
-            if sidecar_count != live_count:
-                print(f"WARNING: {run_manifest.DB_PROVENANCE_FILENAME} records {sidecar_count} "
-                      f"activities but '{USLCI_DB}' currently has {live_count} — the sidecar looks "
-                      f"stale, so completeness may be inaccurate. Re-run setup/03_import_uslci.py.")
+            sidecar_db = prov_doc.get("database")
+            if sidecar_db is not None and sidecar_db != USLCI_DB:
+                # Belt-and-braces: the filename already separates the builds, so this
+                # only fires if a sidecar was renamed or hand-edited. Reading one
+                # build's diagnostics against another would silently misreport
+                # completeness, so drop it rather than trust it.
+                print(f"WARNING: {prov_filename} describes database '{sidecar_db}' but this run "
+                      f"targets '{USLCI_DB}' — ignoring it; completeness will be limited.")
+                prov_source["mismatched_database"] = sidecar_db
+            else:
+                provenance_processes = prov_doc.get("processes", {})
+                sidecar_count = prov_doc.get("db_activity_count")
+                live_count = bd.databases[USLCI_DB].get("number") if USLCI_DB in bd.databases else None
+                prov_source = {
+                    "available": True,
+                    "path": str(prov_path),
+                    "database": sidecar_db,
+                    "generated": prov_doc.get("generated"),
+                    "db_activity_count": sidecar_count,
+                    "live_db_activity_count": live_count,
+                    "matches_live_db": (sidecar_count == live_count),
+                }
+                if sidecar_count != live_count:
+                    print(f"WARNING: {prov_filename} records {sidecar_count} "
+                          f"activities but '{USLCI_DB}' currently has {live_count} — the sidecar looks "
+                          f"stale, so completeness may be inaccurate. Re-run setup/03_import_uslci.py.")
         except (ValueError, OSError) as e:
             print(f"WARNING: could not read {prov_path}: {e} — completeness will be limited.")
     else:
-        print(f"NOTE: {run_manifest.DB_PROVENANCE_FILENAME} not found at repo root — completeness "
+        print(f"NOTE: {prov_filename} not found at repo root — completeness "
               f"section will be limited. Re-run setup/03_import_uslci.py to generate it.")
 
     completeness = run_manifest.summarize_supply_chain_completeness(

@@ -215,6 +215,7 @@ chain does not depend on who — or what — typed the code.
 | File | Purpose |
 |------|---------|
 | [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) | Field-by-field map of USLCI openLCA JSON-LD → the brightway schema, and how the parser resolves the places the two data models don't line up |
+| [`ALLOCATION.md`](ALLOCATION.md) | How multi-output processes are split — the four allocation paths, how N co-products are reshaped into brightway's one-product-per-activity matrix, and what USLCI actually contains |
 | [`DEVLOG.md`](DEVLOG.md) | Engine design decisions and the bugs fixed to reach validation — read before changing any script |
 | [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) | The openLCA parity write-up — method, results, technical appendix |
 | [`validation/`](validation/) | The parity harness, locked result CSVs, and `VALIDATION_LOG.md` (every run, disproven theory, and fix, in order). See [`validation/README.md`](validation/README.md) to replicate |

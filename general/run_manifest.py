@@ -33,6 +33,20 @@ DB_PROVENANCE_FILENAME = "uslci_db_provenance.json"
 MANIFEST_FILENAME = "validation_manifest.json"
 
 
+def db_provenance_filename(db_name, default_db_name):
+    """Sidecar filename for a given USLCI build.
+
+    The bundle build keeps the historical unsuffixed name, so existing runs,
+    docs, and CI paths are unaffected. Any other build (currently the full-database
+    build) gets its own suffixed file — the two builds coexist, and a sidecar
+    describing one must never be read as if it described the other.
+    """
+    if db_name == default_db_name:
+        return DB_PROVENANCE_FILENAME
+    stem, _, ext = DB_PROVENANCE_FILENAME.rpartition(".")
+    return f"{stem}.{db_name}.{ext}"
+
+
 def summarize_supply_chain_completeness(solved_keys, provenance_processes,
                                         uslci_db, external_dbs):
     """Cross this result's solved supply chain against per-process import diagnostics.

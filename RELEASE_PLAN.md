@@ -108,8 +108,8 @@ any individual result they compute, not just the locked test cases.
 1. **New test cases chosen to hammer allocation**, not to pad the count:
    - ~~≥1 process that **consumes a causal-allocation co-product**~~ **DONE 2026-07-21** — the
      recycled-HDPE-flake case covers it (MRF-sorting causal co-products), validated within 0.01% on a
-     `--vintage 2026` build. Recycled-PET-flake is a second such case, built and solving, but blocked
-     on an openLCA reference export.
+     `--vintage 2026` build. Recycled-PET-flake is a second such case — **its reference export
+     arrived 2026-07-23 and it validates at 0.00%** (was briefly blocked on that export).
    - ~~≥1 additional ECONOMIC multi-output case~~ **STRUCK 2026-07-23 — not achievable with USLCI
      data.** A census of all 1,342 processes in the full USLCI zip found 60 multi-output processes:
      27 ECONOMIC, 28 PHYSICAL, 5 CAUSAL. **All 29 processes that declare `ECONOMIC_ALLOCATION` have
@@ -314,10 +314,14 @@ Reviewed and CLOSED items (keep for the record):
 
 ---
 
-## Session handoff — 2026-07-23 (pick up here)
+## Session handoff — 2026-07-23 (historical record; superseded by 2026-08-03 below)
+
+> **Read the newest handoff at the bottom of this file first.** The "NEXT STEP" list in this
+> section was written *before* the openLCA sessions that happened later the same day, and all of
+> its codeable items are now done. Kept verbatim as a record of what the session set out to do.
 
 **Branch:** `release-prep-phase1-2`, 8 commits ahead of `main`, pushed and in sync with origin.
-PR not yet opened — the maintainer will handle the PR.
+PR not yet opened — the maintainer will handle the PR. *(Merged as PR #1; branch deleted.)*
 
 **Where the project stands:** Phases 0, 1, 2, and 4 are complete and committed. Phase 3.2 (the
 petroleum residual) closed 2026-07-21 with ledgers #1 and #2. All 40 locked cells reproduce openLCA
@@ -342,15 +346,61 @@ results were computed in, which is correct and should stay.
 - `charts/general/*.png` regenerated on the current engine (they were two correctness fixes stale).
 
 **NEXT STEP — Phase 3, which needs openLCA operator sessions (not codeable):**
-1. **Chlorine; chlor-alkali electrolysis** (`a3e150d0-…`) — the real three-way physical split; top
-   priority, tests allocation arithmetic nothing currently covers.
-2. **Hardboard; at hardboard plant** (`ca1d1dfa-…`) — 7 co-products, deepest linked upstream in USLCI.
-3. openLCA reference export for **recycled-PET flake** (`f7b7280d-…`) — bundle already on disk; a
-   second exercise of the causal *consumption* path (the target process itself is `NO_ALLOCATION`).
-4. **Direct-mode exports beyond petroleum** (ledger #8).
+~~1. **Chlorine; chlor-alkali electrolysis** (`a3e150d0-…`) — the real three-way physical split; top
+   priority, tests allocation arithmetic nothing currently covers.~~
+~~2. **Hardboard; at hardboard plant** (`ca1d1dfa-…`) — 7 co-products, deepest linked upstream in USLCI.~~
+~~3. openLCA reference export for **recycled-PET flake** (`f7b7280d-…`) — bundle already on disk; a
+   second exercise of the causal *consumption* path (the target process itself is `NO_ALLOCATION`).~~
+4. **Direct-mode exports beyond petroleum** (ledger #8) — still open, re-scoped as lower-value.
+
+**Items 1–3 were all completed later the same day** (operator sessions run 2026-07-23) along with
+soybean oil. See `validation/VALIDATION_LOG.md` 2026-07-23 (later) and
+`validation_full_chain_results_2026.csv`.
 
 Struck after the 2026-07-23 census: a full-chain steel re-pull (ledger #3, closed by disclosure) and
 an additional ECONOMIC case (degenerate throughout USLCI). Check each bundle's grid vintage before
 the openLCA session — new LCA Commons pulls are 2026.
 
 **Then Phase 5:** tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
+
+---
+
+## Session handoff — 2026-08-03 (pick up here)
+
+**Branch:** `full-db-import-prototype`, 2 commits ahead of `main`, tracking origin.
+`release-prep-phase1-2` merged as PR #1 and was deleted; `v0.1.0-beta` is published.
+
+**Where the project stands — Phases 0–4 complete, Phase 5 tagged.** Validation now covers **two
+builds, ten process-cases, 100 category cells**:
+
+| Build | Cases | Cells | Max deviation |
+|---|---|---|---|
+| 2025 | petroleum, corn, cement, steel | 40 | 0.1% |
+| 2026 | steel, HDPE flake, PET flake, chlorine, hardboard, soy meal | 60 | 0.00077% |
+
+Physical allocation is exercised on real splits (chlorine 3-way, hardboard 7-way, soy 2-way);
+causal consumption on two cases (HDPE, PET). Economic allocation is **untestable against USLCI** —
+all 29 declaring processes have degenerate 0/1 factors (census, 2026-07-23); this is a stated scope
+limitation, not a gap to close.
+
+**Environment on the current machine:** `/opt/miniconda3/envs/asp-lca-bw25/bin/python`
+(Python 3.11.15, bw2data 4.7). Note the 2026-07-23 handoff above names
+`~/miniconda3/envs/fedefl-build-bw25` and says `asp-lca-bw25` no longer exists — that is true of
+the *data machine*, not this one. Both records are correct for their own host; check which machine
+you are on before trusting either.
+
+**On this branch (not yet in `main`):**
+- `cd6aef6` — `SCHEMA_CROSSWALK.md`, the field-by-field USLCI JSON-LD → brightway `db_data` map;
+  README tightened 16.9K→14.3K.
+- `d7718e1` — opt-in `USLCI_FULL_DB=1` in `setup/03`: import the whole database from the full zip
+  instead of per-process bundles, so `general/04` can run any of ~1,341 processes without a
+  rebuild. 1,371 activities; 2025 cases still reproduce at 1.000. Also fixes a latent brightway
+  crash (geomapping `eval()`s locations containing `(`).
+
+**Open:** direct-mode exports beyond petroleum (ledger #8, low value); the full-DB prototype's
+path to a supported feature; and the doc/narrative/technical-report work scoped 2026-08-03.
+
+**Convention note for future sessions:** `validation/VALIDATION_LOG.md` is append-only and ends
+with the newest entry — it is the authoritative record of what has actually been run. Handoff
+sections in *this* file are point-in-time and can be overtaken within the same day. Check the log
+before trusting plan prose.

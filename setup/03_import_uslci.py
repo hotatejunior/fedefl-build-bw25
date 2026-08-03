@@ -25,7 +25,8 @@ import json
 import bw2data as bd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_DB_NAME, \
+from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_BUNDLE_DB_NAME, \
+    USLCI_FULL_DB as USLCI_FULL_DB_NAME, \
     ELECTRICITY_BASELINE_DB as EXTERNAL_PROVIDER_DB, REPO_ROOT
 # EXTERNAL_PROVIDER_DB: the optional injected background DB consulted when a
 # bundle exchange's provider isn't in the bundle itself (see
@@ -34,6 +35,15 @@ from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_DB_NAME, \
 # existed.
 
 HERE = Path(__file__).parent
+
+# Which build this run produces. Default: the per-process bundle set (the locked
+# validation build). USLCI_FULL_DB=1 instead imports the ENTIRE USLCI database
+# from the single full zip, so general/04 can run any of its ~1,341 processes
+# without a rebuild. The two write to SEPARATE brightway databases and can coexist
+# — see the USLCI_FULL_DB note in config.py for why the harness must stay pinned
+# to the bundle build.
+FULL_DB_MODE = os.environ.get("USLCI_FULL_DB", "").strip().lower() in ("1", "true", "yes", "on")
+USLCI_DB_NAME = USLCI_FULL_DB_NAME if FULL_DB_MODE else USLCI_BUNDLE_DB_NAME
 
 # Directory holding the per-target USLCI supply-chain bundle zips to import.
 # Must be the SAME directory setup/03b_import_electricity_baseline.py scans (its
@@ -241,13 +251,12 @@ def _proc_precedence(data):
     return (_parse_version(data.get("version")), data.get("lastChange") or "")
 
 # Discover the process sources. Default: per-process bundle zips (<uuid>_<hash>.zip)
-# in BUNDLE_DIR. PROTOTYPE (delta #1 — full-DB calculator): when USLCI_FULL_DB is
-# set, import the ENTIRE USLCI database from the single full zip named in the
-# conversion table's _meta, instead of per-process bundles. Everything downstream
-# is unchanged — the parser already builds an activity for every process it loads,
-# with no target scoping.
+# in BUNDLE_DIR. In FULL_DB_MODE, import the ENTIRE USLCI database from the single
+# full zip named in the conversion table's _meta, instead of per-process bundles.
+# Everything downstream is unchanged — the parser already builds an activity for
+# every process it loads, with no target scoping.
 _full_db_zip = _meta.get("source_zip", "")
-if os.environ.get("USLCI_FULL_DB", "").strip().lower() in ("1", "true", "yes", "on"):
+if FULL_DB_MODE:
     _full = BUNDLE_DIR / _full_db_zip
     if not _full_db_zip or not _full.exists():
         raise SystemExit(
@@ -256,6 +265,8 @@ if os.environ.get("USLCI_FULL_DB", "").strip().lower() in ("1", "true", "yes", "
         )
     zip_files = [_full]
     print(f"FULL-DB MODE: importing the entire USLCI database from {_full.name}")
+    print(f"  target database: '{USLCI_DB_NAME}' "
+          f"(the bundle build '{USLCI_BUNDLE_DB_NAME}' is left untouched)")
 else:
     zip_files = sorted(
         BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
@@ -870,9 +881,15 @@ print(f"  Technosphere exchanges: {total_tech_linked} linked "
       f"({total_tech_external} via '{EXTERNAL_PROVIDER_DB}'), {total_tech_unlinked} unlinked")
 
 # Persist per-process import diagnostics for general/04's per-run audit manifest
-# (RELEASE_PLAN 4.4 / ledger #9). Filename mirrors run_manifest.DB_PROVENANCE_FILENAME
+# (RELEASE_PLAN 4.4 / ledger #9). Filename mirrors run_manifest.db_provenance_filename()
 # in general/; kept as a local literal to avoid setup/ importing from general/.
-_DB_PROVENANCE_PATH = REPO_ROOT / "uslci_db_provenance.json"
+# The bundle build keeps the historical unsuffixed name; the full-database build
+# gets its own file so the two builds' diagnostics can coexist without either
+# being read as if it described the other.
+_DB_PROVENANCE_PATH = REPO_ROOT / (
+    "uslci_db_provenance.json" if USLCI_DB_NAME == USLCI_BUNDLE_DB_NAME
+    else f"uslci_db_provenance.{USLCI_DB_NAME}.json"
+)
 
 def _pkg_versions(names):
     out = {}

@@ -33,7 +33,9 @@ engine). See CLAUDE.md for the script table and run order.
   exchanges via its `isInput` handling; `setup/03_import_uslci.py` reads JSON-LD directly for full
   control over exchange-direction detection. The full field-level mapping and how the parser resolves
   each openLCA↔brightway incompatibility (direction, provider resolution, units, allocation, waste
-  flows, avoided products) is documented in [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md).
+  flows, avoided products) is documented in [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md); allocation
+  specifically — including how N co-product outputs are reshaped to satisfy brightway's square-matrix
+  requirement — in [`ALLOCATION.md`](ALLOCATION.md).
 - **FEDEFL UUIDs as the universal key.** Every biosphere flow — in the brightway DB, the TRACI
   method, and the USLCI data — is keyed by FEDEFL UUID. Linking is deterministic; no name-matching.
 - **openLCA library interoperability.** `setup/olca_library.py` decodes openLCA's pre-aggregated
