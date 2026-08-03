@@ -240,41 +240,57 @@ def _proc_precedence(data):
     Zulu strings sort chronologically)."""
     return (_parse_version(data.get("version")), data.get("lastChange") or "")
 
-zip_files = sorted(
-    BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
-    key=lambda p: p.name
-)
-
-# Guard against silently ignored bundles: a zip that LOOKS like a JSON-LD process
-# export (has openlca.json + processes/) but whose filename doesn't match the
-# required <uuid>_<hash>.zip pattern would otherwise vanish without a trace — the
-# operator thinks their process imported when it didn't. Renamed downloads are the
-# usual cause; keep the original LCA Commons filename. The full-DB zip (named in
-# the conversion table's _meta) is a build-time source, not a bundle — excluded.
+# Discover the process sources. Default: per-process bundle zips (<uuid>_<hash>.zip)
+# in BUNDLE_DIR. PROTOTYPE (delta #1 — full-DB calculator): when USLCI_FULL_DB is
+# set, import the ENTIRE USLCI database from the single full zip named in the
+# conversion table's _meta, instead of per-process bundles. Everything downstream
+# is unchanged — the parser already builds an activity for every process it loads,
+# with no target scoping.
 _full_db_zip = _meta.get("source_zip", "")
-for _zp in sorted(BUNDLE_DIR.glob("*.zip")):
-    if _zp in zip_files or _zp.name == _full_db_zip:
-        continue
-    try:
-        with zipfile.ZipFile(_zp) as _z:
-            _names = _z.namelist()
-            if "openlca.json" in _names and any(n.startswith("processes/") for n in _names):
-                print(
-                    f"WARNING: {_zp.name} looks like a process bundle but does NOT match the "
-                    f"required '<uuid>_<hash>.zip' naming pattern — it will be IGNORED.\n"
-                    f"  Restore the original LCA Commons filename (the process UUID + export hash) "
-                    f"if you want it imported."
-                )
-    except zipfile.BadZipFile:
-        pass
-
-if not zip_files:
-    raise SystemExit(
-        f"No process zip files found in {BUNDLE_DIR}. Download per-process exports "
-        f"from LCA Commons and place them there (same dir 03b scans). Bundle zips "
-        f"must keep their original '<uuid>_<hash>.zip' filenames (see WARNINGs above, "
-        f"if any, for zips that were skipped on naming grounds)."
+if os.environ.get("USLCI_FULL_DB", "").strip().lower() in ("1", "true", "yes", "on"):
+    _full = BUNDLE_DIR / _full_db_zip
+    if not _full_db_zip or not _full.exists():
+        raise SystemExit(
+            f"USLCI_FULL_DB is set but the full USLCI zip is not present in {BUNDLE_DIR} "
+            f"(expected '{_full_db_zip or '<name recorded in the conversion table _meta>'}')."
+        )
+    zip_files = [_full]
+    print(f"FULL-DB MODE: importing the entire USLCI database from {_full.name}")
+else:
+    zip_files = sorted(
+        BUNDLE_DIR.glob("????????-????-????-????-????????????_*.zip"),
+        key=lambda p: p.name
     )
+
+    # Guard against silently ignored bundles: a zip that LOOKS like a JSON-LD process
+    # export (has openlca.json + processes/) but whose filename doesn't match the
+    # required <uuid>_<hash>.zip pattern would otherwise vanish without a trace — the
+    # operator thinks their process imported when it didn't. Renamed downloads are the
+    # usual cause; keep the original LCA Commons filename. The full-DB zip (named in
+    # the conversion table's _meta) is a build-time source, not a bundle — excluded.
+    for _zp in sorted(BUNDLE_DIR.glob("*.zip")):
+        if _zp in zip_files or _zp.name == _full_db_zip:
+            continue
+        try:
+            with zipfile.ZipFile(_zp) as _z:
+                _names = _z.namelist()
+                if "openlca.json" in _names and any(n.startswith("processes/") for n in _names):
+                    print(
+                        f"WARNING: {_zp.name} looks like a process bundle but does NOT match the "
+                        f"required '<uuid>_<hash>.zip' naming pattern — it will be IGNORED.\n"
+                        f"  Restore the original LCA Commons filename (the process UUID + export hash) "
+                        f"if you want it imported."
+                    )
+        except zipfile.BadZipFile:
+            pass
+
+    if not zip_files:
+        raise SystemExit(
+            f"No process zip files found in {BUNDLE_DIR}. Download per-process exports "
+            f"from LCA Commons and place them there (same dir 03b scans). Bundle zips "
+            f"must keep their original '<uuid>_<hash>.zip' filenames (see WARNINGs above, "
+            f"if any, for zips that were skipped on naming grounds)."
+        )
 
 print(f"Found {len(zip_files)} process zip(s).")
 
@@ -758,6 +774,15 @@ for proc_uuid, co_flow in _build_jobs:
     location = proc.get("location", {})
     raw_loc = location.get("name", "") if isinstance(location, dict) else ""
     location_name = LOCATION_MAP.get(raw_loc, raw_loc) or "GLO"
+    # brightway's geomapping eval()s any location string containing "(" (it treats
+    # it as a possibly re-tupleized regionalization key — see bw2data
+    # retupleize_geo_strings), so an unmapped country name like
+    # "Congo (the Democratic Republic of the)" crashes .write() with a SyntaxError.
+    # LOCATION_MAP already normalizes the common cases (e.g. the USA name) to codes;
+    # for anything it didn't, drop the parenthetical qualifier so the raw name is
+    # eval-safe. General on purpose — handles any future paren-bearing country.
+    if "(" in location_name:
+        location_name = location_name.split(" (")[0].strip() or "GLO"
 
     if co_flow is None:
         act_name = proc.get("name", proc_uuid)
