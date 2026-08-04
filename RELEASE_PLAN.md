@@ -285,6 +285,48 @@ any individual result they compute, not just the locked test cases.
 
 ---
 
+## Phase 6 — Full-database mode (opened 2026-08-03, prototype working)
+
+`USLCI_FULL_DB=1 setup/03` builds `uslci-full` (1,371 activities) beside the bundle build, so
+`general/04 --database` can run any USLCI process without a rebuild. Verified 2026-08-03: all 1,371
+processes solve (zero errors, zero non-finite), and the replication gate passes on `uslci-full`
+itself, with absolute scores within 6.66e-14 of the bundle build.
+
+Two defects surfaced and were fixed, both invisible under the bundle build:
+
+- **Per-result completeness was a database-wide total.** `general/04` derived the supply chain from
+  `lca.dicts.activity` — every technosphere column, reachable or not. Fixed via
+  `run_manifest.select_supplied_keys()`. See DEVLOG.
+- **42 processes scored a silent `0.0`.** `03b` discovered providers from the bundle glob only, so a
+  full-DB build got 11 of the 17 baseline nodes it needs. Fixed by scanning the full zip too. See
+  DEVLOG.
+
+### Candidate pieces (not scheduled)
+
+1. **Hard-stop on ambiguous links** (`setup/03`), default on with `ALLOW_AMBIGUOUS_LINKS=1` to
+   override — the `ALLOW_UNIT_PASSTHROUGH` pattern (ledger #7). An ambiguous link means the resolver
+   had candidates and declined to choose: a build defect, never a data property. Passes clean on both
+   builds today, so it can land without breaking anything.
+2. **Run-time guard in `general/04`** — refuse or warn loudly when the target's own solved chain
+   contains ambiguous links. Covers a database built with the override, or built before item 1.
+3. **Explain a zero rather than printing it bare.** When a result is 0.0 across all ten categories and
+   the target has non-zero inputs, name the cause: all its inputs are cutoffs. Measured on the current
+   full DB this fires on 10 of 1,371 — the other 84 zeros are legitimately zero (82 have no exchanges
+   at all, 2 have all-zero amounts). Not a stop; those 10 are honest answers, badly presented.
+4. **Process discovery** (`--search` / `--list` by name) — the felt half of the feature; today you
+   need the 36-char UUID. ~1–2 days, the largest remaining piece.
+5. **Tests for `03b`.** It has none, before or after this work. Its pure logic lives in
+   `vintage_detect.py` and is tested there; `find_full_db_zip` and the union-merge are script-level,
+   verified only end-to-end by a rebuild-and-gate cycle.
+6. **Decide whether full-DB mode is a supported feature or stays opt-in.** Today: an env var, absent
+   from the README, with the vintage forced to 2025 by the full zip.
+
+Not in scope: *under-reporting* — a non-zero result that is too low because part of its inventory was
+cut. That is endemic to LCA rather than a defect, and the per-result completeness block is the right
+instrument for it now that it reports the actual supply chain.
+
+---
+
 ## Under-review ledger — where Claude was over-delegated
 
 Running record of areas where AI-generated work was accepted without proportionate human review,

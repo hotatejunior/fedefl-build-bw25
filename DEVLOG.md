@@ -255,3 +255,28 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   Worth noting what the bug's shape says about the feature: the numbers looked plausible precisely
   because the build made them nearly right, and only a build that broke that coincidence revealed
   the claim was never being computed.
+- **Baseline discovery was scoped to bundles, so the full-DB build lost 42 processes to silent zeros
+  (2026-08-03).** `03b` globs `????????-????-????-????-????????????_*.zip` to decide which library
+  processes to inject. The full USLCI zip isn't named that way, so it was never scanned: `03b`
+  injected the 11 providers the nine bundles referenced, while a `USLCI_FULL_DB=1` import needs 17.
+  The six missing were all FERC regional consumption mixes (Northwest, SPP, Southwest, CAISO,
+  Southeast, ERCOT) — present in the 2025 library under exactly the UUIDs the processes hint at, just
+  never injected. `03`'s resolver then couldn't match the hint, fell back to flow-matching, found a
+  dozen candidates all producing `Electricity, AC, 120 V`, and correctly refused to guess. The
+  casualties were the 42 `Transport, … truck; electricity powered; <region>` processes, whose only
+  real input is that grid: cutting it left them scoring exactly **0.0** — a clean, plausible-looking
+  number rather than an error. The ambiguous-link count and the zero-score count were the same 42,
+  1:1, with no overlap either way. Fix: `03b` also scans the full zip when present, resolving it
+  through the conversion table's `_meta.source_zip` — the same single source of truth `03` uses, so
+  the two can't drift apart again. Injecting the *union* is deliberate: `electricity-baseline` is one
+  database shared by both USLCI builds, so scoping discovery to whichever build ran last would make
+  the baseline order-dependent, which is the defect restated rather than fixed. The full zip
+  contributes providers only and is barred from the vintage vote — it is a 2025-grid artifact, and
+  letting it vote would pin auto-detection to 2025 and break the 2026 build. Unresolvable providers
+  are now reported split by who needs them, so a 2026 build doesn't read as damaged by 2025-only
+  grids it was never going to link. Result: full DB ambiguous 42 → **0**, linked +42, all 42
+  transport processes score real values (0.036–0.040 kg CO2-eq), zeros 136 → 94 (the legitimate
+  remainder: 55 USEEIO bridge stubs with no exchanges, 39 zero-allocation outputs). Every other
+  process's score is bit-identical, and both locked tables reproduce **byte-for-byte** with the
+  baseline at 17 nodes instead of 11 — aggregated background columns are independent, so unreferenced
+  ones perturb nothing.

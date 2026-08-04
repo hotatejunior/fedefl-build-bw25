@@ -13,12 +13,26 @@ library at calc time: it doesn't re-solve the library's internal network, it
 plugs in each needed process's pre-solved cumulative inventory (one M column)
 as a single lumped background activity.
 
-Discovery is bundle-driven, not a hardcoded UUID list: scans the USLCI bundle
-zip(s) for technosphere exchanges whose flow has no producer inside the
-bundle, but which name a `defaultProvider` that IS a process in the library --
-exactly the "this input comes from outside the bundle" case. Only those
-providers get injected, so the set is whatever a given bundle actually needs,
-not a fixed per-dataset list.
+Discovery is source-driven, not a hardcoded UUID list: scans the USLCI process
+sources for technosphere exchanges whose flow has no producer inside the
+source, but which name a `defaultProvider` that IS a process in the library --
+exactly the "this input comes from outside the source" case. Only those
+providers get injected, so the set is whatever the build actually needs, not a
+fixed per-dataset list.
+
+"Sources" means the per-process bundle zips *and* the full USLCI zip, when
+present. Scanning both is deliberate: `electricity-baseline` is a single
+database shared by the bundle build and the full-database build
+(USLCI_FULL_DB=1), so injecting the union is the only way one baseline can
+serve both. Scoping discovery to whichever build was last imported would make
+the baseline order-dependent -- exactly the defect this fixes, where 03b
+injected the 11 providers the bundles referenced while 03's full-DB build
+needed 17, leaving 42 electric-transport processes unable to resolve their grid
+and scoring a silent zero.
+
+The full zip contributes providers only, never a *vintage* verdict: it is a
+2025-grid artifact, so letting it vote would pin auto-detection to 2025 and
+break the 2026 build. Vintage is decided by the bundles alone, as before.
 
 Requires: setup/01_setup_biosphere_fedefl.py must have been run first.
 Run before setup/03_import_uslci.py so its flow-based relink fallback has something
@@ -55,6 +69,28 @@ from config import PROJECT_NAME, BIOSPHERE_DB, ELECTRICITY_BASELINE_DB as INJECT
 # and stays hardcoded on purpose.
 DEFAULT_BUNDLE_DIR = Path(os.environ.get("SOURCE_DATA_DIR", REPO_ROOT / "source_data"))
 BUNDLE_GLOB = "????????-????-????-????-????????????_*.zip"
+# The full USLCI zip is named in the conversion table's _meta, the same single
+# source of truth setup/03 reads to find it in FULL_DB_MODE. Resolving it here
+# from a second rule (a glob, a hardcoded filename) is how the two scripts would
+# drift apart again.
+_CONV_TABLE_PATH = HERE / "uslci_flow_conversions.json"
+
+
+def find_full_db_zip(bundle_dir: Path) -> Path | None:
+    """The full USLCI zip in `bundle_dir`, or None if it isn't there.
+
+    Absence is normal and not an error: the bundle-only workflow never needs it,
+    and a peer replicating the locked validation may not have downloaded it.
+    """
+    try:
+        meta = json.loads(_CONV_TABLE_PATH.read_text()).get("_meta", {})
+    except (OSError, ValueError):
+        return None
+    name = meta.get("source_zip")
+    if not name:
+        return None
+    path = bundle_dir / name
+    return path if path.exists() else None
 
 # -----------------------------------------------------------------------------
 # Per-vintage baseline library config.
@@ -330,6 +366,23 @@ def main():
             entry = external.setdefault(uid, {**info, "referenced_by": set()})
             entry["referenced_by"] |= info["referenced_by"]
 
+    # Then the full USLCI zip, if present, so one baseline serves the full-database
+    # build too (see module docstring). Providers only -- no classify_bundle call,
+    # so it cannot vote on vintage.
+    full_only: set[str] = set()
+    full_zip = find_full_db_zip(args.bundle_dir)
+    if full_zip is not None:
+        found = find_external_providers(full_zip)
+        full_only = set(found) - set(external)
+        print(f"  {full_zip.name}: {len(found)} external provider(s) referenced"
+              f"  [{len(full_only)} not referenced by any bundle; vintage vote: excluded]")
+        for uid, info in found.items():
+            entry = external.setdefault(uid, {**info, "referenced_by": set()})
+            entry["referenced_by"] |= info["referenced_by"]
+    else:
+        print("  (full USLCI zip not present — injecting for the bundle build only; "
+              "a USLCI_FULL_DB=1 import may leave grid links unresolved)")
+
     decision = decide_vintage(verdicts, explicit=args.vintage, default=DEFAULT_VINTAGE)
     if decision["conflict"]:
         raise SystemExit("\n" + format_conflict(decision))
@@ -353,19 +406,31 @@ def main():
     library = resolve_library(args.library, fetch=not args.no_fetch, cfg=cfg)
     print(f"Using library: {library.name}")
 
-    print(f"\n{len(external)} distinct external provider(s) referenced across all bundles.")
+    print(f"\n{len(external)} distinct external provider(s) referenced across all sources.")
 
     lib = read_library(library)
     resolvable = [uid for uid in external if uid in lib._proc_by_uuid]
     unresolvable = [uid for uid in external if uid not in lib._proc_by_uuid]
 
+    # Split the report by who needs the provider. A full-DB-only provider missing
+    # from a 2026 library is expected -- the full zip is a 2025 artifact, so its
+    # grid UUIDs simply don't exist in a 2026 build -- and must not read as damage
+    # to the bundle build, which is what the operator is usually looking at.
     if unresolvable:
-        print(f"\nWARNING: {len(unresolvable)} referenced provider(s) NOT found in library "
-              f"'{lib.name}' -- these will remain cutoffs:")
-        for uid in unresolvable:
-            info = external[uid]
-            print(f"  {uid}  {info['provider_name']!r}  (flow: {info['flow_name']!r}, "
-                  f"referenced by {len(info['referenced_by'])} process(es))")
+        bundle_unres = [u for u in unresolvable if u not in full_only]
+        full_unres   = [u for u in unresolvable if u in full_only]
+        if bundle_unres:
+            print(f"\nWARNING: {len(bundle_unres)} bundle-referenced provider(s) NOT found in "
+                  f"library '{lib.name}' -- these will remain cutoffs:")
+            for uid in bundle_unres:
+                info = external[uid]
+                print(f"  {uid}  {info['provider_name']!r}  (flow: {info['flow_name']!r}, "
+                      f"referenced by {len(info['referenced_by'])} process(es))")
+        if full_unres:
+            print(f"\nNOTE: {len(full_unres)} provider(s) referenced only by the full USLCI zip "
+                  f"are absent from library '{lib.name}' (expected on a vintage the full zip "
+                  f"predates). The bundle build is unaffected; a USLCI_FULL_DB=1 import on this "
+                  f"vintage will cut those grid links.")
 
     if not resolvable:
         raise SystemExit("No referenced providers resolve against the library — nothing to inject.")
