@@ -23,6 +23,45 @@ def _summ(solved_keys, prov=PROV, external=(ELEC,)):
     return rm.summarize_supply_chain_completeness(solved_keys, prov, USLCI, external)
 
 
+# --- select_supplied_keys: the supply-chain reduction ------------------------
+# Guards the defect the full-database build exposed — completeness summed over
+# every technosphere column rather than the reachable ones, turning a per-result
+# audit into a database-wide total.
+
+def test_unreached_activities_are_excluded():
+    keyed = [((USLCI, "A"), 0), ((USLCI, "B"), 1), ((USLCI, "C"), 2)]
+    assert rm.select_supplied_keys(keyed, [1.0, 0.0, 0.0]) == [(USLCI, "A")]
+
+
+def test_negative_supply_is_kept():
+    # An avoided-product credit supplies a negative amount; it is part of the
+    # chain and must not be filtered out as if it were unreached.
+    keyed = [((USLCI, "A"), 0), ((USLCI, "B"), 1)]
+    assert rm.select_supplied_keys(keyed, [1.0, -0.5]) == [(USLCI, "A"), (USLCI, "B")]
+
+
+def test_tiny_supply_is_kept():
+    keyed = [((USLCI, "A"), 0), ((USLCI, "B"), 1)]
+    assert rm.select_supplied_keys(keyed, [1.0, 1e-30]) == [(USLCI, "A"), (USLCI, "B")]
+
+
+def test_result_is_ordered_by_column_not_input_order():
+    keyed = [((USLCI, "B"), 2), ((USLCI, "A"), 0), ((ELEC, "grid"), 1)]
+    assert rm.select_supplied_keys(keyed, [1.0, 2.0, 3.0]) == [
+        (USLCI, "A"), (ELEC, "grid"), (USLCI, "B")]
+
+
+def test_reduction_shrinks_the_completeness_counts():
+    # End-to-end shape of the bug: B's cutoffs are counted when B is reached and
+    # dropped when it is not, from the same column index.
+    keyed = [((USLCI, "A"), 0), ((USLCI, "B"), 1)]
+    reached = _summ(rm.select_supplied_keys(keyed, [1.0, 0.25]))
+    unreached = _summ(rm.select_supplied_keys(keyed, [1.0, 0.0]))
+    assert reached["tech_unlinked_in_supply_chain"] == 1
+    assert unreached["tech_unlinked_in_supply_chain"] == 0
+    assert unreached["fully_linked"] is True
+
+
 def test_clean_single_process_is_fully_linked():
     s = _summ([(USLCI, "A")])
     assert s["fully_linked"] is True

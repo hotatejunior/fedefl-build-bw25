@@ -238,3 +238,20 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   too. Post-fix HDPE flake GWP: 0.4499 kg CO2-eq/kg (literature range). The four locked cases carry
   no Mg exchanges; harness ratios unchanged (last-ulp float noise only, from the larger matrix —
   byte-for-byte parity still holds against the pinned asset set without the HDPE/PET bundles).
+- **Per-result completeness was a database-wide total (2026-08-03, exposed by the full-DB build).**
+  `general/04` derived a result's supply chain from `lca.dicts.activity` — which indexes *every*
+  column of the technosphere matrix, i.e. every activity in the loaded databases, reachable from the
+  functional unit or not. The manifest then summed each process's cutoffs over that set and reported
+  it as "within this supply chain". Under the per-target bundle build the overstatement was small
+  enough to pass review (petroleum: 351 activities actually supplied out of 402 indexed), because
+  those bundles were assembled to be roughly the target's own chain. The full-database build removed
+  the coincidence: a corrugated-product result claimed all 1,371 USLCI processes and all 2,801
+  DB-wide cutoffs, against a real chain of 383 activities. Fix: `run_manifest.select_supplied_keys()`
+  reduces the column index to non-zero entries of `lca.supply_array` before the crossing — exact
+  inequality, not a tolerance, so an avoided-product credit's negative supply and any arbitrarily
+  small contributor are kept while unreachable columns (which solve to exactly 0.0) are dropped.
+  Post-fix the same corrugated result reports 383 activities / 736 cutoffs; petroleum reports 351 /
+  624. No LCIA score changes — this is the audit layer, not the solve — so the harness is untouched.
+  Worth noting what the bug's shape says about the feature: the numbers looked plausible precisely
+  because the build made them nearly right, and only a build that broke that coincidence revealed
+  the claim was never being computed.

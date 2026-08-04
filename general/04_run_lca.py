@@ -472,11 +472,18 @@ if contrib_path and contributions:
 # supply chain against the per-process import diagnostics setup/03 persists to
 # uslci_db_provenance.json. Pure assembly logic lives in run_manifest.py.
 if MANIFEST_JSON is not None:
-    # Resolve every solved-technosphere activity to a (db, code) pair. lca.dicts
-    # keys are opaque brightway ids in bw25, so go through bd.get_activity — the
-    # same resolution the contributions block uses.
+    # Reduce the technosphere column index to the activities this result actually
+    # draws on before resolving them. lca.dicts.activity spans every activity in
+    # the loaded databases, reachable or not, so summing completeness over it
+    # reports database-wide totals as if they were this result's.
+    supplied = run_manifest.select_supplied_keys(
+        lca.dicts.activity.items(), lca.supply_array,
+    )
+    # Resolve each to a (db, code) pair. lca.dicts keys are opaque brightway ids
+    # in bw25, so go through bd.get_activity — the same resolution the
+    # contributions block uses.
     solved_keys = []
-    for _k in lca.dicts.activity:
+    for _k in supplied:
         try:
             _a = bd.get_activity(_k)
             solved_keys.append((_a.key[0], _a["code"]))
