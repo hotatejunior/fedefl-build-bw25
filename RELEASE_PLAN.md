@@ -393,6 +393,40 @@ contract.
 before this — the honest instruction would have been "always use the provider's reference unit,
 because nothing checks."
 
+### Parameterized processes — sized 2026-08-05: a frozen capability, not a wrong number
+
+`SCHEMA_CROSSWALK.md` lists `amountFormula` as dropped and calls it "a known limitation for
+parametric USLCI processes". Measured on v1.2026-06.0, that framing is more alarming than the
+facts warrant, and less useful than the real one.
+
+Exposure: **105** processes carry process-level parameters, **264** carry at least one exchange
+`amountFormula` (1,477 exchanges) — 18.5% of the database.
+
+It is **not** a correctness problem at default parameters, on two independent lines of evidence:
+
+- **Four of the nine validated cases carry formulas** (petroleum, chlorine, HDPE, PET) and reproduce
+  openLCA at 1.000. openLCA evaluates formulas; we use the stored `amount`. Matching to 1.000 *is*
+  the proof that the stored amount already equals openLCA's evaluation. Petroleum's are constant
+  arithmetic anyway — `6.5E-10+9.3E-19`, whose stored amount is the exact sum, with zero
+  process-level parameters.
+- **All 29 formula exchanges with a zero/absent stored amount evaluate to exactly 0** at their
+  shipped parameter values (checked by restricted evaluation). They are configuration switches that
+  ship off — `1.0*disinfect` with `disinfect = 0.0`, `0.78*HCl` with `HCl = 0.0` — plus six
+  combustion processes whose fossil-CO2 term is `non_biomass_C_content * … = 0`. The stored 0 is the
+  correct evaluation, not a dropped value.
+
+What it actually costs is a **capability**: those parameters exist to be *changed*. The wastewater
+treatment models ship with `disinfect`, `filter_include`, `chem_clarifier` and similar toggled off,
+and an openLCA user would flip them to model a different treatment train. Here they are frozen at
+whatever the export shipped, and nothing tells the user a knob exists. (Incidentally this explains
+the negative combustion GWPs: paper products have `non_biomass_C_content = 0`, so their combustion
+CO2 is entirely biogenic and uncounted, leaving only the avoided-electricity credit.)
+
+Candidate work, in increasing order of ambition: surface the parameters a process carries in
+`general/04`'s target block and the manifest so the frozen knobs are at least visible; then allow
+overriding them at run time and re-evaluating the affected exchanges. Restate the crosswalk's
+limitation in these terms rather than as an unqualified gap.
+
 ### Documentation (scoped 2026-08-05)
 
 Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the
