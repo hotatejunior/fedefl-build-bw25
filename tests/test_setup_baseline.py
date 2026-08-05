@@ -100,3 +100,43 @@ def test_vintage_paths_follow_the_given_bundle_dir(tmp_path):
     assert v["2026"]["fetch_target"].parent == tmp_path
     # The US-average grid UUID is the vintage marker bundles are classified by.
     assert v["2025"]["grid_uuid"] != v["2026"]["grid_uuid"]
+
+
+# -----------------------------------------------------------------------------
+# Who decides the vintage
+# -----------------------------------------------------------------------------
+# The whole-database workflow downloads one file and no bundles. Excluding the full
+# zip from the vintage vote left that build taking DEFAULT_VINTAGE on faith — which
+# went wrong the moment USLCI shipped a release whose grid references are all 2026.
+def _grid_ref(vintage_uuid):
+    return _input("fELEC", vintage_uuid)
+
+
+def test_the_full_zip_decides_the_vintage_when_no_bundle_does():
+    from fedefl_bw25.setup_baseline import GRID_UUIDS
+    from fedefl_bw25.vintage_detect import classify_bundle, decide_vintage
+
+    full = classify_bundle(
+        {GRID_UUIDS["2026"]: {"referenced_by": {f"p{i}" for i in range(359)}}},
+        GRID_UUIDS)
+    assert full["vintage"] == "2026"
+
+    # No bundles -> decide_vintage falls back to the default, which is what
+    # inject_baseline then overrides with the full zip's reading.
+    decision = decide_vintage({}, explicit=None, default="2025")
+    assert decision["source"] == "default" and decision["vintage"] == "2025"
+
+
+def test_bundles_outrank_the_full_zip_when_they_disagree():
+    # Bundles are the study data; the full zip is background. A 2025 bundle set must
+    # keep building 2025 even though the current full zip reads 2026.
+    from fedefl_bw25.setup_baseline import GRID_UUIDS
+    from fedefl_bw25.vintage_detect import classify_bundle, decide_vintage
+
+    bundle = classify_bundle(
+        {GRID_UUIDS["2025"]: {"referenced_by": {f"p{i}" for i in range(80)}},
+         GRID_UUIDS["2026"]: {"referenced_by": {"stray"}}},
+        GRID_UUIDS)
+    assert bundle["vintage"] == "2025"
+    decision = decide_vintage({"b.zip": bundle}, explicit=None, default="2025")
+    assert decision["source"] == "detected" and decision["vintage"] == "2025"

@@ -15,9 +15,13 @@ per-process bundle zips *and* the full USLCI zip when present, because
 the union is the only way one baseline serves both, and scoping discovery to
 whichever build ran last would make the baseline order-dependent.
 
-The full zip contributes providers only, never a *vintage* verdict: it is a
-2025-grid artifact, so letting it vote would pin auto-detection to 2025 and break
-the 2026 build. Vintage is decided by the bundles alone.
+Vintage is decided by the bundles whenever any of them references a grid node:
+they are the study data, the full zip is background. The full zip votes only when
+no bundle does, which is the whole-database workflow — one download, no bundles.
+That rule replaced an unconditional exclusion on 2026-08-05, whose stated reason
+(the full zip "is a 2025-grid artifact") stopped being true when USLCI shipped
+v1.2026-06.0: its 359 grid references are now all 2026, and excluding them left a
+bundle-less build silently taking the 2025 default.
 
 Like `run`, this module prints nothing and prompts for nothing. Progress goes to an
 optional `log` callable, and overwriting an existing database requires either
@@ -102,7 +106,7 @@ def _vintages(bundle_dir: Path) -> dict:
 
 
 VINTAGES = _vintages(DEFAULT_BUNDLE_DIR)
-DEFAULT_VINTAGE = "2025"   # only used when no bundle names a grid node at all
+DEFAULT_VINTAGE = "2025"   # only when NO source names a grid node at all
 GRID_UUIDS = {v: c["grid_uuid"] for v, c in VINTAGES.items()}
 
 
@@ -110,7 +114,8 @@ GRID_UUIDS = {v: c["grid_uuid"] for v, c in VINTAGES.items()}
 class BaselineBuild:
     """What one injection produced."""
     vintage: str
-    vintage_source: str            # 'detected' | 'explicit' | 'default'
+    vintage_source: str            # 'detected' (bundles) | 'detected-full-db'
+                                   # | 'explicit' | 'default'
     library: str
     injected: list                 # provider UUIDs written
     unresolvable_bundle: list      # referenced by a bundle, absent from this library
@@ -301,17 +306,30 @@ def resolve_library(explicit, fetch, cfg, bundle_dir, log=_NOOP) -> Path:
 # THE STEP
 # =============================================================================
 def scan_sources(bundle_dir, log=_NOOP):
-    """Providers referenced across all sources, plus per-bundle vintage verdicts.
+    """Providers referenced across all sources, plus their vintage verdicts.
 
-    Returns (external, verdicts, full_only). `full_only` is the set referenced by
-    the full USLCI zip and by no bundle — reported separately because a full-only
-    provider missing from a given vintage's library is expected, and must not read
-    as damage to the bundle build.
+    Returns (external, verdicts, full_only, full_verdict). `full_only` is the set
+    referenced by the full USLCI zip and by no bundle — reported separately because
+    a full-only provider missing from a given vintage's library is expected, and
+    must not read as damage to the bundle build.
+
+    `full_verdict` is the full zip's own vintage reading, kept apart from the
+    per-bundle `verdicts` because bundles decide the vintage whenever they can:
+    they are the study data, the full zip is background. It is used only when no
+    bundle votes, which is the whole-database workflow — one download, no bundles,
+    and previously no evidence at all.
+
+    Either source alone is enough. Requiring bundles made the minimum download
+    nine files instead of one.
     """
     bundle_dir = Path(bundle_dir)
     bundles = sorted(bundle_dir.glob(BUNDLE_GLOB))
-    if not bundles:
-        raise RuntimeError(f"No bundle zips found in {bundle_dir}")
+    full_zip = find_full_db_zip(bundle_dir)
+    if not bundles and full_zip is None:
+        raise RuntimeError(
+            f"No USLCI sources found in {bundle_dir}. Place either the full USLCI "
+            f"zip or per-process bundle zips there (see README, step 2)."
+        )
 
     log(f"Scanning {len(bundles)} bundle(s) in {bundle_dir} for external providers...")
     external, verdicts = {}, {}
@@ -323,19 +341,22 @@ def scan_sources(bundle_dir, log=_NOOP):
         for uid, info in found.items():
             external.setdefault(uid, {**info, "referenced_by": set()})["referenced_by"] |= info["referenced_by"]
 
-    full_only = set()
-    full_zip = find_full_db_zip(bundle_dir)
+    full_only, full_verdict = set(), None
     if full_zip is not None:
         found = find_external_providers(full_zip)
         full_only = set(found) - set(external)
+        full_verdict = classify_bundle(found, GRID_UUIDS)
+        voted = any(v["vintage"] for v in verdicts.values())
         log(f"  {full_zip.name}: {len(found)} external provider(s) referenced"
-            f"  [{len(full_only)} not referenced by any bundle; vintage vote: excluded]")
+            f"  [{len(full_only)} not referenced by any bundle; grid vintage: "
+            f"{full_verdict['vintage'] or 'n/a'}"
+            f"{', outvoted by the bundles' if voted else ''}]")
         for uid, info in found.items():
             external.setdefault(uid, {**info, "referenced_by": set()})["referenced_by"] |= info["referenced_by"]
     else:
         log("  (full USLCI zip not present — injecting for the bundle build only; "
             "a USLCI_FULL_DB=1 import may leave grid links unresolved)")
-    return external, verdicts, full_only
+    return external, verdicts, full_only, full_verdict
 
 
 def inject_baseline(*, vintage=None, library=None, fetch=True, bundle_dir=None,
@@ -358,18 +379,31 @@ def inject_baseline(*, vintage=None, library=None, fetch=True, bundle_dir=None,
     if BIOSPHERE_DB not in bd.databases:
         raise RuntimeError("Run setup/01_setup_biosphere_fedefl.py first.")
 
-    external, verdicts, full_only = scan_sources(bundle_dir, log=log)
+    external, verdicts, full_only, full_verdict = scan_sources(bundle_dir, log=log)
 
     decision = decide_vintage(verdicts, explicit=vintage, default=DEFAULT_VINTAGE)
     if decision["conflict"]:
         raise RuntimeError("\n" + format_conflict(decision))
+    # No bundle voted, and none was asked for: read the full zip instead of taking
+    # DEFAULT_VINTAGE on faith. The whole-database workflow has no bundles at all,
+    # so the default was being applied to a build with real evidence sitting in it —
+    # and it is wrong for the current USLCI release, whose 359 grid references are
+    # all 2026 while DEFAULT_VINTAGE is 2025.
+    if (decision["source"] == "default" and vintage is None
+            and full_verdict and full_verdict["vintage"]):
+        decision = {**decision, "vintage": full_verdict["vintage"],
+                    "source": "detected-full-db"}
     chosen = decision["vintage"]
     cfg = vintages[chosen]
     if decision["source"] == "detected":
         log(f"\nAuto-detected electricity-baseline vintage: {chosen} "
             f"(from {sum(len(b) for b in decision['groups'].values())} bundle(s))")
+    elif decision["source"] == "detected-full-db":
+        log(f"\nAuto-detected electricity-baseline vintage: {chosen} "
+            f"(no bundles present; read from the full USLCI zip — "
+            f"{full_verdict['reason']})")
     elif decision["source"] == "default":
-        log(f"\nNo bundle references a baseline grid node — falling back to the "
+        log(f"\nNo source references a baseline grid node — falling back to the "
             f"default vintage {chosen}.")
     else:
         also = [v for v in decision["groups"] if v != chosen]
