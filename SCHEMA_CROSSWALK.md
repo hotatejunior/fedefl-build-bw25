@@ -276,8 +276,20 @@ brightway exchange:  {"input": ("biosphere-fedefl", "12b39b80-…"), "amount": 2
   like `disinfect` and `filter_include` set to 0, and an openLCA user would flip them to model a
   different treatment train. Here they are fixed, and nothing surfaces that a knob exists. See
   RELEASE_PLAN Phase 6 for the parametric-modelling roadmap.
+- **Exchange `uncertainty` is dropped.** USLCI ships uncertainty distributions on **5,740 exchanges
+  (7.1%) across 91 processes** in v1.2026-06.0 — 5,218 lognormal, 476 triangular, 46 uniform. The
+  parser reads only the resolved `amount`, so deterministic results are unaffected, but the
+  distributions are not carried into brightway's uncertainty fields and Monte Carlo analysis is
+  therefore not possible (the chart is stubbed in `general/06`). Note that **no validated case
+  carries any uncertainty**, so unlike `amountFormula` the openLCA parity evidence says nothing
+  about this path in either direction.
 - **Process `category` is dropped** for USLCI activities (biosphere nodes keep FEDEFL context as
   `categories`).
+- **A flow can be matched and still uncharacterized.** FEDEFL matching and TRACI characterization are
+  separate steps: `Particulate matter` (unspecified size fraction) maps cleanly to a FEDEFL UUID but
+  has no TRACI 2.2 factor, because TRACI characterizes PM2.5. Such flows are carried in the
+  inventory and contribute exactly zero — distinct from an unmatched flow, which is excluded.
+  `general/04` names this explicitly when it is the reason a result is zero.
 - **Genuinely ambiguous links become cutoffs.** When a flow has several producers and no usable
   provider hint, the exchange is left unlinked rather than guessed — correct, but it means coverage
   depends on which bundles are present (see the per-process vs. whole-DB note in the README roadmap).

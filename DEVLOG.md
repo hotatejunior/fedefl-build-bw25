@@ -356,3 +356,34 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   importer in 2026-07 but never to the foreground path. All four cases now return 2.584981 or
   refuse. This is the practitioner-facing "bring your own study" feature, so it was the highest-stakes
   place in the codebase for a silent unit error to live.
+- **Presentation-layer fixes (2026-08-05).** Six defects found by the exploratory sweep, all in the
+  layer the harness never touches. None changed a computed number; several changed what a number
+  appeared to say.
+  - **Credits rendered as burdens.** `impact_profile` plots `score.abs()` so the log axis works and
+    marked no sign, so `Combustion of newspaper` — negative in all ten categories — drew ten ordinary
+    bars. Negative bars are now a distinct colour, hatched, labelled with a leading minus on the
+    unit, and counted in the axis label. The same shape as the `isAvoidedProduct` bug, in the chart
+    layer.
+  - **Wrong process's contributions, silently.** `general/06` fell back to the repo-root
+    `lca_contributions.csv` with no check that it matched the results file, and it fired
+    *automatically*: a zero-score run writes no contributions CSV, so the fallback engaged exactly
+    when a result was empty and filled the directory, making failure look like success. Now refuses
+    when the two files share no scenario, naming both sides.
+  - **`scenario_comparison` had no supported input.** `04` opened the results CSV `"w"`, so every run
+    overwrote the last and a multi-scenario CSV could only be built by hand — 0 of 43 chart runs
+    produced the chart. New `--append` accumulates scenarios and replaces (not duplicates) a
+    re-run scenario.
+  - **Arbitrary near-zero baseline.** Every bar is a percentage of the first scenario, so an
+    alphabetically-chosen baseline of 0.016 kg CO2-eq put the y-axis at 1e7. Now refused above a
+    1000x ratio with the numbers named. `chart_units.py` guards incommensurable units; this guards
+    incommensurable magnitudes.
+  - **Unbounded legend.** At 43 scenarios the legend took ~85% of the figure and the palette cycled
+    so entries shared colours. Capped at 8 with a note saying how many were omitted.
+  - **Zero-score warning named the wrong cause.** It asserted a biosphere UUID mismatch "almost
+    certainly", which was wrong for all three processes that tripped it. It now diagnoses from what
+    the run can see: no exchanges at all (correct zero, e.g. USEEIO bridge stubs); no direct
+    emissions (upstream cut); or — the case that exposed a third cause — every biosphere flow matched
+    to FEDEFL but **uncharacterized by TRACI**. `Corn wet mill; gluten drying` emits 0.22 kg of
+    `Particulate matter`, which maps cleanly to FEDEFL but has no TRACI 2.2 factor because TRACI
+    characterizes PM2.5. The flow is carried, not dropped, and contributes exactly nothing. Matching
+    and characterization are separate steps and only the first was ever surfaced.

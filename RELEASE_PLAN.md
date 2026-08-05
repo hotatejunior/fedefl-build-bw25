@@ -325,7 +325,7 @@ Not in scope: *under-reporting* — a non-zero result that is too low because pa
 cut. That is endemic to LCA rather than a defect, and the per-result completeness block is the right
 instrument for it now that it reports the actual supply chain.
 
-### Presentation & messaging defects (found 2026-08-05 by a 37-process exploratory sweep)
+### Presentation & messaging defects — ALL FIXED 2026-08-05 (found by a 37-process exploratory sweep)
 
 Ran 37 processes chosen for *weirdness* rather than representativeness — the units added that day,
 dangling flow refs, unusual locations, magnitude extremes, negative results, degenerate zeros — plus
@@ -333,28 +333,28 @@ dangling flow refs, unusual locations, magnitude extremes, negative results, deg
 defects were all in the layer the harness by construction never touches: presentation and messaging.
 None would fail a gate or a test.
 
-1. **`impact_profile` renders credits as burdens.** `general/06` takes `sub["score"].abs()` so the
+1. **FIXED — `impact_profile` rendered credits as burdens.** `general/06` takes `sub["score"].abs()` so the
    log scale works, and nothing marks the sign. `Combustion of newspaper` is negative in all ten
    categories; its chart shows ten positive bars labelled "Impact score per 1 kg". This is the
    `isAvoidedProduct` bug's shape — a credit read as a burden — moved into the chart layer. 6 of 43
    scenarios had ≥1 negative score; the locked tables carry 3 (steel billets). No shipped artifact is
    currently wrong (`charts/general/` is petroleum/corn/cement), and
    `validation/06_visualize_validation.py` plots ratios with no `abs()`, so it is unaffected.
-2. **`general/06` silently charts an unrelated process's contributions.** With no `--contributions`
+2. **FIXED — `general/06` silently charted an unrelated process's contributions.** With no `--contributions`
    it falls back to the repo-root `lca_contributions.csv` and never checks it corresponds to the
    results file. Worse, it fires *automatically*: a zero-score process makes `general/04` write no
    contributions CSV, so the fallback engages exactly when the result is empty — and fills the
    directory, so the failure looks like success. Three of the 37 hit this. `general/04` gained a
    sidecar/database mismatch guard; `06` needs the equivalent.
-3. **The zero-score warning names the wrong cause.** "all 10 TRACI scores are 0.0 — this almost
+3. **FIXED — the zero-score warning named the wrong cause.** "all 10 TRACI scores are 0.0 — this almost
    certainly indicates a biosphere UUID mismatch" fired on three processes whose zeros are
    legitimate (every technosphere input is a genuine cutoff) and whose biosphere mapping is fine.
-4. **`scenario_comparison`'s baseline is arbitrary and may be ~zero.** It plots "% of baseline"
+4. **FIXED — `scenario_comparison`'s baseline was arbitrary and could be ~zero.** It plots "% of baseline"
    against whichever scenario sorts first. With `Alfalfa hay` (GWP 0.016 kg CO2-eq/kg) as
    denominator the y-axis reached **1e7** — fifty million percent — with no warning. `chart_units.py`
    already guards incommensurable *units*; nothing guards an incommensurable *magnitude*. Wants an
    explicit `--baseline`, and a refusal when the denominator is near zero.
-5. **Legend and palette are unbounded.** At 43 scenarios the legend consumed ~85% of
+5. **FIXED — legend and palette were unbounded.** At 43 scenarios the legend consumed ~85% of
    `normalized_profile`'s figure — plot squeezed to a strip, title rendered behind the legend box —
    and ~60% of `scenario_comparison`, overlapping the tick labels. Colors cycle past the palette
    length, so entries share swatches. Fine at the 2–4 scenarios the script was built for; degrades
@@ -464,7 +464,7 @@ contributions CSV sums to the reported score, though it drives two of the four c
 checks outside 1e-6. Recorded because a passed invariant is evidence, and this one was previously
 assumed rather than known.
 
-**Uncertainty data is silently dropped, and undocumented.** USLCI ships uncertainty on **5,740
+**Uncertainty data is silently dropped — now DOCUMENTED (import still TODO).** USLCI ships uncertainty on **5,740
 exchanges (7.1%) across 91 processes (6.4%)** — 5,218 lognormal, 476 triangular, 46 uniform. No
 script references the field: `setup/03`, `general/04` and `general/foreground_importer` have zero
 occurrences of `uncertainty`. Unlike `amountFormula`, which at least carries a "dropped ⚠" row,
@@ -478,7 +478,7 @@ says nothing about this path in either direction. Minimum fix: document it as dr
 carry the distributions into brightway's uncertainty fields, which is what would make the MC chart
 live.
 
-**`scenario_comparison` is unreachable through the documented workflow.** `general/04` opens the
+**FIXED — `scenario_comparison` was unreachable through the documented workflow.** `general/04` opens the
 results CSV with mode `"w"` — every run overwrites the last — and there is no append or accumulate
 option. So a multi-scenario results CSV cannot be produced by running the pipeline; it can only be
 made by hand-concatenating files. Measured: **0 of 43** chart runs produced `scenario_comparison.png`

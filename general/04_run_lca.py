@@ -37,13 +37,13 @@ import run_manifest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
                     ELECTRICITY_BASELINE_DB, METHOD_ROOT, REPO_ROOT)
+# %%
+
 
 # NOT the database toggle -- see USLCI_DATABASE in the CONFIG block below.
 # This is a naming anchor: db_provenance_filename() gives the bundle build the
 # historical unsuffixed sidecar name (uslci_db_provenance.json) and every other
-# build a suffixed one. Repointing it at USLCI_FULL_DB does not change which
-# database is used; it only makes each build look for the other's sidecar, so
-# completeness reporting silently degrades. Leave it pinned to the bundle build.
+# build a suffixed one. 
 USLCI_DB_DEFAULT = USLCI_DB
 
 # =============================================================================
@@ -55,16 +55,20 @@ USLCI_DB_DEFAULT = USLCI_DB
 # no bundle shipped. Overridden by --database.
 
 USLCI_DATABASE    = USLCI_FULL_DB
-PROCESS_UUID      = "97970125-ad36-3919-8af8-69a053c5eefa"  
+PROCESS_UUID      = "c8c0b1ab-1547-4c65-b5bc-6c0d57f95a6f"  
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
                             # required when CSV has >1 process; ignored without CSV
-OUTPUT_CSV        = REPO_ROOT / "lca_results_fishmeal.csv"        # CLI --output resolves against CWD instead
-CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions_fishmeal.csv"  # per-process scores; set None to skip
+OUTPUT_CSV        = REPO_ROOT / "lca_results_scanner.csv"        # CLI --output resolves against CWD instead
+CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions_scanner.csv"  # per-process scores; set None to skip
 MANIFEST_JSON     = REPO_ROOT / run_manifest.MANIFEST_FILENAME  # per-run audit manifest; set None to skip
 SCENARIO_LABEL    = None   # human label for this run; defaults to target process name
+APPEND_RESULTS    = False  # True (or --append) accumulates scenarios in OUTPUT_CSV
+                           # instead of overwriting — how you build a comparison set
 
 FOREGROUND_DB   = "foreground"
+# %%
+
 
 # =============================================================================
 # CLI
@@ -85,6 +89,11 @@ parser.add_argument("--manifest",          default=None,
                     help="Audit manifest JSON path (default: validation_manifest.json at repo root)")
 parser.add_argument("--no-manifest",        action="store_true", dest="no_manifest",
                     help="Skip writing the per-run audit manifest")
+parser.add_argument("--append",             action="store_true", dest="append_results",
+                    help="Append this run's scores to the results CSV instead of "
+                         "overwriting it, accumulating scenarios for general/06's "
+                         "scenario-comparison chart. Re-running the same scenario "
+                         "label replaces its rows rather than duplicating them.")
 parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLCI_FULL_DB],
                     help=f"Which USLCI build to run against (default: {USLCI_DB}, the "
                          f"per-process bundle set the locked validation cases were computed "
@@ -119,9 +128,13 @@ if args.manifest:
     MANIFEST_JSON = args.manifest
 if args.no_manifest:
     MANIFEST_JSON = None
+if args.append_results:
+    APPEND_RESULTS = True
 
 if args.foreground is not None and args.uuid is not None:
     print(f"NOTE: --foreground and --uuid both provided — --uuid '{PROCESS_UUID}' will be ignored.")
+# %%
+
 
 # =============================================================================
 # BRIGHTWAY SETUP
@@ -173,6 +186,8 @@ if len(traci_methods) != 10:
         f"Expected 10 TRACI 2.2 methods, found {len(traci_methods)}. "
         f"Re-run setup/02_setup_traci22.py."
     )
+# %%
+
 
 # =============================================================================
 # PREFLIGHT SMOKE TEST
@@ -263,6 +278,8 @@ if not smoke_ok:
         "Fix: re-run setup/01_setup_biosphere_fedefl.py then setup/02_setup_traci22.py."
     )
 print()
+# %%
+
 
 # =============================================================================
 # FOREGROUND CSV: LOAD + BUILD BRIGHTWAY DB
@@ -334,6 +351,8 @@ if FOREGROUND_CSV is not None:
                     if FOREGROUND_DB in bd.databases else None)
     print(f"  Foreground database '{FOREGROUND_DB}' written.")
     print()
+# %%
+
 
 # =============================================================================
 # RESOLVE TARGET ACTIVITY
@@ -465,6 +484,8 @@ if contrib_path:
         raise RuntimeError(f"Cannot create output directory for '{contrib_path}': {e}")
     if contrib_path.exists():
         print(f"WARNING: '{contrib_path}' already exists and will be overwritten.")
+# %%
+
 
 # =============================================================================
 # LCA ACROSS ALL 10 TRACI 2.2 CATEGORIES
@@ -524,22 +545,80 @@ for method in traci_methods:
             })
 
 if all(r["score"] == 0.0 for r in results):
-    print(
-        "WARNING: all 10 TRACI scores are 0.0 — this almost certainly indicates a "
-        "biosphere UUID mismatch. Re-run setup/01_setup_biosphere_fedefl.py then "
-        "setup/02_setup_traci22.py."
-    )
+    # An all-zero result has several possible causes and the setup-mismatch one
+    # is not the most common. Naming a single cause confidently sent real
+    # investigations the wrong way: three processes in the 2026-08-05 sweep
+    # tripped this while their biosphere mapping was fine and their zeros were
+    # correct — every technosphere input was a genuine cutoff. So diagnose from
+    # what this run can actually see, and only mention a setup fault when the
+    # target really has no characterizable inventory of its own.
+    _n_exc = len(target_act.exchanges()) if hasattr(target_act, "exchanges") else 0
+    _n_bio = sum(1 for e in target_act.exchanges() if e["type"] == "biosphere") \
+        if hasattr(target_act, "exchanges") else 0
+    _n_tech = sum(1 for e in target_act.exchanges() if e["type"] == "technosphere") \
+        if hasattr(target_act, "exchanges") else 0
+    print(f"WARNING: all {len(results)} TRACI scores are 0.0 for this target.")
+    print(f"  The target declares {_n_bio} biosphere and {_n_tech} technosphere exchange(s).")
+    if _n_bio == 0 and _n_tech == 0:
+        print("  It has no exchanges at all, so zero is the correct result "
+              "(USLCI ships such stubs, e.g. the 'Bridge; USLCI to USEEIO' processes).")
+    elif _n_bio == 0:
+        print("  It emits nothing directly, so its score comes entirely from upstream. "
+              "Zero means those technosphere inputs resolved to nothing — check "
+              "completeness.notes in the manifest for cutoffs.")
+    else:
+        # A flow can be matched to FEDEFL and still be uncharacterized: TRACI 2.2
+        # characterizes PM2.5, not a generic "Particulate matter", so such flows
+        # ride along in the inventory contributing exactly nothing. That is a
+        # third cause, distinct from an unmatched flow and from a setup fault,
+        # and it is invisible without checking the CFs.
+        _cf_ids = set()
+        for _m in traci_methods:
+            _cf_ids |= {k for k, _ in bd.Method(_m).load()}
+        _bio_exc = [e for e in target_act.exchanges() if e["type"] == "biosphere"]
+        _uncf = [e for e in _bio_exc if e.input.id not in _cf_ids]
+        if len(_uncf) == len(_bio_exc):
+            print(f"  All {len(_bio_exc)} of its biosphere flow(s) are matched to "
+                  f"{BIOSPHERE_DB} but have NO TRACI 2.2 characterization factor, so "
+                  f"they contribute nothing — the inventory is carried, not dropped:")
+            for _e in _uncf[:4]:
+                print(f"    - {_e.input['name']} ({_e['amount']:g})")
+            print("  This is a coverage limit of TRACI 2.2, not a build fault.")
+        else:
+            print("  Some of its flows are characterized, so zero is unexpected. If "
+                  "other processes in this build score normally the inventory is "
+                  "likely cut; if EVERY process scores zero, suspect the biosphere/CF "
+                  "setup and re-run setup/01 then setup/02.")
 print()
 
 # =============================================================================
 # WRITE OUTPUT CSV
 # =============================================================================
+# --append accumulates scenarios into one CSV. Without it, every run overwrote
+# the last, which left general/06's scenario_comparison chart with no supported
+# way to get its input: a multi-scenario results CSV could only be produced by
+# concatenating files by hand.
+_fieldnames = ["scenario", "method", "score", "unit", "functional_unit"]
+_appending = APPEND_RESULTS and Path(out_path).exists()
+if _appending:
+    # Re-running the same scenario should replace it, not duplicate it — a
+    # sweep is usually iterative, and silent duplicates would double-count in
+    # any chart that groups by scenario.
+    with open(out_path, newline="", encoding="utf-8") as f:
+        _kept = [r for r in csv.DictReader(f) if r.get("scenario") != scenario_label]
+    _replaced = True
+else:
+    _kept, _replaced = [], False
 with open(out_path, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=["scenario", "method", "score", "unit",
-                                           "functional_unit"])
+    writer = csv.DictWriter(f, fieldnames=_fieldnames)
     writer.writeheader()
+    writer.writerows(_kept)
     writer.writerows(results)
-print(f"Results written to: {out_path}")
+if _appending:
+    _n_scen = len({r["scenario"] for r in _kept} | {scenario_label})
+    print(f"Results appended to: {out_path} ({_n_scen} scenario(s) now in file)")
+else:
+    print(f"Results written to: {out_path}")
 
 if contrib_path and contributions:
     with open(contrib_path, "w", newline="", encoding="utf-8") as f:

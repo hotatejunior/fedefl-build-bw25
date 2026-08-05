@@ -60,9 +60,31 @@ comparable to the baseline 'Alfalfa hay production' (per 1 kg).
 A percentage between a per-Item(s) and a per-kg result would be a unit artifact, not a difference in
 impact. The guard is in `general/chart_units.py`.
 
-> **Known gap.** The guard checks commensurable *units*, not commensurable *magnitudes*. If the
-> baseline scenario has a near-zero score the percentages explode without warning. Pick your
-> baseline deliberately. Tracked in RELEASE_PLAN Phase 6.
+Magnitude is guarded too. Because every bar is a percentage *of the baseline*, a near-zero baseline
+makes the chart a picture of its own denominator, so the comparison is refused rather than drawn:
+
+```
+Skipping scenario_comparison: baseline 'Alfalfa hay production' is 5.08e+05x smaller than the
+largest scenario in at least one category, so '% of baseline' would be dominated by the choice of
+denominator rather than by any difference in impact.
+```
+
+**The baseline is the first scenario in the results CSV**, so control it by controlling what you
+write first.
+
+### Building a comparison set
+
+`general/04` overwrites the results CSV by default. Use `--append` to accumulate scenarios into one
+file — that file is what the comparison chart needs:
+
+```bash
+python general/04_run_lca.py --uuid <A> --append --output study.csv
+python general/04_run_lca.py --uuid <B> --append --output study.csv
+python general/06_visualize.py --results study.csv --output-dir charts/study
+```
+
+Re-running a scenario replaces its rows rather than duplicating them, so iterating on one case is
+safe. The chart shows at most 8 scenarios and says how many it omitted.
 
 ---
 
