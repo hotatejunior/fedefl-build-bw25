@@ -7,6 +7,9 @@ __pycache__/
 # they cannot catch the locked validation tables, which are validation_*.
 lca_results*.csv
 lca_contributions*.csv
+# Exploratory batch runs (general/04 sweeps + their charts) — regenerable,
+# not evidence. The locked validation artifacts live in validation/.
+batch_runs/
 validation_manifest.json
 uslci_db_provenance.json
 uslci_db_provenance.*.json
