@@ -38,19 +38,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
                     ELECTRICITY_BASELINE_DB, METHOD_ROOT, REPO_ROOT)
 
-# USLCI_DB is rebound by --database below; keep the configured default so the
-# provenance sidecar's filename convention stays anchored to it.
+# NOT the database toggle -- see USLCI_DATABASE in the CONFIG block below.
+# This is a naming anchor: db_provenance_filename() gives the bundle build the
+# historical unsuffixed sidecar name (uslci_db_provenance.json) and every other
+# build a suffixed one. Repointing it at USLCI_FULL_DB does not change which
+# database is used; it only makes each build look for the other's sidecar, so
+# completeness reporting silently degrades. Leave it pinned to the bundle build.
 USLCI_DB_DEFAULT = USLCI_DB
 
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
 # =============================================================================
-PROCESS_UUID      = "1cbbcd09-ea17-3d9b-bc34-2cf42efe26ba_a900b507109a80c21db983e5f13f283f4a84aa51"  # petroleum refining, US
+# Which USLCI build to run against. USLCI_DB is the per-process bundle set the
+# locked validation cases were computed against; USLCI_FULL_DB is the whole
+# database (USLCI_FULL_DB=1 setup/03_import_uslci.py), needed to reach processes
+# no bundle shipped. Overridden by --database.
+
+USLCI_DATABASE    = USLCI_FULL_DB
+PROCESS_UUID      = "97970125-ad36-3919-8af8-69a053c5eefa"  
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
                             # required when CSV has >1 process; ignored without CSV
-OUTPUT_CSV        = REPO_ROOT / "lca_results.csv"        # CLI --output resolves against CWD instead
-CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions.csv"  # per-process scores; set None to skip
+OUTPUT_CSV        = REPO_ROOT / "lca_results_fishmeal.csv"        # CLI --output resolves against CWD instead
+CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions_fishmeal.csv"  # per-process scores; set None to skip
 MANIFEST_JSON     = REPO_ROOT / run_manifest.MANIFEST_FILENAME  # per-run audit manifest; set None to skip
 SCENARIO_LABEL    = None   # human label for this run; defaults to target process name
 
@@ -82,11 +92,15 @@ parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLC
                          f"USLCI_FULL_DB=1 setup/03_import_uslci.py.")
 args = parser.parse_args()
 
+# Rebound before any use below. The bundle build and the full-database build are
+# separate brightway databases (see config.USLCI_FULL_DB); everything downstream
+# — solve, contributions, audit manifest — reads this name. CONFIG's
+# USLCI_DATABASE is the IDE/notebook toggle; --database overrides it.
+USLCI_DB = USLCI_DATABASE
+_db_source = "CONFIG USLCI_DATABASE"
 if args.database:
-    # Rebound before any use below. The bundle build and the full-database build
-    # are separate brightway databases (see config.USLCI_FULL_DB); everything
-    # downstream — solve, contributions, audit manifest — reads this name.
     USLCI_DB = args.database
+    _db_source = "--database"
 if args.uuid:
     PROCESS_UUID = args.uuid
 if args.foreground:
@@ -127,7 +141,29 @@ if USLCI_DB not in bd.databases:
         f"  USLCI builds present: "
         f"{[n for n in (USLCI_DB, USLCI_FULL_DB) if n in bd.databases] or 'none'}"
     )
-print(f"USLCI build: '{USLCI_DB}' ({bd.databases[USLCI_DB].get('number')} activities)")
+# Say what the run is standing on, unmissably and before anything else prints.
+# The bundle build's name invites a wrong mental model: it is not "the 9 validated
+# processes", it is those 9 plus every upstream process their bundles shipped, so
+# a lookup can succeed on a process nobody deliberately imported. Naming the
+# composition here is what makes a result interpretable at a glance.
+_n_act = bd.databases[USLCI_DB].get("number")
+_vintage = bd.databases[USLCI_DB].get("electricity_vintage") or "unstamped"
+if USLCI_DB == USLCI_FULL_DB:
+    _composition = "whole USLCI database"
+else:
+    _composition = ("per-process bundles: the bundle targets PLUS all upstream "
+                    "processes those bundles shipped")
+_uslci_source = bd.databases[USLCI_DB].get("uslci_source") or {}
+print("=" * 72)
+print(f"  USLCI build      : '{USLCI_DB}'  ({_n_act} activities)   [set by {_db_source}]")
+print(f"  Composition      : {_composition}")
+print(f"  Built from       : {run_manifest.describe_uslci_source(_uslci_source)}")
+print(f"  Electricity grid : {_vintage} baseline")
+_other = USLCI_FULL_DB if USLCI_DB != USLCI_FULL_DB else USLCI_DB_DEFAULT
+if _other in bd.databases:
+    print(f"  Also built       : '{_other}' "
+          f"({bd.databases[_other].get('number')} activities) — switch with --database")
+print("=" * 72)
 
 traci_methods = sorted(m for m in bd.methods if m[:2] == METHOD_ROOT)
 if not traci_methods:
@@ -320,12 +356,65 @@ if FOREGROUND_CSV is not None:
             f"--target-process NAME.\nAvailable: {list(fg_processes.keys())}"
         )
 else:
-    target_act = bd.Database(USLCI_DB).get(PROCESS_UUID)
-    if target_act is None:
-        raise RuntimeError(
-            f"Process UUID '{PROCESS_UUID}' not found in '{USLCI_DB}'. "
-            f"Check PROCESS_UUID or re-run setup/03_import_uslci.py."
-        )
+    # bw2data's .get() RAISES UnknownObject on a miss -- it never returns None --
+    # so catching it is the only way this message reaches the user. The three
+    # things worth knowing on a miss: which build was searched, whether the code
+    # is actually a UUID (pasting a bundle filename stem, '<uuid>_<release-hash>',
+    # is the easy mistake), and whether the other build has it.
+    try:
+        target_act = bd.Database(USLCI_DB).get(PROCESS_UUID)
+    except Exception as _e:
+        _lines = [f"Process '{PROCESS_UUID}' not found in USLCI build '{USLCI_DB}' "
+                  f"({bd.databases[USLCI_DB].get('number')} activities)."]
+        _bare = str(PROCESS_UUID).split("_", 1)[0]
+        _bare_is_here = False
+        if _bare != PROCESS_UUID and len(_bare) == 36:
+            try:
+                bd.Database(USLCI_DB).get(_bare)
+                _bare_is_here = True
+            except Exception:
+                pass
+            _lines.append(
+                f"  That looks like a bundle FILENAME, not a process UUID. The text after "
+                f"the underscore is the USLCI release hash. Try: {_bare}"
+            )
+        if _bare_is_here:
+            # The suffix is the entire problem -- the process is right here in the
+            # current build. Pointing at another database would send the fix wrong.
+            raise RuntimeError("\n".join(_lines)) from _e
+        _elsewhere = []
+        for _db in (USLCI_DB_DEFAULT, USLCI_FULL_DB):
+            if _db == USLCI_DB or _db not in bd.databases:
+                continue
+            try:
+                bd.Database(_db).get(_bare)
+                _elsewhere.append(_db)
+            except Exception:
+                pass
+        if _elsewhere:
+            _lines.append(
+                f"  It IS in: {', '.join(_elsewhere)} — re-run with "
+                f"--database {_elsewhere[0]} (or set USLCI_DATABASE in the CONFIG block)."
+            )
+        elif USLCI_DB != USLCI_FULL_DB and USLCI_FULL_DB not in bd.databases:
+            _lines.append(
+                "  Not in any built USLCI database. Check the UUID, or build the whole "
+                "database with 'USLCI_FULL_DB=1 python setup/03_import_uslci.py' — this "
+                "build only has what its bundles shipped."
+            )
+        else:
+            # Already on the whole database, so "import more" is not the answer.
+            # USLCI ships quarterly and this build is pinned to the sources below;
+            # a process added upstream since then is absent here and nowhere else.
+            _lines.append(
+                f"  Not in any built USLCI database, and this build already covers the "
+                f"whole USLCI it was made from:\n"
+                f"    {run_manifest.describe_uslci_source(_uslci_source)}\n"
+                f"  USLCI ships quarterly, so a process added in a newer release will be "
+                f"missing here. Check the UUID on lcacommons.gov — if it exists in a "
+                f"later release, re-import from that export."
+            )
+        raise RuntimeError("\n".join(_lines)) from _e
 
 scenario_label = SCENARIO_LABEL if SCENARIO_LABEL is not None else target_act["name"]
 
@@ -552,6 +641,11 @@ if MANIFEST_JSON is not None:
             # Absent on builds predating the stamp — recorded only where present.
             if _md.get("electricity_vintage") is not None:
                 manifest_dbs[_dbn]["electricity_vintage"] = _md.get("electricity_vintage")
+            # Which USLCI sources produced this build (setup/03). Lets a result state
+            # the release it came from, and distinguishes "no such process" from
+            # "not in THIS release" when a manifest is read back later.
+            if _md.get("uslci_source") is not None:
+                manifest_dbs[_dbn]["uslci_source"] = _md.get("uslci_source")
 
 
     manifest = run_manifest.build_manifest(

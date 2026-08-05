@@ -23,6 +23,29 @@ def _summ(solved_keys, prov=PROV, external=(ELEC,)):
     return rm.summarize_supply_chain_completeness(solved_keys, prov, USLCI, external)
 
 
+# --- describe_uslci_source: which USLCI produced a build ---------------------
+
+def test_full_db_source_names_the_zip_and_short_hash():
+    s = rm.describe_uslci_source(
+        {"mode": "full_db", "zips": [{"name": "USLCI_Public.zip", "sha256": "abc123def456789"}]})
+    assert "USLCI_Public.zip" in s and "abc123def456" in s
+
+
+def test_bundle_source_counts_zips_and_release_hash():
+    s = rm.describe_uslci_source({
+        "mode": "bundles",
+        "zips": [{"name": "a.zip", "sha256": "x"}, {"name": "b.zip", "sha256": "y"}],
+        "bundle_release_hashes": ["00a040571f44a37517a3e8ebb1dfb54d8dd09c4a"],
+    })
+    assert "2 bundle" in s and "00a040571f44" in s
+
+
+def test_unstamped_build_says_so_rather_than_guessing():
+    # A build imported before the stamp existed must not be described as anything.
+    for empty in ({}, None, {"mode": "full_db", "zips": []}):
+        assert "unstamped" in rm.describe_uslci_source(empty)
+
+
 # --- select_supplied_keys: the supply-chain reduction ------------------------
 # Guards the defect the full-database build exposed — completeness summed over
 # every technosphere column rather than the reachable ones, turning a per-result

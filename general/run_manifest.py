@@ -48,6 +48,29 @@ def db_provenance_filename(db_name, default_db_name):
     return f"{stem}.{db_name}.{ext}"
 
 
+def describe_uslci_source(source):
+    """One-line human description of which USLCI sources produced a build.
+
+    `source` is the `uslci_source` stamp setup/03 writes onto the database:
+    `{"mode": "full_db"|"bundles", "zips": [{"name", "sha256"}, ...]}`. Deliberately
+    reports a content hash rather than a release version — the full USLCI zip has no
+    intrinsic version field, and bundle filename hashes proved unreliable as content
+    markers, so naming a release here would be a guess wearing a fact's clothes.
+
+    An unstamped build (imported before this stamp existed) reports as unknown rather
+    than being silently described as anything.
+    """
+    if not source or not source.get("zips"):
+        return "unstamped build — re-run setup/03_import_uslci.py to record its source"
+    zips = source["zips"]
+    if source.get("mode") == "full_db":
+        z = zips[0]
+        return f"{z['name']} (sha256 {z['sha256'][:12]}…)"
+    return (f"{len(zips)} bundle zip(s)"
+            + (f", release hash {', '.join(h[:12] + '…' for h in source['bundle_release_hashes'])}"
+               if source.get("bundle_release_hashes") else ""))
+
+
 def select_supplied_keys(keyed_columns, supply):
     """Reduce a technosphere column index to what THIS result actually draws on.
 

@@ -280,3 +280,23 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   process's score is bit-identical, and both locked tables reproduce **byte-for-byte** with the
   baseline at 17 nodes instead of 11 — aggregated background columns are independent, so unreferenced
   ones perturb nothing.
+- **The database toggle was CLI-only, and the miss message was dead code (2026-08-05).** `general/04`'s
+  docstring offers the CONFIG block as the IDE/notebook workflow, but the `uslci-subset` /
+  `uslci-full` choice existed only as `--database`. With no CONFIG entry, the nearest-looking
+  constant is `USLCI_DB_DEFAULT` — which is a *naming anchor* for the provenance sidecar, not a
+  toggle. Repointing it doesn't change the database; it makes each build look for the other's
+  sidecar, so completeness reporting degrades to `available: false` while the run otherwise succeeds.
+  Compounding it, the lookup's failure branch (`if target_act is None`) was unreachable: bw2data's
+  `.get()` *raises* `UnknownObject` rather than returning `None`, so the carefully-worded "not found
+  in '<db>'" message could never fire and a miss surfaced as a raw traceback from inside bw2data.
+  Fixes: a real `USLCI_DATABASE` CONFIG entry (`--database` still overrides, and the banner reports
+  which one set it); `USLCI_DB_DEFAULT` restored and commented as not-the-toggle; and the miss now
+  catches `UnknownObject` to name the build searched, detect a bundle filename stem pasted in place
+  of a UUID (`<uuid>_<release-hash>` — the easy mistake, and the fix is to strip it, not to switch
+  databases), and say whether the other build has the process.
+  The underlying confusion the banner addresses: "the bundle build" is not the nine validated
+  targets, it is those nine **plus every upstream process their bundles shipped** — 391 activities.
+  So a lookup can succeed on a process nobody deliberately imported (`Nitrogen fertilizer;
+  production mix; at plant`, a corn dependency), which reads as the database toggle having silently
+  done something. The startup banner now states the build, its activity count, what set it, the
+  composition, the electricity vintage, and what else is built.
