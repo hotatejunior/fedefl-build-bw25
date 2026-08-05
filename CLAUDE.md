@@ -73,7 +73,7 @@ changes to any script.
 
 Only `README.md` and this file live at the repo root; everything else is under `docs/` (moved
 2026-08-05). `docs/DEVLOG.md` carries both the engine history and the verbatim release-plan record;
-`docs/ROADMAP.md` carries open work only, and is the file to update when something lands. The
+`docs/ROADMAP.md` carries open work only, and is the file to update when something lands. `docs/TUTORIAL.md` is the one narrative path for a new practitioner and owns the widget foreground example; `docs/HOWTO.md` is the reference and links to it rather than repeating it. The
 `validation/` directory is separate on purpose: it holds evidence and verbatim history, and
 `VALIDATION_LOG.md` in particular is never rewritten — stale names and paths there are corrected by
 appending to its provenance note, not by editing the body.

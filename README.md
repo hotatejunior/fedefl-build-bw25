@@ -71,6 +71,9 @@ reproducible end to end.
 
 ## Getting started (zero to first result)
 
+New to this? [`docs/TUTORIAL.md`](docs/TUTORIAL.md) walks the whole path once, end to end.
+The steps below are the same ground in reference form.
+
 ### 1. Create the Python environment
 
 ```bash
@@ -254,6 +257,7 @@ chain does not depend on who — or what — typed the code.
 
 | File | Purpose |
 |------|---------|
+| [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here — nothing to a defensible number in one pass: build the databases, run a USLCI process, model your own product, check it by hand |
 | [`HOWTO.md`](docs/HOWTO.md) | Task guides for running your own study: reading and changing the functional unit, linking a foreground CSV to USLCI, and choosing what background a result is calculated against |
 | [`SCHEMA_CROSSWALK.md`](docs/SCHEMA_CROSSWALK.md) | Field-by-field map of USLCI openLCA JSON-LD → the brightway schema, and how the parser resolves the places the two data models don't line up |
 | [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split — the four allocation paths, how N co-products are reshaped into brightway's one-product-per-activity matrix, and what USLCI actually contains |

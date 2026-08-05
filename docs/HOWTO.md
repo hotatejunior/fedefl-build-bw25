@@ -156,36 +156,22 @@ plausible one's clothes.
 
 ### A worked example
 
-Two processes, where one feeds the other, with a USLCI background link and direct emissions:
+[`TUTORIAL.md`](TUTORIAL.md) §6 builds a two-process inventory row by row and §7 reproduces its
+2.584981 kg CO₂-eq by hand from the characterization factors. Start there if you have not written one
+of these before; the rest of this guide is the reference you come back to.
 
-```csv
-process_name,exchange_type,flow_uuid,provider_uuid,flow_name,amount,unit,is_ref,location,comment
-Widget subassembly,production,,,Widget subassembly,1,kg,true,US,ref product
-Widget subassembly,technosphere,,dacaeae9-aeed-3366-912d-6a31de09eef9,Nitrogen fertilizer,0.4,kg,false,US,USLCI link
-Widget subassembly,biosphere,4fa5e7ef-83a7-3ad6-ad4a-e0b3de171609,,Carbon dioxide,0.25,kg,false,US,direct
-Widget assembly,production,,,Widget assembly,1,kg,true,US,ref product
-Widget assembly,technosphere,,<uuid5 of "Widget subassembly">,Widget subassembly,0.5,kg,false,US,foreground link
-Widget assembly,technosphere,,97970125-ad36-3919-8af8-69a053c5eefa,Fishmeal,0.2,kg,false,US,USLCI link
-Widget assembly,biosphere,4fa5e7ef-83a7-3ad6-ad4a-e0b3de171609,,Carbon dioxide,1.5,kg,false,US,direct
-Widget assembly,biosphere,be7b7ec1-c39a-376b-a50f-682256b29299,,Methane,0.02,kg,false,US,direct
-```
-
-Get the foreground-to-foreground UUID from the process name:
+Two things it covers that are easy to get wrong. A foreground-to-foreground link is made by UUID, and
+that UUID is derived from the provider's `process_name`:
 
 ```bash
 python -c "from fedefl_bw25.foreground_importer import fg_uuid; print(fg_uuid('Widget subassembly'))"
 ```
 
-Run it, naming which process is the functional unit:
+And the target process has to be named when the file holds more than one:
 
 ```bash
 python general/04_run_lca.py --foreground my_inventory.csv --target-process "Widget assembly" --database uslci-full
 ```
-
-That returns **2.584981 kg CO₂-eq per 1 kg**, which is exactly
-`1.5·CF_CO2 + 0.02·CF_CH4 + 0.5·(subassembly) + 0.2·(fishmeal)` — worth reproducing by hand once on
-your own inventory, because it is the cheapest way to confirm you have linked what you think you
-have.
 
 ### Pointing at a co-product
 
