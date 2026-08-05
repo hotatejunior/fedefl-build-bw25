@@ -312,7 +312,28 @@ run = run_lca(foreground="my_inventory.csv", target_process="Widget assembly",
 Same object back. Unit conversions and validation errors from guide 2 apply
 identically — the CLI and the library are the same code path.
 
+### Building databases from a script
+
+`setup/03b` is callable too — useful when you rebuild across vintages:
+
+```python
+from fedefl_bw25.setup_baseline import inject_baseline
+
+build = inject_baseline(vintage="2026", overwrite=True)
+print(build.vintage, build.activity_count, build.library)
+```
+
+`overwrite=True` is what makes it scriptable: the CLI prompts before replacing an
+existing database, and a library call must never block on stdin. Pass `confirm=`
+a callable instead if you want your own gate.
+
+> **Re-running `03b` alone leaves the USLCI databases stale.** Rewriting the
+> baseline gives its activities new internal IDs, so the USLCI exchanges that
+> pointed at them dangle and the next solve fails with a non-square technosphere
+> matrix. Always follow `03b` with `03`. This is why the manifest reports an
+> `inconsistent` electricity vintage when the two disagree.
+
 ### What's still script-only
 
-`setup/` is not yet callable this way; building the databases is still
-`python setup/01…` through `setup/03`. That extraction is next.
+`setup/00`, `01`, `02` and `03` remain scripts; `03` — which builds the validated
+database — is the next extraction.

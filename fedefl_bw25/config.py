@@ -28,6 +28,11 @@ from pathlib import Path
 _PKG_PARENT = Path(__file__).resolve().parent.parent
 REPO_ROOT = _PKG_PARENT if (_PKG_PARENT / "setup").is_dir() else Path.cwd()
 
+# The flow conversion table setup/00 builds and setup/03 + 03b both read. Defined
+# once here because the two scripts previously each derived it from their own
+# __file__, which is how the pair would drift apart if either ever moved.
+CONV_TABLE_PATH = REPO_ROOT / "setup" / "uslci_flow_conversions.json"
+
 PROJECT_NAME = "fedefl-build-bw25"
 BIOSPHERE_DB = "biosphere-fedefl"
 USLCI_DB = "uslci-subset"

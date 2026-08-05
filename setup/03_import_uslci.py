@@ -26,7 +26,7 @@ import bw2data as bd
 
 from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_BUNDLE_DB_NAME, \
     USLCI_FULL_DB as USLCI_FULL_DB_NAME, \
-    ELECTRICITY_BASELINE_DB as EXTERNAL_PROVIDER_DB, REPO_ROOT
+    ELECTRICITY_BASELINE_DB as EXTERNAL_PROVIDER_DB, REPO_ROOT, CONV_TABLE_PATH
 # EXTERNAL_PROVIDER_DB: the optional injected background DB consulted when a
 # bundle exchange's provider isn't in the bundle itself (see
 # setup/03b_import_electricity_baseline.py). Absent entirely if that script
@@ -64,7 +64,7 @@ if not BUNDLE_DIR.is_dir():
 # =============================================================================
 # Flow conversion table built by setup/00_build_flow_conversion_table.py.
 # Maps flow UUID -> reference flow property + cross-property conversion factors.
-_CONV_TABLE_PATH = HERE / "uslci_flow_conversions.json"
+_CONV_TABLE_PATH = CONV_TABLE_PATH   # single definition in config.py
 if not _CONV_TABLE_PATH.exists():
     raise SystemExit(
         "uslci_flow_conversions.json not found. "
