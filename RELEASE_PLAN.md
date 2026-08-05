@@ -360,6 +360,39 @@ None would fail a gate or a test.
    length, so entries share swatches. Fine at the 2–4 scenarios the script was built for; degrades
    silently past that. Wants a top-N cap with an "N others omitted" note.
 
+### Foreground CSV unit handling — FIXED 2026-08-05
+
+The most serious defect found this session, and the only one that produced wrong
+*numbers* rather than wrong presentation. Found by probing the foreground path, which the
+2026-08-05 sweep had not touched.
+
+The `unit` column was **decorative on technosphere rows and only half-checked on biosphere rows**.
+Amounts were used verbatim against the counterpart's reference unit, so on a 2-process test
+foreground whose correct answer is 2.584981 kg CO2-eq (hand-verified against the CFs and the
+providers' own scores):
+
+| CSV row | Before | |
+|---|---|---|
+| `fishmeal, 0.2, kg` | 2.584981 | correct |
+| `fishmeal, 0.2, MJ` | 2.584981 | nonsense unit, silently ignored |
+| `fishmeal, 200, g` | **104.801** | same quantity — silent 1000× error |
+| `CO2, 1500, g` | **1501.08** | same quantity — silent 1000× error |
+
+The biosphere branch's flow-property check gave *false assurance*: it catches MJ-vs-kg but passes
+g-vs-kg, which is the likelier mistake, because both are mass. The technosphere branch — the rows
+that pull whole supply chains — had no check at all.
+
+Fix: `foreground_importer.convert_to_ref_unit()` plus a `_UNIT_TO_REF` table mirroring `setup/03`'s
+`WITHIN_FP`, applied to both branches. Same unit → untouched; same property → converted and
+reported; different property or unknown unit → hard error, per ledger #7 ("an unconverted unit is a
+wrong number wearing a plausible one's clothes"). All four cases above now return 2.584981 or refuse.
+7 new unit tests; 82 pass. The importer docstring had described `unit` as inert and now states the
+contract.
+
+**Consequence for the docs:** the "linking a foreground CSV to USLCI" tutorial below was unwritable
+before this — the honest instruction would have been "always use the provider's reference unit,
+because nothing checks."
+
 ### Documentation (scoped 2026-08-05)
 
 Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the

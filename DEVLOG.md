@@ -339,3 +339,20 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   Verified after the upgrade: both locked tables reproduce **byte-for-byte** (40 cells on a 2025
   build, 60 on 2026), all 1,455 processes solve with zero errors, **0 ambiguous links**, and the
   cement unit test self-skips with the correct vintage-guard message.
+- **Foreground CSV units were decorative on technosphere rows (2026-08-05).** The `unit` column was
+  required by the schema but never applied to technosphere exchanges, and only property-checked on
+  biosphere ones. Amounts went verbatim into the exchange, so they were used against the
+  counterpart's reference unit whatever the column said. On a 2-process test foreground whose
+  correct answer is 2.584981 kg CO2-eq — hand-verified against the TRACI CFs and the providers' own
+  scores — writing a fishmeal input as `0.2 MJ` returned the same number as `0.2 kg` (unit ignored),
+  and writing the *same quantity* as `200 g` returned **104.801**, a silent 1000× error. The
+  biosphere branch was no safer where it mattered: its flow-property check catches MJ-vs-kg but
+  passes g-vs-kg, since both are mass, so `1500 g` of CO2 scored **1501.08**. The check gave false
+  assurance precisely on the likelier mistake, and the technosphere rows — the ones that pull entire
+  supply chains — had no check at all. Fix: `convert_to_ref_unit()` and a `_UNIT_TO_REF` table
+  mirroring `setup/03`'s `WITHIN_FP`, applied to both branches. Matching unit passes through; same
+  flow property converts and reports the conversion; a different property or an unknown unit is a
+  hard error rather than a passthrough — ledger #7's rule, which had been applied to the USLCI
+  importer in 2026-07 but never to the foreground path. All four cases now return 2.584981 or
+  refuse. This is the practitioner-facing "bring your own study" feature, so it was the highest-stakes
+  place in the codebase for a silent unit error to live.
