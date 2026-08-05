@@ -118,6 +118,12 @@ WITHIN_FP = {
     "mj": 1.0,   "kj": 1e-3,   "gj": 1e3,    "kwh": 3.6,
     "btu": 1.05506e-3,
     "mmbtu": 1055.06,   "mm btu": 1055.06,   "mmBtu": 1055.06,
+    # kcal is the INTERNATIONAL TABLE calorie (4.1868 J), matching the IT Btu
+    # above (1055.06 J) and openLCA's own reference data. The thermochemical
+    # calorie (4.184 J) would be 0.07% low — under the 0.1% replication gate,
+    # so a wrong pick here would not be caught by the harness. Added for USLCI
+    # v1.2026-06.0, which introduced kcal on coal/natural-gas combustion.
+    "kcal": 4.1868e-3,
     # Transport (freight) → t*km
     "t*km": 1.0, "tkm": 1.0,   "t*mi": 1.60934,  "kg*km": 1e-3,
     # Transport (passenger) → p*km (person-kilometre; already reference unit)
@@ -125,10 +131,12 @@ WITHIN_FP = {
     # Duration → h (USLCI service flows, e.g. chainsawing/skidding, are defined
     # and consumed as "1 h of <service>"; h is their reference unit)
     "h": 1.0,
-    # Area → m2
-    "m2": 1.0,
-    # Area × time → m2*a (land use; already reference unit)
-    "m2*a": 1.0,
+    # Area → m2  ("ft2" = the international foot squared, 0.3048^2 exactly,
+    # consistent with "ft" below; added for USLCI v1.2026-06.0)
+    "m2": 1.0,   "ft2": 0.09290304,
+    # Area × time → m2*a (land use). "ha*a" is hectare-years: 1 ha = 1e4 m2
+    # exactly. Added for v1.2026-06.0's grazing/land-use exchanges.
+    "m2*a": 1.0, "ha*a": 1e4,
     # Volume × time → m3*a (water use; already reference unit)
     "m3*a": 1.0,
     # Length → m
@@ -304,6 +312,32 @@ else:
         )
 
 print(f"Found {len(zip_files)} process zip(s).")
+
+
+def _zip_sha256(path):
+    _h = hashlib.sha256()
+    with open(path, "rb") as _f:
+        for _chunk in iter(lambda: _f.read(1 << 20), b""):
+            _h.update(_chunk)
+    return _h.hexdigest()
+
+
+# Content identity of the sources this build was made from -- stamped onto the
+# database after the write (see the uslci_source block below). Bundle filenames
+# additionally carry the USLCI release hash as their '_<hash>' suffix; it is
+# recorded as-is, never translated into a version name, because the same suffix
+# was observed on bundles whose process versions disagree.
+_source_identity = {
+    "mode": "full_db" if FULL_DB_MODE else "bundles",
+    "zips": [{"name": _z.name, "sha256": _zip_sha256(_z)} for _z in zip_files],
+}
+if not FULL_DB_MODE:
+    _hashes = sorted({_z.stem.rsplit("_", 1)[-1] for _z in zip_files
+                      if "_" in _z.stem and len(_z.stem.rsplit("_", 1)[-1]) == 40})
+    if _hashes:
+        _source_identity["bundle_release_hashes"] = _hashes
+print(f"  Source identity: {_source_identity['mode']}, "
+      f"{len(_source_identity['zips'])} zip(s)")
 
 all_processes = {}  # proc_uuid -> process dict
 _proc_keys    = {}  # proc_uuid -> precedence key of the copy currently kept
@@ -874,6 +908,21 @@ if electricity_vintage is not None:
     bd.databases[USLCI_DB_NAME]["electricity_vintage"] = electricity_vintage
     bd.databases.flush()
 
+# Stamp WHICH USLCI the build came from. Without this nothing at run time can
+# distinguish "that process doesn't exist" from "that process is in a newer
+# USLCI release than this build" -- the two look identical to a caller, and the
+# second is common because USLCI ships quarterly (a fishmeal process absent from
+# v1.2026-03.0 but present in v1.2026-06.0 is what prompted this).
+#
+# The identifier is the source zips' name + SHA256, deliberately NOT a release
+# version string: the full zip carries no intrinsic version field (its
+# openlca.json names only the electricity-library dependency), and the release
+# hash in bundle filenames proved unreliable as a content marker. A content hash
+# is the honest identity -- it says exactly which bytes produced this database
+# even when it cannot say what upstream calls them.
+bd.databases[USLCI_DB_NAME]["uslci_source"] = _source_identity
+bd.databases.flush()
+
 print(f"Database '{USLCI_DB_NAME}' written — {len(db_data)} processes"
       + (f" [electricity_vintage = {electricity_vintage}]." if electricity_vintage else "."))
 print(f"  Biosphere exchanges: {total_bio_matched} matched, {total_bio_unmatched} unmatched")
@@ -907,6 +956,7 @@ _db_provenance = {
     "database":             USLCI_DB_NAME,
     "db_activity_count":    len(db_data),
     "external_provider_db": EXTERNAL_PROVIDER_DB,
+    "uslci_source":         _source_identity,
     "packages":             _pkg_versions(["bw2data", "bw2io", "bw2calc",
                                            "fedelemflowlist", "lciafmt"]),
     "totals": {

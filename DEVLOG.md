@@ -300,3 +300,42 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   production mix; at plant`, a corn dependency), which reads as the database toggle having silently
   done something. The startup banner now states the build, its activity count, what set it, the
   composition, the electricity vintage, and what else is built.
+- **Builds now record which USLCI they came from (2026-08-05).** Nothing at run time could
+  distinguish "no such process" from "that process is in a newer USLCI release than this build" —
+  the two are identical to a caller, and the second is common because USLCI ships quarterly. Found
+  the hard way: a fishmeal process (`97970125…`) missing from a full-database build that was, by
+  construction, the whole database. `setup/03` now stamps `uslci_source` — the source zips' names and
+  SHA256 — onto the brightway database and into the provenance sidecar; `general/04` prints it in the
+  startup banner and records it in the manifest, so a result can state the release it came from.
+  The identifier is deliberately a content hash rather than a version string: the full USLCI zip has
+  no intrinsic version field (its `openlca.json` names only the electricity-library dependency), and
+  the release hash in bundle filenames proved unreliable as a content marker — the same suffix was
+  observed on bundles whose process versions disagree. A hash says exactly which bytes produced the
+  database even when it cannot say what upstream calls them. The miss message uses it too: on the
+  full build, where "import more processes" is not the answer, it now names the source and points at
+  the quarterly release cycle instead.
+- **Upgraded to USLCI v1.2026-06.0 (2026-08-05).** 1,341→1,425 processes, 4,314→4,471 flows,
+  `uslci-full` 1,371→1,455 activities, and the embedded electricity baseline moves 2025→2026 (the
+  release re-pointed every provider at 2023 electricity data). Three guards fired, each turning what
+  would have been a silent wrong number into a stop:
+  - **The conversion-table pin.** Swapping the zip invalidated `uslci_flow_conversions.json`'s
+    `_meta` SHA256. Rebuilding changed 48 shared entries, but only **three** genuinely: the Energy
+    conversions for Biomass (16.832→16.34), Softwood (19.8→20.7) and Hardwood (20.7→19.8) — the last
+    two swapping values, which reads as USLCI correcting a transposition. The rest was float
+    repr (`1.9600000000000002e-13` → `1.96e-13`). All 42 uses of those flows across the nine bundles
+    are on the **Mass** property, so the changed *Energy* factors are never applied; confirmed
+    empirically by re-running the 2025 gate with the new table before touching the vintage —
+    byte-for-byte.
+  - **The unit hard-stop** (ledger #7) on three units new to this release. `ft2` = 0.09290304 m²
+    (international foot squared, consistent with the existing `ft`), `ha*a` = 1e4 m²·a. `kcal` =
+    **4.1868e-3 MJ, the International Table calorie**, matching this table's IT Btu (1055.06 J) and
+    openLCA's reference data — the thermochemical calorie (4.184 J) would be 0.07% low, i.e. *under*
+    the 0.1% replication gate, so picking wrong would not have been caught by the harness. Noted at
+    the entry because that is exactly the kind of error this project cannot detect by testing.
+  - **A dangling upstream reference.** `Land use` (`69430702…`) is consumed by three processes but
+    ships no flow file in the export. The exchange is self-describing (Area*Time, ref `m2*a`), so
+    only the unit factor was missing — an upstream data defect, not a parser one.
+
+  Verified after the upgrade: both locked tables reproduce **byte-for-byte** (40 cells on a 2025
+  build, 60 on 2026), all 1,455 processes solve with zero errors, **0 ambiguous links**, and the
+  cement unit test self-skips with the correct vintage-guard message.
