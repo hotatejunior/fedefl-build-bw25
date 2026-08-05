@@ -2,11 +2,20 @@
 """
 04_run_lca.py
 -------------
-Runs LCIA across all 10 TRACI 2.2 categories for either:
-  - A USLCI background process (specified by UUID), or
-  - A foreground system loaded from a CSV inventory file.
+CLI front-end over `fedefl_bw25.run` — LCIA across all 10 TRACI 2.2 categories for
+either a USLCI process (by UUID) or a foreground system loaded from a CSV.
 
-Results are written to a CSV for downstream use by general/06_visualize.py.
+All the logic lives in the package; this file parses arguments, prints, and writes
+files. If you want to drive the pipeline from your own script, skip this and call
+the library directly::
+
+    from fedefl_bw25.run import run_lca, write_results_csv
+
+    run = run_lca(uuid="0aaf1e13-5d80-37f9-b7bb-81a6b8965c71", database="uslci-full")
+    print(run.score("Global warming"), run.functional_unit)
+    write_results_csv(run, "study.csv", append=True)
+
+That is also how you sweep: loop, collect `LcaRun` objects, write once.
 
 Usage
 -----
@@ -15,35 +24,16 @@ IDE / notebook: edit the CONFIG block below and run directly.
 Terminal (from repo root):
   python general/04_run_lca.py [--uuid UUID] [--foreground CSV] [--target-process NAME] [--output CSV]
 
-Requires: setup/01, setup/02, setup/03 to have been run on this machine.
+Requires: setup/01, setup/02, setup/03 to have been run, and `pip install -e .`.
 """
 
 import argparse
-import atexit
-import csv
-import importlib.metadata
-import json
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
-import bw2data as bd
-import bw2calc as bc
-
-from fedefl_bw25.foreground_importer import load_foreground_csv, fg_uuid
 from fedefl_bw25 import run_manifest
-
-from fedefl_bw25.config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
-                    ELECTRICITY_BASELINE_DB, METHOD_ROOT, REPO_ROOT)
-# %%
-
-
-# NOT the database toggle -- see USLCI_DATABASE in the CONFIG block below.
-# This is a naming anchor: db_provenance_filename() gives the bundle build the
-# historical unsuffixed sidecar name (uslci_db_provenance.json) and every other
-# build a suffixed one. 
-USLCI_DB_DEFAULT = USLCI_DB
+from fedefl_bw25.config import USLCI_DB, USLCI_FULL_DB, REPO_ROOT
+from fedefl_bw25.run import (run_lca, write_results_csv, write_contributions_csv,
+                             write_manifest_json)
 
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
@@ -64,17 +54,13 @@ USLCI_DATABASE    = USLCI_DB
 PROCESS_UUID      = "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71"
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
-                            # required when CSV has >1 process; ignored without CSV
+                           # required when CSV has >1 process; ignored without CSV
 OUTPUT_CSV        = REPO_ROOT / "lca_results.csv"        # CLI --output resolves against CWD instead
 CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions.csv"  # per-process scores; set None to skip
 MANIFEST_JSON     = REPO_ROOT / run_manifest.MANIFEST_FILENAME  # per-run audit manifest; set None to skip
 SCENARIO_LABEL    = None   # human label for this run; defaults to target process name
 APPEND_RESULTS    = False  # True (or --append) accumulates scenarios in OUTPUT_CSV
                            # instead of overwriting — how you build a comparison set
-
-FOREGROUND_DB   = "foreground"
-# %%
-
 
 # =============================================================================
 # CLI
@@ -93,9 +79,9 @@ parser.add_argument("--no-contributions",  action="store_true", dest="no_contrib
                     help="Skip writing the per-process contributions CSV")
 parser.add_argument("--manifest",          default=None,
                     help="Audit manifest JSON path (default: validation_manifest.json at repo root)")
-parser.add_argument("--no-manifest",        action="store_true", dest="no_manifest",
+parser.add_argument("--no-manifest",       action="store_true", dest="no_manifest",
                     help="Skip writing the per-run audit manifest")
-parser.add_argument("--append",             action="store_true", dest="append_results",
+parser.add_argument("--append",            action="store_true", dest="append_results",
                     help="Append this run's scores to the results CSV instead of "
                          "overwriting it, accumulating scenarios for general/06's "
                          "scenario-comparison chart. Re-running the same scenario "
@@ -107,684 +93,89 @@ parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLC
                          f"USLCI_FULL_DB=1 setup/03_import_uslci.py.")
 args = parser.parse_args()
 
-# Rebound before any use below. The bundle build and the full-database build are
-# separate brightway databases (see config.USLCI_FULL_DB); everything downstream
-# — solve, contributions, audit manifest — reads this name. CONFIG's
-# USLCI_DATABASE is the IDE/notebook toggle; --database overrides it.
-USLCI_DB = USLCI_DATABASE
-_db_source = "CONFIG USLCI_DATABASE"
-if args.database:
-    USLCI_DB = args.database
-    _db_source = "--database"
-if args.uuid:
-    PROCESS_UUID = args.uuid
-if args.foreground:
-    FOREGROUND_CSV = args.foreground
-if args.target_process:
-    TARGET_PROCESS = args.target_process
-if args.output:
-    OUTPUT_CSV = args.output
-if args.contributions:
-    CONTRIBUTIONS_CSV = args.contributions
-if args.scenario:
-    SCENARIO_LABEL = args.scenario
-if args.no_contributions:
-    CONTRIBUTIONS_CSV = None
-if args.manifest:
-    MANIFEST_JSON = args.manifest
-if args.no_manifest:
-    MANIFEST_JSON = None
-if args.append_results:
-    APPEND_RESULTS = True
-
-if args.foreground is not None and args.uuid is not None:
-    print(f"NOTE: --foreground and --uuid both provided — --uuid '{PROCESS_UUID}' will be ignored.")
-# %%
-
+database   = args.database or USLCI_DATABASE
+db_source  = "--database" if args.database else "CONFIG USLCI_DATABASE"
+uuid       = args.uuid or PROCESS_UUID
+foreground = args.foreground or FOREGROUND_CSV
+target     = args.target_process or TARGET_PROCESS
+scenario   = args.scenario or SCENARIO_LABEL
+out_path   = Path(args.output or OUTPUT_CSV)
+contrib_path = (None if args.no_contributions
+                else Path(args.contributions) if args.contributions
+                else Path(CONTRIBUTIONS_CSV) if CONTRIBUTIONS_CSV else None)
+manifest_path = (None if args.no_manifest
+                 else Path(args.manifest) if args.manifest
+                 else Path(MANIFEST_JSON) if MANIFEST_JSON else None)
+append = args.append_results or APPEND_RESULTS
 
 # =============================================================================
-# BRIGHTWAY SETUP
+# BANNER — say what the run is standing on, before anything else prints
 # =============================================================================
-bd.projects.set_current(PROJECT_NAME)
-if not bd.projects.twofive:
-    bd.projects.migrate_project_25()
-
-if BIOSPHERE_DB not in bd.databases:
-    raise RuntimeError(f"'{BIOSPHERE_DB}' not found. Run setup/01_setup_biosphere_fedefl.py first.")
-if USLCI_DB not in bd.databases:
-    _hint = ("Run 'USLCI_FULL_DB=1 python setup/03_import_uslci.py' to build it."
-             if USLCI_DB == USLCI_FULL_DB else
-             "Run setup/03_import_uslci.py first.")
-    raise RuntimeError(
-        f"'{USLCI_DB}' not found. {_hint}\n"
-        f"  USLCI builds present: "
-        f"{[n for n in (USLCI_DB, USLCI_FULL_DB) if n in bd.databases] or 'none'}"
-    )
-# Say what the run is standing on, unmissably and before anything else prints.
 # The bundle build's name invites a wrong mental model: it is not "the 9 validated
 # processes", it is those 9 plus every upstream process their bundles shipped, so
 # a lookup can succeed on a process nobody deliberately imported. Naming the
-# composition here is what makes a result interpretable at a glance.
-_n_act = bd.databases[USLCI_DB].get("number")
-_vintage = bd.databases[USLCI_DB].get("electricity_vintage") or "unstamped"
-if USLCI_DB == USLCI_FULL_DB:
-    _composition = "whole USLCI database"
-else:
-    _composition = ("per-process bundles: the bundle targets PLUS all upstream "
-                    "processes those bundles shipped")
-_uslci_source = bd.databases[USLCI_DB].get("uslci_source") or {}
+# composition is what makes a result interpretable at a glance.
+from fedefl_bw25.run import open_project, describe_build   # noqa: E402  (after arg parse)
+
+open_project()
+build = describe_build(database)
 print("=" * 72)
-print(f"  USLCI build      : '{USLCI_DB}'  ({_n_act} activities)   [set by {_db_source}]")
-print(f"  Composition      : {_composition}")
-print(f"  Built from       : {run_manifest.describe_uslci_source(_uslci_source)}")
-print(f"  Electricity grid : {_vintage} baseline")
-_other = USLCI_FULL_DB if USLCI_DB != USLCI_FULL_DB else USLCI_DB_DEFAULT
-if _other in bd.databases:
-    print(f"  Also built       : '{_other}' "
-          f"({bd.databases[_other].get('number')} activities) — switch with --database")
+print(f"  USLCI build      : '{build['database']}'  ({build['activity_count']} activities)"
+      f"   [set by {db_source}]")
+print(f"  Composition      : {build['composition']}")
+print(f"  Built from       : {build['source']}")
+print(f"  Electricity grid : {build['electricity_vintage']} baseline")
+for other, count in build["other_builds"].items():
+    print(f"  Also built       : '{other}' ({count} activities) — switch with --database")
 print("=" * 72)
 
-traci_methods = sorted(m for m in bd.methods if m[:2] == METHOD_ROOT)
-if not traci_methods:
-    raise RuntimeError("No TRACI 2.2 methods found. Run setup/02_setup_traci22.py first.")
-if len(traci_methods) != 10:
-    raise RuntimeError(
-        f"Expected 10 TRACI 2.2 methods, found {len(traci_methods)}. "
-        f"Re-run setup/02_setup_traci22.py."
-    )
-# %%
+if foreground is not None and args.uuid is not None:
+    print(f"NOTE: --foreground and --uuid both provided — --uuid '{uuid}' will be ignored.")
 
+for p in (out_path, contrib_path):
+    if p and p.exists():
+        print(f"WARNING: '{p}' already exists and will be overwritten.")
 
 # =============================================================================
-# PREFLIGHT SMOKE TEST
+# RUN
 # =============================================================================
-def _flow_with_cf(bio_db, method, name_fragment, category_fragment):
-    """Find a biosphere flow matching name/category that has a non-zero CF."""
-    cf_ids = {k for k, _ in bd.Method(method).load()}
-    return next(
-        (a for a in bio_db
-         if name_fragment.lower() in a["name"].lower()
-         and category_fragment.lower() in str(a.get("categories", "")).lower()
-         and a.id in cf_ids),
-        None
-    )
-
-def _run_smoke(bio_db, flow, method, expected_min, expected_max, label):
-    TEST_DB = "_smoke_tmp"
-    key = (TEST_DB, "test")
-    if TEST_DB in bd.databases:
-        del bd.databases[TEST_DB]
-    bd.Database(TEST_DB).write({
-        key: {
-            "name": "smoke", "unit": "unit", "location": "US",
-            "exchanges": [
-                {"input": key, "amount": 1.0, "type": "production"},
-                {"input": (BIOSPHERE_DB, flow["code"]), "amount": 1.0,
-                 "unit": "kg", "type": "biosphere"},
-            ],
-        }
-    })
-    try:
-        act = bd.get_activity(key)
-        lca = bc.LCA({act: 1.0}, method)
-        lca.lci()
-        lca.lcia()
-        score = lca.score
-    finally:
-        if TEST_DB in bd.databases:
-            del bd.databases[TEST_DB]
-    ok = expected_min <= score <= expected_max
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}: {score:.6g} (expected {expected_min}–{expected_max})")
-    return ok
-
-print("=== Preflight smoke test ===")
-bio_db = bd.Database(BIOSPHERE_DB)
-smoke_ok = True
-
-gwp_method    = next((m for m in traci_methods if "warm"   in m[2].lower()), None)
-acid_method   = next((m for m in traci_methods if "acid"   in m[2].lower()), None)
-marine_method = next((m for m in traci_methods if "marine" in m[2].lower()), None)
-if not gwp_method:
-    raise RuntimeError("Could not find a 'Global warming' method under TRACI 2.2. Re-run setup/02_setup_traci22.py.")
-if not acid_method:
-    raise RuntimeError("Could not find an 'Acidification' method under TRACI 2.2. Re-run setup/02_setup_traci22.py.")
-if not marine_method:
-    raise RuntimeError("Could not find an 'Eutrophication (Marine)' method under TRACI 2.2. Re-run setup/02_setup_traci22.py.")
-
-co2 = _flow_with_cf(bio_db, gwp_method, "carbon dioxide", "air")
-if co2 is None:
-    raise RuntimeError("No CO2/air flow with a GWP CF found. Re-run setup/02_setup_traci22.py.")
-smoke_ok &= _run_smoke(
-    bio_db, co2, gwp_method,
-    expected_min=0.9, expected_max=1.1,
-    label="CO2 → Global warming ≈ 1.0 kg CO2-eq",
+run = run_lca(
+    uuid=uuid, foreground=foreground, target_process=target, database=database,
+    scenario=scenario, contributions=contrib_path is not None,
+    manifest=manifest_path is not None, log=print,
 )
 
-so2 = _flow_with_cf(bio_db, acid_method, "sulfur dioxide", "air")
-if so2 is None:
-    raise RuntimeError("No SO2/air flow with an Acidification CF found. Re-run setup/02_setup_traci22.py.")
-smoke_ok &= _run_smoke(
-    bio_db, so2, acid_method,
-    expected_min=1e-4, expected_max=1e4,
-    label="SO2 → Acidification > 0",
-)
-
-nitrogen = _flow_with_cf(bio_db, marine_method, "nitrogen", "water")
-if nitrogen is None:
-    raise RuntimeError("No nitrogen/water flow with a Marine Eutrophication CF found. Re-run setup/02_setup_traci22.py.")
-smoke_ok &= _run_smoke(
-    bio_db, nitrogen, marine_method,
-    expected_min=1e-6, expected_max=1e4,
-    label="Nitrogen → Eutrophication (Marine) > 0",
-)
-
-if not smoke_ok:
-    raise RuntimeError(
-        "Preflight smoke test failed — biosphere or TRACI CFs are broken.\n"
-        "Fix: re-run setup/01_setup_biosphere_fedefl.py then setup/02_setup_traci22.py."
-    )
-print()
-# %%
-
-
-# =============================================================================
-# FOREGROUND CSV: LOAD + BUILD BRIGHTWAY DB
-# =============================================================================
-fg_processes = {}
-
-if FOREGROUND_CSV is not None:
-    csv_path = Path(FOREGROUND_CSV)
-    print(f"=== Loading foreground CSV: {csv_path} ===")
-    fg_processes = load_foreground_csv(csv_path, bio_db, bd.Database(USLCI_DB))
-    print(f"  {len(fg_processes)} foreground process(es) loaded.")
-
-    fg_uuid_set = {p["uuid"] for p in fg_processes.values()}
-
-    db_data = {}
-    for process_name, proc in fg_processes.items():
-        proc_uuid = proc["uuid"]
-        key = (FOREGROUND_DB, proc_uuid)
-        exchanges = []
-        for exc in proc["exchanges"]:
-            etype        = exc["exchange_type"]
-            flow_uuid    = exc["flow_uuid"]
-            prov_uuid    = exc["provider_uuid"]
-            amount       = exc["amount"]
-            unit         = exc["unit"]
-
-            if etype == "production":
-                exchanges.append({
-                    "input":  key,
-                    "amount": amount,
-                    "unit":   unit,
-                    "type":   "production",
-                })
-            elif etype == "biosphere":
-                exchanges.append({
-                    "input":  (BIOSPHERE_DB, flow_uuid),
-                    "amount": amount,
-                    "unit":   unit,
-                    "type":   "biosphere",
-                })
-            elif etype == "technosphere":
-                if prov_uuid in fg_uuid_set:
-                    input_key = (FOREGROUND_DB, prov_uuid)
-                else:
-                    input_key = (USLCI_DB, prov_uuid)
-                exchanges.append({
-                    "input":  input_key,
-                    "amount": amount,
-                    "unit":   unit,
-                    "type":   "technosphere",
-                })
-
-        ref_exc = next((e for e in proc["exchanges"] if e["is_ref"]), None)
-        db_data[key] = {
-            "name":      process_name,
-            "code":      proc_uuid,
-            "location":  ref_exc["location"] if ref_exc else "US",
-            "unit":      ref_exc["unit"] if ref_exc else "unit",
-            "exchanges": exchanges,
-        }
-
-    # FOREGROUND_DB is intentionally transient — rebuilt from CSV on every run
-    # and deleted at script exit. The delete-before-write here is not data loss.
-    if FOREGROUND_DB in bd.databases:
-        del bd.databases[FOREGROUND_DB]
-    bd.Database(FOREGROUND_DB).write(db_data)
-    # Safety net: guarantee cleanup even if the script exits via an unhandled exception.
-    atexit.register(lambda: bd.databases.__delitem__(FOREGROUND_DB)
-                    if FOREGROUND_DB in bd.databases else None)
-    print(f"  Foreground database '{FOREGROUND_DB}' written.")
-    print()
-# %%
-
-
-# =============================================================================
-# RESOLVE TARGET ACTIVITY
-# =============================================================================
-if FOREGROUND_CSV is not None:
-    if TARGET_PROCESS is not None:
-        target_uuid = fg_uuid(TARGET_PROCESS)
-        if target_uuid not in {p["uuid"] for p in fg_processes.values()}:
-            raise RuntimeError(
-                f"--target-process '{TARGET_PROCESS}' not found in foreground CSV. "
-                f"Available processes: {list(fg_processes.keys())}"
-            )
-        target_act = bd.get_activity((FOREGROUND_DB, target_uuid))
-    elif len(fg_processes) == 1:
-        only_uuid = next(iter(fg_processes.values()))["uuid"]
-        target_act = bd.get_activity((FOREGROUND_DB, only_uuid))
-    else:
-        raise RuntimeError(
-            f"Foreground CSV has {len(fg_processes)} processes — specify one with "
-            f"--target-process NAME.\nAvailable: {list(fg_processes.keys())}"
-        )
-else:
-    # bw2data's .get() RAISES UnknownObject on a miss -- it never returns None --
-    # so catching it is the only way this message reaches the user. The three
-    # things worth knowing on a miss: which build was searched, whether the code
-    # is actually a UUID (pasting a bundle filename stem, '<uuid>_<release-hash>',
-    # is the easy mistake), and whether the other build has it.
-    try:
-        target_act = bd.Database(USLCI_DB).get(PROCESS_UUID)
-    except Exception as _e:
-        _lines = [f"Process '{PROCESS_UUID}' not found in USLCI build '{USLCI_DB}' "
-                  f"({bd.databases[USLCI_DB].get('number')} activities)."]
-        _bare = str(PROCESS_UUID).split("_", 1)[0]
-        _bare_is_here = False
-        if _bare != PROCESS_UUID and len(_bare) == 36:
-            try:
-                bd.Database(USLCI_DB).get(_bare)
-                _bare_is_here = True
-            except Exception:
-                pass
-            _lines.append(
-                f"  That looks like a bundle FILENAME, not a process UUID. The text after "
-                f"the underscore is the USLCI release hash. Try: {_bare}"
-            )
-        if _bare_is_here:
-            # The suffix is the entire problem -- the process is right here in the
-            # current build. Pointing at another database would send the fix wrong.
-            raise RuntimeError("\n".join(_lines)) from _e
-        _elsewhere = []
-        for _db in (USLCI_DB_DEFAULT, USLCI_FULL_DB):
-            if _db == USLCI_DB or _db not in bd.databases:
-                continue
-            try:
-                bd.Database(_db).get(_bare)
-                _elsewhere.append(_db)
-            except Exception:
-                pass
-        if _elsewhere:
-            _lines.append(
-                f"  It IS in: {', '.join(_elsewhere)} — re-run with "
-                f"--database {_elsewhere[0]} (or set USLCI_DATABASE in the CONFIG block)."
-            )
-        elif USLCI_DB != USLCI_FULL_DB and USLCI_FULL_DB not in bd.databases:
-            _lines.append(
-                "  Not in any built USLCI database. Check the UUID, or build the whole "
-                "database with 'USLCI_FULL_DB=1 python setup/03_import_uslci.py' — this "
-                "build only has what its bundles shipped."
-            )
-        else:
-            # Already on the whole database, so "import more" is not the answer.
-            # USLCI ships quarterly and this build is pinned to the sources below;
-            # a process added upstream since then is absent here and nowhere else.
-            _lines.append(
-                f"  Not in any built USLCI database, and this build already covers the "
-                f"whole USLCI it was made from:\n"
-                f"    {run_manifest.describe_uslci_source(_uslci_source)}\n"
-                f"  USLCI ships quarterly, so a process added in a newer release will be "
-                f"missing here. Check the UUID on lcacommons.gov — if it exists in a "
-                f"later release, re-import from that export."
-            )
-        raise RuntimeError("\n".join(_lines)) from _e
-
-scenario_label = SCENARIO_LABEL if SCENARIO_LABEL is not None else target_act["name"]
-
-# The demand is always {target_act: 1.0}, i.e. 1 unit of the process's OWN
-# reference unit — which is not necessarily mass (petroleum at refinery is m3).
-# State it everywhere a score appears so nobody misreads a per-m3 number as per-kg.
-functional_unit = f"1 {target_act.get('unit') or 'unit'}"
-
-# Which electricity-baseline vintage this build injected. A build carries exactly
-# one, and it materially moves any result with grid electricity upstream (~10% on
-# the locked cases), so state it up front rather than leaving it implicit in the
-# build log. Computed here, not in the manifest block, so --no-manifest runs still
-# report it.
-_db_stamps = {
-    _n: {"electricity_vintage": bd.databases[_n].get("electricity_vintage")}
-    for _n in (USLCI_DB, ELECTRICITY_BASELINE_DB) if _n in bd.databases
-}
-electricity_vintage = run_manifest.summarize_electricity_vintage(
-    _db_stamps, USLCI_DB, ELECTRICITY_BASELINE_DB)
-
-print(f"=== Target: '{target_act['name']}' ===")
-print(f"    UUID:     {target_act['code']}")
-print(f"    Scenario: {scenario_label}")
-print(f"    Functional unit: {functional_unit} (the process's reference unit — "
-      f"every score below is per {functional_unit} of this product)")
-if electricity_vintage["status"] == "ok":
-    print(f"    Electricity baseline: {electricity_vintage['vintage']} vintage "
+print(f"=== Target: '{run.target['name']}' ===")
+print(f"    UUID:     {run.target['uuid']}")
+print(f"    Scenario: {run.scenario}")
+print(f"    Functional unit: {run.functional_unit} (the process's reference unit — "
+      f"every score below is per {run.functional_unit} of this product)")
+if run.electricity_vintage["status"] == "ok":
+    print(f"    Electricity baseline: {run.electricity_vintage['vintage']} vintage "
           f"(background grid for this run)")
 else:
-    print(f"    Electricity baseline: {electricity_vintage['status'].upper()} — "
-          f"{electricity_vintage['note']}")
-print()
-
-# Validate output paths before spending time on LCA.
-out_path = Path(OUTPUT_CSV)
-try:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-except OSError as e:
-    raise RuntimeError(f"Cannot create output directory for '{out_path}': {e}")
-if out_path.exists():
-    print(f"WARNING: '{out_path}' already exists and will be overwritten.")
-
-contrib_path = Path(CONTRIBUTIONS_CSV) if CONTRIBUTIONS_CSV else None
-if contrib_path:
-    try:
-        contrib_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        raise RuntimeError(f"Cannot create output directory for '{contrib_path}': {e}")
-    if contrib_path.exists():
-        print(f"WARNING: '{contrib_path}' already exists and will be overwritten.")
-# %%
-
-
-# =============================================================================
-# LCA ACROSS ALL 10 TRACI 2.2 CATEGORIES
-# =============================================================================
-print(f"=== LCIA results — per {functional_unit} of '{target_act['name']}' ===")
-results       = []
-contributions = []
-
-method_units = {m: bd.Method(m).metadata.get("unit", "?") for m in traci_methods}
-
-lca = bc.LCA({target_act: 1.0}, traci_methods[0])
-lca.lci()
-
-# Build activity name lookup once — db lookups are expensive inside a loop.
-act_by_col = {}
-if contrib_path:
-    for key, col_idx in lca.dicts.activity.items():
-        try:
-            act_obj = bd.get_activity(key)
-            act_by_col[col_idx] = {
-                "name": act_obj["name"],
-                "code": act_obj["code"],
-                "db":   act_obj.key[0],
-            }
-        except Exception:
-            act_by_col[col_idx] = {"name": str(key), "code": str(key), "db": "unknown"}
-
-for method in traci_methods:
-    lca.switch_method(method)
-    lca.lcia()
-    score = lca.score
-    unit  = method_units[method]
-    results.append({
-        "scenario":        scenario_label,
-        "method":          method[2],
-        "score":           score,
-        "unit":            unit,
-        "functional_unit": functional_unit,
-    })
-    print(f"  {method[2]:45s}  {score:.6g}  {unit}")
-
-    if contrib_path:
-        per_proc = np.asarray(lca.characterized_inventory.sum(axis=0)).flatten()
-        for col_idx, contrib in enumerate(per_proc):
-            if abs(contrib) < 1e-30:
-                continue
-            info = act_by_col.get(col_idx, {"name": "unknown", "code": "?", "db": "unknown"})
-            contributions.append({
-                "scenario":           scenario_label,
-                "method":             method[2],
-                "process_name":       info["name"],
-                "process_uuid":       info["code"],
-                "db":                 info["db"],
-                "contribution_score": float(contrib),
-                "unit":               unit,
-                "functional_unit":    functional_unit,
-            })
-
-if all(r["score"] == 0.0 for r in results):
-    # An all-zero result has several possible causes and the setup-mismatch one
-    # is not the most common. Naming a single cause confidently sent real
-    # investigations the wrong way: three processes in the 2026-08-05 sweep
-    # tripped this while their biosphere mapping was fine and their zeros were
-    # correct — every technosphere input was a genuine cutoff. So diagnose from
-    # what this run can actually see, and only mention a setup fault when the
-    # target really has no characterizable inventory of its own.
-    _n_exc = len(target_act.exchanges()) if hasattr(target_act, "exchanges") else 0
-    _n_bio = sum(1 for e in target_act.exchanges() if e["type"] == "biosphere") \
-        if hasattr(target_act, "exchanges") else 0
-    _n_tech = sum(1 for e in target_act.exchanges() if e["type"] == "technosphere") \
-        if hasattr(target_act, "exchanges") else 0
-    print(f"WARNING: all {len(results)} TRACI scores are 0.0 for this target.")
-    print(f"  The target declares {_n_bio} biosphere and {_n_tech} technosphere exchange(s).")
-    if _n_bio == 0 and _n_tech == 0:
-        print("  It has no exchanges at all, so zero is the correct result "
-              "(USLCI ships such stubs, e.g. the 'Bridge; USLCI to USEEIO' processes).")
-    elif _n_bio == 0:
-        print("  It emits nothing directly, so its score comes entirely from upstream. "
-              "Zero means those technosphere inputs resolved to nothing — check "
-              "completeness.notes in the manifest for cutoffs.")
-    else:
-        # A flow can be matched to FEDEFL and still be uncharacterized: TRACI 2.2
-        # characterizes PM2.5, not a generic "Particulate matter", so such flows
-        # ride along in the inventory contributing exactly nothing. That is a
-        # third cause, distinct from an unmatched flow and from a setup fault,
-        # and it is invisible without checking the CFs.
-        _cf_ids = set()
-        for _m in traci_methods:
-            _cf_ids |= {k for k, _ in bd.Method(_m).load()}
-        _bio_exc = [e for e in target_act.exchanges() if e["type"] == "biosphere"]
-        _uncf = [e for e in _bio_exc if e.input.id not in _cf_ids]
-        if len(_uncf) == len(_bio_exc):
-            print(f"  All {len(_bio_exc)} of its biosphere flow(s) are matched to "
-                  f"{BIOSPHERE_DB} but have NO TRACI 2.2 characterization factor, so "
-                  f"they contribute nothing — the inventory is carried, not dropped:")
-            for _e in _uncf[:4]:
-                print(f"    - {_e.input['name']} ({_e['amount']:g})")
-            print("  This is a coverage limit of TRACI 2.2, not a build fault.")
-        else:
-            print("  Some of its flows are characterized, so zero is unexpected. If "
-                  "other processes in this build score normally the inventory is "
-                  "likely cut; if EVERY process scores zero, suspect the biosphere/CF "
-                  "setup and re-run setup/01 then setup/02.")
+    print(f"    Electricity baseline: {run.electricity_vintage['status'].upper()} — "
+          f"{run.electricity_vintage['note']}")
 print()
 
 # =============================================================================
-# WRITE OUTPUT CSV
+# WRITE
 # =============================================================================
-# --append accumulates scenarios into one CSV. Without it, every run overwrote
-# the last, which left general/06's scenario_comparison chart with no supported
-# way to get its input: a multi-scenario results CSV could only be produced by
-# concatenating files by hand.
-_fieldnames = ["scenario", "method", "score", "unit", "functional_unit"]
-_appending = APPEND_RESULTS and Path(out_path).exists()
-if _appending:
-    # Re-running the same scenario should replace it, not duplicate it — a
-    # sweep is usually iterative, and silent duplicates would double-count in
-    # any chart that groups by scenario.
-    with open(out_path, newline="", encoding="utf-8") as f:
-        _kept = [r for r in csv.DictReader(f) if r.get("scenario") != scenario_label]
-    _replaced = True
-else:
-    _kept, _replaced = [], False
-with open(out_path, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=_fieldnames)
-    writer.writeheader()
-    writer.writerows(_kept)
-    writer.writerows(results)
-if _appending:
-    _n_scen = len({r["scenario"] for r in _kept} | {scenario_label})
-    print(f"Results appended to: {out_path} ({_n_scen} scenario(s) now in file)")
+n_scen = write_results_csv(run, out_path, append=append)
+if append:
+    print(f"Results appended to: {out_path} ({n_scen} scenario(s) now in file)")
 else:
     print(f"Results written to: {out_path}")
 
-if contrib_path and contributions:
-    with open(contrib_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["scenario", "method", "process_name", "process_uuid",
-                        "db", "contribution_score", "unit", "functional_unit"],
-        )
-        writer.writeheader()
-        writer.writerows(contributions)
-    print(f"Contributions written to: {contrib_path} ({len(contributions)} rows)")
+if contrib_path:
+    n = write_contributions_csv(run, contrib_path)
+    if n:
+        print(f"Contributions written to: {contrib_path} ({n} rows)")
 
-# =============================================================================
-# PER-RUN AUDIT MANIFEST  (validation_manifest.json)
-# =============================================================================
-# Emits a provenance + per-result completeness record alongside the scores, so a
-# user can audit THIS result — not just the four locked test cases (RELEASE_PLAN
-# Phase 4.4 / ledger #9). The completeness view crosses this result's solved
-# supply chain against the per-process import diagnostics setup/03 persists to
-# uslci_db_provenance.json. Pure assembly logic lives in run_manifest.py.
-if MANIFEST_JSON is not None:
-    # Reduce the technosphere column index to the activities this result actually
-    # draws on before resolving them. lca.dicts.activity spans every activity in
-    # the loaded databases, reachable or not, so summing completeness over it
-    # reports database-wide totals as if they were this result's.
-    supplied = run_manifest.select_supplied_keys(
-        lca.dicts.activity.items(), lca.supply_array,
-    )
-    # Resolve each to a (db, code) pair. lca.dicts keys are opaque brightway ids
-    # in bw25, so go through bd.get_activity — the same resolution the
-    # contributions block uses.
-    solved_keys = []
-    for _k in supplied:
-        try:
-            _a = bd.get_activity(_k)
-            solved_keys.append((_a.key[0], _a["code"]))
-        except Exception:
-            solved_keys.append(("unknown", str(_k)))
-
-    prov_filename = run_manifest.db_provenance_filename(USLCI_DB, USLCI_DB_DEFAULT)
-    prov_path = Path(REPO_ROOT) / prov_filename
-    provenance_processes = {}
-    prov_source = {"available": False, "path": str(prov_path)}
-    if prov_path.exists():
-        try:
-            prov_doc = json.loads(prov_path.read_text(encoding="utf-8"))
-            sidecar_db = prov_doc.get("database")
-            if sidecar_db is not None and sidecar_db != USLCI_DB:
-                # Belt-and-braces: the filename already separates the builds, so this
-                # only fires if a sidecar was renamed or hand-edited. Reading one
-                # build's diagnostics against another would silently misreport
-                # completeness, so drop it rather than trust it.
-                print(f"WARNING: {prov_filename} describes database '{sidecar_db}' but this run "
-                      f"targets '{USLCI_DB}' — ignoring it; completeness will be limited.")
-                prov_source["mismatched_database"] = sidecar_db
-            else:
-                provenance_processes = prov_doc.get("processes", {})
-                sidecar_count = prov_doc.get("db_activity_count")
-                live_count = bd.databases[USLCI_DB].get("number") if USLCI_DB in bd.databases else None
-                prov_source = {
-                    "available": True,
-                    "path": str(prov_path),
-                    "database": sidecar_db,
-                    "generated": prov_doc.get("generated"),
-                    "db_activity_count": sidecar_count,
-                    "live_db_activity_count": live_count,
-                    "matches_live_db": (sidecar_count == live_count),
-                }
-                if sidecar_count != live_count:
-                    print(f"WARNING: {prov_filename} records {sidecar_count} "
-                          f"activities but '{USLCI_DB}' currently has {live_count} — the sidecar looks "
-                          f"stale, so completeness may be inaccurate. Re-run setup/03_import_uslci.py.")
-        except (ValueError, OSError) as e:
-            print(f"WARNING: could not read {prov_path}: {e} — completeness will be limited.")
-    else:
-        print(f"NOTE: {prov_filename} not found at repo root — completeness "
-              f"section will be limited. Re-run setup/03_import_uslci.py to generate it.")
-
-    completeness = run_manifest.summarize_supply_chain_completeness(
-        solved_keys, provenance_processes, USLCI_DB, [ELECTRICITY_BASELINE_DB],
-    )
-
-    def _pkg_versions(names):
-        out = {}
-        for _n in names:
-            try:
-                out[_n] = importlib.metadata.version(_n)
-            except importlib.metadata.PackageNotFoundError:
-                out[_n] = None
-        return out
-
-    manifest_dbs = {}
-    for _dbn in (BIOSPHERE_DB, USLCI_DB, ELECTRICITY_BASELINE_DB, FOREGROUND_DB):
-        if _dbn in bd.databases:
-            _md = bd.databases[_dbn]
-            manifest_dbs[_dbn] = {"activity_count": _md.get("number"),
-                                  "modified": _md.get("modified")}
-            # Stamped by setup/03b (baseline DB) and copied by setup/03 (USLCI DB).
-            # Absent on builds predating the stamp — recorded only where present.
-            if _md.get("electricity_vintage") is not None:
-                manifest_dbs[_dbn]["electricity_vintage"] = _md.get("electricity_vintage")
-            # Which USLCI sources produced this build (setup/03). Lets a result state
-            # the release it came from, and distinguishes "no such process" from
-            # "not in THIS release" when a manifest is read back later.
-            if _md.get("uslci_source") is not None:
-                manifest_dbs[_dbn]["uslci_source"] = _md.get("uslci_source")
-
-
-    manifest = run_manifest.build_manifest(
-        generated=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        target={
-            "uuid":            target_act["code"],
-            "name":            target_act["name"],
-            "unit":            target_act.get("unit"),
-            "functional_unit": functional_unit,
-            "location":        target_act.get("location"),
-            "scenario":        scenario_label,
-            "source":          "foreground" if FOREGROUND_CSV is not None else "uslci",
-        },
-        project=PROJECT_NAME,
-        databases=manifest_dbs,
-        electricity_vintage=electricity_vintage,
-        methods=[[m[0], m[1], m[2], method_units[m]] for m in traci_methods],
-        packages=_pkg_versions(["bw2data", "bw2calc", "bw2io", "fedelemflowlist",
-                                "lciafmt", "numpy", "pandas"]),
-        provenance_source=prov_source,
-        solved_system={
-            "activity_count": len(solved_keys),
-            "biosphere_flow_count": len(lca.dicts.biosphere),
-        },
-        completeness=completeness,
-        results=results,
-    )
-
-    # JSON-safe coercion: LCIA scores are numpy floats and DB 'modified' may be a
-    # datetime — neither is serializable by default.
-    def _json_default(o):
-        if isinstance(o, np.floating):
-            return float(o)
-        if isinstance(o, np.integer):
-            return int(o)
-        if hasattr(o, "isoformat"):
-            return o.isoformat()
-        return str(o)
-
-    manifest_out = Path(MANIFEST_JSON)
-    try:
-        manifest_out.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        raise RuntimeError(f"Cannot create output directory for '{manifest_out}': {e}")
-    manifest_out.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False, default=_json_default),
-        encoding="utf-8",
-    )
-    print(f"Audit manifest written to: {manifest_out}")
-    if not completeness["fully_linked"]:
-        print("  NOTE: this result is not fully linked — see completeness.notes in the manifest.")
-
-# =============================================================================
-# CLEANUP
-# =============================================================================
-if FOREGROUND_CSV is not None and FOREGROUND_DB in bd.databases:
-    del bd.databases[FOREGROUND_DB]
+if manifest_path:
+    written = write_manifest_json(run, manifest_path)
+    if written:
+        print(f"Audit manifest written to: {written}")
+        if not run.manifest["completeness"]["fully_linked"]:
+            print("  NOTE: this result is not fully linked — see completeness.notes "
+                  "in the manifest.")

@@ -10,6 +10,7 @@ v1.2026-06.0 with the 2026 electricity baseline.
 - [1. Functional units — reading and changing the basis of a result](#1-functional-units)
 - [2. Linking a foreground CSV to USLCI](#2-linking-a-foreground-csv-to-uslci)
 - [3. Choosing what background a result is calculated against](#3-choosing-the-background)
+- [4. Driving the pipeline from your own script](#4-driving-the-pipeline-from-your-own-script)
 
 ---
 
@@ -238,3 +239,80 @@ with no producer in USLCI. The counts tell you how much.
 > **Known gap.** For a *USLCI process* target there is no foreground-only switch. The harness has
 > `--mode direct` for exactly this, but `general/04` has no equivalent, so the trick above (a
 > foreground CSV with no technosphere rows) is the only route today. Tracked in RELEASE_PLAN Phase 6.
+
+---
+
+## 4. Driving the pipeline from your own script
+
+The numbered scripts are CLI front-ends over an importable package. For anything
+repetitive — a sweep, a batch, a study with ten scenarios — call the library instead and
+skip the subprocess-per-run entirely.
+
+```bash
+pip install -e .          # once
+```
+
+### One run
+
+`run_lca()` computes and returns; it writes nothing and prints nothing.
+
+```python
+from fedefl_bw25.run import run_lca
+
+run = run_lca(uuid="97970125-ad36-3919-8af8-69a053c5eefa", database="uslci-full")
+
+run.score("Global warming")   # 0.511591
+run.functional_unit           # '1 kg'
+run.as_dict()                 # {'Global warming': 0.5116, 'Acidification': ...}
+run.build                     # which database, how many activities, which grid
+run.notes                     # diagnostics the CLI would have printed
+```
+
+Pass `log=print` if you want the console chatter the script produces.
+
+### A batch
+
+Because results come back as objects, you accumulate in memory and write once:
+
+```python
+from fedefl_bw25.run import run_lca, write_results_csv
+
+targets = {"fishmeal":   "97970125-ad36-3919-8af8-69a053c5eefa",
+           "fertilizer": "dacaeae9-aeed-3366-912d-6a31de09eef9",
+           "corrugated": "9c10be0f-e38e-4551-b8b5-eef65fa27dcc"}
+
+runs = [run_lca(uuid=u, database="uslci-full", scenario=label,
+                contributions=False, manifest=False, smoke_test=False)
+        for label, u in targets.items()]
+
+for i, r in enumerate(runs):
+    write_results_csv(r, "study.csv", append=i > 0)
+```
+
+```
+fishmeal     GWP=   0.51159  per 1 kg
+fertilizer   GWP=   1.78831  per 1 kg
+corrugated   GWP=   0.11846  per 1 kg
+```
+
+Then chart it exactly as the CLI would: `python general/06_visualize.py --results study.csv`.
+
+Two arguments are worth knowing for loops. `smoke_test=False` skips the preflight
+check, which writes and deletes a temporary database three times per call — insurance
+worth paying once, not once per scenario. `contributions=False` skips per-process
+attribution, which is the expensive part of a run and usually not what a sweep is for.
+
+### A foreground study
+
+```python
+run = run_lca(foreground="my_inventory.csv", target_process="Widget assembly",
+              database="uslci-full")
+```
+
+Same object back. Unit conversions and validation errors from guide 2 apply
+identically — the CLI and the library are the same code path.
+
+### What's still script-only
+
+`setup/` is not yet callable this way; building the databases is still
+`python setup/01…` through `setup/03`. That extraction is next.
