@@ -89,8 +89,8 @@ Most of the implementation was written by Claude (Anthropic) under close human d
 trust case deliberately does not rest on who typed it.
 
 - **Human accountability.** A human expert made the method decisions, ran every openLCA reference
-  session by hand, directed the debugging, and audited each script against
-  [`QC_PROTOCOL.md`](docs/QC_PROTOCOL.md). Where AI-generated work was accepted without proportionate
+  session by hand, directed the debugging, and audited each script against a fixed
+  procedure ([`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md) appendix C). Where AI-generated work was accepted without proportionate
   review, that is tracked in the [devlog's](docs/DEVLOG.md) under-review ledger.
 - **VALIDATE, do not FIT.** Discrepancies against openLCA were root-caused, never tuned away. No
   hardcoded per-dataset constants, no special-casing of the test processes. Petroleum's toxicity
@@ -106,13 +106,13 @@ trust case deliberately does not rest on who typed it.
 |------|---------|
 | [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here. Nothing to a defensible number, in one pass |
 | [`HOWTO.md`](docs/HOWTO.md) | Task guides: functional units, foreground CSVs, choosing the background, scripting |
+| [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every error the pipeline raises, what it means, and the fix |
 | [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split, and what USLCI actually contains |
 | [`SCHEMA_CROSSWALK.md`](docs/SCHEMA_CROSSWALK.md) | USLCI openLCA JSON-LD → the brightway schema, field by field |
 | [`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md) | The openLCA parity write-up, with the technical appendix |
 | [`validation/`](validation/) | The harness, locked result CSVs, and the chronological validation log |
 | [`DEVLOG.md`](docs/DEVLOG.md) | Design decisions, the bugs fixed to reach validation, and the release-plan record |
 | [`ROADMAP.md`](docs/ROADMAP.md) | What is open, and what has been ruled out |
-| [`QC_PROTOCOL.md`](docs/QC_PROTOCOL.md) | The per-script human audit each script was reviewed against |
 
 `setup/` builds the databases once per machine, `general/` runs studies, `validation/` reproduces
 the parity claim, and `fedefl_bw25/` is the package the numbered scripts front. Pinned versions are

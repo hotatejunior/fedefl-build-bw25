@@ -39,7 +39,7 @@ db_data[(USLCI_DB, code)] = {          # one entry per activity
         ...
     ],
 }
-bd.Database(USLCI_DB).write(db_data)   # line 832
+bd.Database(USLCI_DB).write(db_data)   
 ```
 
 ---
@@ -87,13 +87,13 @@ stored verbatim; *dropped* means brightway carries no equivalent.
 
 | openLCA JSON-LD | → brightway | How it crosses |
 |---|---|---|
-| `@id` | activity `code` + `(USLCI_DB, code)` key | Verbatim (line 768). Causal co-products get a synthesized code `{@id}__co__{flow}` (line 529). |
-| `name` | activity `name` | Copied (line 763); co-product activities decorated `… [causal co-product: <flow>]` (line 766). |
-| `location.name` | activity `location` | Normalized via `LOCATION_MAP` ("United States of America (the)"→"US"); unmapped names pass through, empty→"GLO" (lines 446, 758). |
+| `@id` | activity `code` + `(USLCI_DB, code)` key | Verbatim (`build_activity`). Causal co-products get a synthesized code `{@id}__co__{flow}` (`plan_allocation`). |
+| `name` | activity `name` | Copied (`build_activity`); co-product activities decorated `… [causal co-product: <flow>]` (`build_activity`). |
+| `location.name` | activity `location` | Normalized via `LOCATION_MAP` ("United States of America (the)"→"US"); unmapped names pass through, empty→"GLO" (`activity_location`). |
 | `exchanges[]` | activity `exchanges` | The core loop — each exchange becomes one production / technosphere / biosphere exchange (tables 2–3). |
-| `defaultAllocationMethod` | *(drives)* | Selects the allocation regime — native / mass / causal — in the pre-pass ([`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py), line 508). |
+| `defaultAllocationMethod` | *(drives)* | Selects the allocation regime — native / mass / causal — in the pre-pass ([`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py), via `plan_allocation`). |
 | `allocationFactors[]` | *(drives)* | Supplies per-exchange causal factor columns and scalar physical/economic factors ([`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py)). |
-| `version` | *(dedup + sidecar)* | Precedence key when one `@id` appears in several bundles (line 241); also recorded in `uslci_db_provenance.json` (line 781). |
+| `version` | *(dedup + sidecar)* | Precedence key when one `@id` appears in several bundles (`_proc_precedence`); also recorded in `uslci_db_provenance.json` (`build_activities`). |
 | `lastChange` | *(dedup + sidecar)* | Tiebreak after `version`; also in the sidecar. |
 | `@type`, `processType`, `isInfrastructureProcess`, `lastInternalId` | *dropped* | Constant or irrelevant discriminators. |
 | `description`, `category`, `processDocumentation`, `dqSystem`, `dqEntry`, `socialAspects`, `parameters` | *dropped* | Metadata brightway activities don't carry. (`category` is kept for **biosphere** nodes only, sourced from FEDEFL context in `setup/01`.) |
@@ -102,15 +102,15 @@ stored verbatim; *dropped* means brightway carries no equivalent.
 
 | openLCA JSON-LD | → brightway | How it crosses |
 |---|---|---|
-| `amount` | exchange `amount` | Transformed, not copied: `normalize()` unit conversion → × allocation factor → (× co-product multiplier **or** sign-flip). See "The three amount modifiers" below (lines 597–735). |
-| `unit.name` | *(drives)* + result `unit` | Within-property conversion input to `normalize()` (`l`→`m³`); the returned reference unit becomes the exchange `unit`, and for the reference exchange the activity `unit` (lines 598, 611). |
-| `flowProperty.@id` | *(drives)* | Cross-property conversion key into `FLOW_CONV` (e.g. Btu-of-diesel→m³ via energy density) (lines 599, 610). |
-| `isInput` | *(drives `type`)* | Primary direction classifier: `false` + reference → `production`; `true` → input side; combined with `flowType` for the bio/techno/waste split (lines 580, 652). |
-| `isQuantitativeReference` | `type = "production"` | Marks the one production exchange (line 601); also builds the `flow → producer` map used for linking (line 345). |
-| `defaultProvider.@id` | *(drives `input`)* | First-choice provider hint → resolves the link's `(db, code)` (lines 400–405). |
-| `defaultProvider.name` | *(drives `input`)* | Fallback: used only when the `@id` doesn't resolve but the name uniquely matches one candidate (lines 421–425). |
-| `isAvoidedProduct` | sign of `amount` | `true` → normalized amount negated (burden → credit) before linking (line 677). |
-| `internalId` | *(drives)* | Key tying an exchange to its causal per-exchange allocation factor (line 625). |
+| `amount` | exchange `amount` | Transformed, not copied: `normalize()` unit conversion → × allocation factor → (× co-product multiplier **or** sign-flip). See "The three amount modifiers" below (`build_activity`). |
+| `unit.name` | *(drives)* + result `unit` | Within-property conversion input to `normalize()` (`l`→`m³`); the returned reference unit becomes the exchange `unit`, and for the reference exchange the activity `unit` (`build_activity`). |
+| `flowProperty.@id` | *(drives)* | Cross-property conversion key into `FLOW_CONV` (e.g. Btu-of-diesel→m³ via energy density) (`UnitNormalizer`). |
+| `isInput` | *(drives `type`)* | Primary direction classifier: `false` + reference → `production`; `true` → input side; combined with `flowType` for the bio/techno/waste split (`build_activity`). |
+| `isQuantitativeReference` | `type = "production"` | Marks the one production exchange (`build_activity`); also builds the `flow → producer` map used for linking (`index_reference_flows`). |
+| `defaultProvider.@id` | *(drives `input`)* | First-choice provider hint → resolves the link's `(db, code)` (`ProviderResolver.resolve`). |
+| `defaultProvider.name` | *(drives `input`)* | Fallback: used only when the `@id` doesn't resolve but the name uniquely matches one candidate (`ProviderResolver.resolve`). |
+| `isAvoidedProduct` | sign of `amount` | `true` → normalized amount negated (burden → credit) before linking (`_technosphere_exchange`). |
+| `internalId` | *(drives)* | Key tying an exchange to its causal per-exchange allocation factor (`build_activity`). |
 | `amountFormula` | *dropped* ⚠ | Parameterized formulas are **not** evaluated — the resolved numeric `amount` is used as-is. A known limitation for parametric processes (see "Known limitations"). |
 | `@type`, `description` | *dropped* | — |
 
@@ -118,9 +118,9 @@ stored verbatim; *dropped* means brightway carries no equivalent.
 
 | openLCA JSON-LD | → brightway | How it crosses |
 |---|---|---|
-| `@id` | *(drives `input`)* | **The universal key.** Biosphere → `(BIOSPHERE_DB, @id)` directly (line 641). Technosphere → looked up in the `flow → producer` map to find the supplying process (line 684). |
-| `flowType` | *(drives `type`)* | The bio/techno discriminator: `ELEMENTARY_FLOW` → biosphere; `PRODUCT_FLOW` / `WASTE_FLOW` → technosphere (lines 633, 652). |
-| `name` | *(diagnostics + co-product naming)* | Not a link key; used in warnings and co-product activity labels (line 765). |
+| `@id` | *(drives `input`)* | **The universal key.** Biosphere → `(BIOSPHERE_DB, @id)` directly (`build_activity`). Technosphere → looked up in the `flow → producer` map to find the supplying process (`_technosphere_exchange`). |
+| `flowType` | *(drives `type`)* | The bio/techno discriminator: `ELEMENTARY_FLOW` → biosphere; `PRODUCT_FLOW` / `WASTE_FLOW` → technosphere (`build_activity`). |
+| `name` | *(diagnostics + co-product naming)* | Not a link key; used in warnings and co-product activity labels (`build_activity`). |
 | `refUnit` | *(informational)* | Not directly consumed — unit resolution goes through `flowProperty` + `unit` + `FLOW_CONV`, not this field. |
 | `@type`, `category` | *dropped* | — |
 
@@ -147,28 +147,26 @@ they — and the unit and allocation mismatches — get resolved.
 ### A. Exchange direction — reading `isInput` directly
 
 brightway has no `isInput` field; direction is carried by exchange `type` and sign. openLCA states it
-explicitly as a boolean, and **`bw2io`'s `JSONLDImporter` misclassifies it** — the documented reason
-this pipeline parses JSON-LD by hand. The reference exchange (`isQuantitativeReference=true`, usually
-an output) becomes the `production` exchange; everything else is an input to classify (line 580).
-One subtlety: USLCI waste-treatment "sink" processes define their function by the waste they
-*consume*, so `isQuantitativeReference` legitimately lands on an **input** there — handled at line
-601, and it doesn't matter for downstream linking because the `flow → producer` map keys on the
-reference flow either way.
+as a boolean, and **`bw2io`'s `JSONLDImporter` misclassifies it**, which is the documented reason this
+pipeline parses JSON-LD by hand. The reference exchange becomes the `production` exchange and
+everything else is an input to classify (`build_activity`). USLCI waste-treatment sinks define their
+function by the waste they *consume*, so `isQuantitativeReference` legitimately lands on an input
+there; it makes no difference downstream, because the flow → producer map keys on the reference flow
+either way.
 
 ### B. Biosphere vs. technosphere — FEDEFL UUID as the join key
 
-`flowType` decides the matrix. For `ELEMENTARY_FLOW`, the flow's own `@id` **is** the biosphere code,
-because `setup/01` loaded every FEDEFL flow keyed by its FEDEFL UUID. So linking an emission is a
-single set-membership test against `bio_uuids` (line 444) — `(BIOSPHERE_DB, flow.@id)`, no name
-matching, no fuzzy context resolution (line 641). An unmatched UUID becomes a counted cutoff rather
-than a crash. This is why UUID-keying is a load-bearing design choice and not a stylistic one: it
-turns biosphere linkage into an identity lookup.
+`flowType` decides the matrix. For `ELEMENTARY_FLOW` the flow's own `@id` **is** the biosphere code,
+because `setup/01` loaded every FEDEFL flow keyed by its FEDEFL UUID, so linking an emission is one
+set-membership test against `bio_uuids` — no name matching, no fuzzy context resolution. An unmatched
+UUID becomes a counted cutoff rather than a crash. UUID-keying is load-bearing rather than stylistic:
+it turns biosphere linkage into an identity lookup.
 
 ### C. Provider resolution — synthesizing `input` for technosphere links
 
 A brightway technosphere exchange must name the producing *activity*; a USLCI input names only a
 **flow**, which several processes may produce (63 reference flows in the full public DB are shared,
-one by 41 producers). `_resolve_provider` (lines 389–428) decides in priority order:
+one by 41 producers). `_resolve_provider` (`ProviderResolver.resolve`) decides in priority order:
 
 1. the exchange's own `defaultProvider.@id`, if it's a process we imported (bundle-internal or the
    injected electricity baseline);
@@ -178,31 +176,30 @@ one by 41 producers). `_resolve_provider` (lines 389–428) decides in priority 
    renamed across baseline versions but the name is stable);
 4. else genuinely ambiguous → left a cutoff rather than guessed, and reported.
 
-The `flow → producer` map is built once from every process's reference exchange (lines 340–354), and
+The `flow → producer` map is built once from every process's reference exchange (`index_reference_flows`), and
 cross-database providers injected by `setup/03b` (the electricity baseline) join the same candidate
-pool (lines 367–374), so a single resolver handles both intra-USLCI and USLCI→baseline links.
+pool (`load_external_providers`), so a single resolver handles both intra-USLCI and USLCI→baseline links.
 
 ### D. Unit normalization — one reference unit per flow
 
 brightway needs every amount of a flow in that flow's one reference unit; openLCA expresses amounts
-in arbitrary units against a `flowProperty`. `normalize()` (line 161) is a two-step conversion:
+in arbitrary units against a `flowProperty`. `normalize()` (`UnitNormalizer`) is a two-step conversion:
 
 1. **within-property** — `unit.name` → the property's reference unit (`l`→`m³`, `Btu`→`MJ`) via the
-   `WITHIN_FP` table (line 97);
+   `WITHIN_FP` table (`WITHIN_FP`);
 2. **cross-property** — the property's reference unit → the flow's reference-property unit (e.g.
    Btu-of-diesel → m³ via energy density) via `FLOW_CONV`, the substance-specific table
    `setup/00` builds.
 
-Biosphere flows pass `cross_property=False` — CO₂ stays in kg, kBq stays in kBq (line 636). An
-**unrecognized unit is a hard-stop before the database is written**, not a silent passthrough (lines
-150–158), because a wrong unit is "a wrong number wearing a plausible one's clothes." One case-
+Biosphere flows pass `cross_property=False` — CO₂ stays in kg, kBq stays in kBq (`build_activity`). An
+**unrecognized unit is a hard-stop before the database is written**, not a silent passthrough (`check_unknown_units`), because a wrong unit is "a wrong number wearing a plausible one's clothes." One case-
 sensitive trap is handled explicitly: `Mg` (megagram) vs `mg` (milligram), a 10⁹ error if collapsed
-(line 139).
+(`_WITHIN_FP_EXACT`).
 
 ### E. Multi-output processes — splitting into single-output activities
 
 brightway wants one production exchange per activity; a USLCI process can output several products
-under a `defaultAllocationMethod`. Resolved in a **pre-pass** (lines 508–537) that runs before the
+under a `defaultAllocationMethod`. Resolved in a **pre-pass** (`plan_allocation`) that runs before the
 build loop, because a consumer can be built before the supplier it points at is visited. Logic lives
 in [`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py) (extracted so it unit-tests on synthetic JSON). Three
 regimes:
@@ -211,12 +208,10 @@ regimes:
   built (reference) activity. A *consumer* drawing a non-reference co-product is re-based at the link
   site by a multiplier that converts a request in the co-product's units into the equivalent
   reference-product amount carrying that co-product's allocated burden:
-  `m = (ref_yield · target_alloc) / (target_yield · ref_alloc)` (line 729).
+  `m = (ref_yield · target_alloc) / (target_yield · ref_alloc)` (`plan_allocation`).
 - **causal (per-exchange).** Burdens are assigned per *exchange*, so no scalar can re-base them. Each
   causal co-product gets its **own dedicated activity** (code `{proc}__co__{flow}`), built from its
-  own column of the factor grid (line 529); consumers link straight to it, no multiplier (lines
-  700–718). A *consumed* causal co-product with an empty factor column hard-stops the build (line
-  794) — it would otherwise silently degrade to a flat mass split, the exact error causal handling
+  own column of the factor grid (`plan_allocation`); consumers link straight to it, no multiplier (`_technosphere_exchange`). A *consumed* causal co-product with an empty factor column hard-stops the build (`check_consumed_causal_columns`) — it would otherwise silently degrade to a flat mass split, the exact error causal handling
   exists to prevent.
 
 ### F. Two openLCA modeling conventions, normalized
@@ -224,12 +219,12 @@ regimes:
 - **Waste as an output flow.** openLCA models disposal as the generator **outputting** a `WASTE_FLOW`
   whose `defaultProvider` is a treatment process (whose own reference is that waste as an input). The
   importer links this output exactly like a positive input, so the disposal burden (e.g. landfill
-  methane) actually lands (lines 652–663). Without it, every waste-to-treatment link was silently
+  methane) actually lands (`_technosphere_exchange`). Without it, every waste-to-treatment link was silently
   dropped.
 - **Avoided products as credits.** `isAvoidedProduct=true` marks byproduct energy/material recovery
   that *displaces* production elsewhere (e.g. landfill-gas electricity displacing grid power). openLCA
   subtracts these; a positive brightway input amount would add them as a burden, so the normalized
-  amount is sign-flipped to a credit (line 677). This was the final petroleum-parity fix.
+  amount is sign-flipped to a credit (`_technosphere_exchange`). This was the final petroleum-parity fix.
 
 ---
 
@@ -274,8 +269,7 @@ brightway exchange:  {"input": ("biosphere-fedefl", "12b39b80-…"), "amount": 2
   formula exchanges with a zero stored amount evaluate to exactly 0 at their shipped values. What is
   lost is the ability to **change** a parameter: the wastewater-treatment models ship with switches
   like `disinfect` and `filter_include` set to 0, and an openLCA user would flip them to model a
-  different treatment train. Here they are fixed, and nothing surfaces that a knob exists. See
-  RELEASE_PLAN Phase 6 for the parametric-modelling roadmap.
+  different treatment train. Here they are fixed, and nothing surfaces that a knob exists. See [`ROADMAP.md`](ROADMAP.md).
 - **Exchange `uncertainty` is dropped.** USLCI ships uncertainty distributions on **5,740 exchanges
   (7.1%) across 91 processes** in v1.2026-06.0 — 5,218 lognormal, 476 triangular, 46 uniform. The
   parser reads only the resolved `amount`, so deterministic results are unaffected, but the
@@ -292,4 +286,4 @@ brightway exchange:  {"input": ("biosphere-fedefl", "12b39b80-…"), "amount": 2
   `general/04` names this explicitly when it is the reason a result is zero.
 - **Genuinely ambiguous links become cutoffs.** When a flow has several producers and no usable
   provider hint, the exchange is left unlinked rather than guessed — correct, but it means coverage
-  depends on which bundles are present (see the per-process vs. whole-DB note in the README roadmap).
+  depends on which bundles are present.

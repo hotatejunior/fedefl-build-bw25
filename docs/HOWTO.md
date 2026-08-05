@@ -197,6 +197,8 @@ four carry different burdens. See [`ALLOCATION.md`](ALLOCATION.md) for why these
 
 ### Common errors
 
+Full list with fixes: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+
 | Message | Cause |
 |---|---|
 | `provider_uuid '…' not found in <db> or the current foreground batch` | Run `--search` on the process name. If it comes back marked `full` only, add `--database uslci-full`. If it comes back with no matches, the UUID is wrong. For a foreground link, check the provider's `process_name` spelling exactly. |

@@ -215,7 +215,8 @@ was cut. A reviewer will ask, and the run already answered.
 
 ## 10. Where next
 
-[`HOWTO.md`](HOWTO.md) for task-shaped guides, [`ALLOCATION.md`](ALLOCATION.md) if your process has
+[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) if something stopped, [`HOWTO.md`](HOWTO.md) for
+task-shaped guides, [`ALLOCATION.md`](ALLOCATION.md) if your process has
 co-products, [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) when a number looks wrong and you need to
 know how USLCI became a matrix, and [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) for how far the
 engine has been checked against openLCA.
