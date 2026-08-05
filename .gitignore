@@ -2,9 +2,11 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# Generated outputs — re-created by running the pipeline
-lca_results.csv
-lca_contributions.csv
+# Generated outputs — re-created by running the pipeline. The globs cover
+# per-target names (lca_results_fishmeal.csv etc.) from general/04 --output;
+# they cannot catch the locked validation tables, which are validation_*.
+lca_results*.csv
+lca_contributions*.csv
 validation_manifest.json
 uslci_db_provenance.json
 uslci_db_provenance.*.json
