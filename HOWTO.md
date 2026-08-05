@@ -76,7 +76,7 @@ write first.
 ### Building a comparison set
 
 `general/04` overwrites the results CSV by default. Use `--append` to accumulate scenarios into one
-file — that file is what the comparison chart needs:
+file — that file is what the comparison chart needs. Get the UUIDs with `--search` (guide 2):
 
 ```bash
 python general/04_run_lca.py --uuid <A> --append --output study.csv
@@ -101,12 +101,37 @@ into USLCI for everything upstream. One row per exchange, one file for all your 
 | `process_name` | Owner process. Its UUID is derived from this string, so **spelling is load-bearing** for foreground-to-foreground links. |
 | `exchange_type` | `production`, `technosphere`, or `biosphere` |
 | `flow_uuid` | FEDEFL UUID — **required and validated** on biosphere rows. On technosphere/production rows it is provenance only, not used. |
-| `provider_uuid` | Who supplies a technosphere input: a USLCI process UUID, or another foreground process's derived UUID. Empty on biosphere and production rows. |
+| `provider_uuid` | Who supplies a technosphere input: a USLCI process UUID, or another foreground process's derived UUID. Empty on biosphere and production rows. Find one with `--search`, below. |
 | `flow_name` | Human label, never used computationally |
 | `amount` | Numeric, expressed in `unit` |
 | `unit` | **Load-bearing** — see below |
 | `is_ref` | `true` on the one production row per process |
 | `location`, `comment` | Optional |
+
+### Finding a process UUID
+
+You know what a process is called; the CSV wants its UUID. Search by name, in any order, using as
+many words as you need to narrow it:
+
+```bash
+python general/04_run_lca.py --search "nitrogen fertilizer"
+```
+
+```
+3 match(es) for 'nitrogen fertilizer':
+
+  dacaeae9-aeed-3366-912d-6a31de09eef9  subset,full  US  kg  Nitrogen fertilizer; production mix; at plant
+  6b946d9a-1c41-3562-a74a-087d472a1031  full         US  kg  Nitrogen fertilizer mix; average production, at US regional storehouse; as N
+  280bc9cc-af90-386e-acbf-c407ba0310d7  full         US  kg  Emissions; application of nitrogen fertilizer mix; at field
+```
+
+Words do not have to be adjacent in the name, which matters more than it sounds: searching
+`hdpe flake` finds `Recycled postconsumer high-density polyethylene, HDPE, flake; at plant`, where
+that pair of words never appears together.
+
+The third column is which build holds the process. A row marked `full` only is not in the default
+database, so a foreground CSV pointing at it needs `--database uslci-full`. That is the usual cause
+of the `provider_uuid not found` error below.
 
 ### Units are converted, not assumed
 
@@ -166,19 +191,29 @@ have.
 
 Multi-output USLCI processes with causal allocation get one activity per co-product, coded
 `<process-uuid>__co__<flow-uuid>`. You can point a technosphere row straight at one; it behaves like
-any other provider. Find them with:
+any other provider. They search like anything else, and the results mark them:
 
 ```bash
-python -c "import bw2data as bd; bd.projects.set_current('fedefl-build-bw25'); [print(a['code'],'|',a['name'][:60]) for a in bd.Database('uslci-full') if '__co__' in a['code']]"
+python general/04_run_lca.py --search "causal co-product"
 ```
 
-See [`ALLOCATION.md`](ALLOCATION.md) for why those activities exist.
+```
+30 match(es), showing 4 for 'causal co-product':
+
+  d9cadd89-…__co__80e4ff02-…  subset,full  RNA  kg  Ethanol; denatured; forest residues, thermochem [causal co-product: Sulfur; thermochemical process]  [co-product]
+  bf1b1b0c-…__co__94f0594c-…  full         US   kg  Mixed waste sorting; at material recovery facility, MRF [causal co-product: Post-consumer, glass, recovered and sorted…]  [co-product]
+```
+
+Add the material to narrow it. `--search "causal co-product glass"` returns four rows, all supplying
+the same recovered-glass flow from a different sorting route: mixed waste, presorted, dual stream,
+single stream. Which route your material came through is a modelling decision, not a lookup, and the
+four carry different burdens. See [`ALLOCATION.md`](ALLOCATION.md) for why these activities exist.
 
 ### Common errors
 
 | Message | Cause |
 |---|---|
-| `provider_uuid '…' not found in <db> or the current foreground batch` | Wrong UUID, or the process is in the other USLCI build — try `--database uslci-full`. For a foreground link, check the provider's `process_name` spelling exactly. |
+| `provider_uuid '…' not found in <db> or the current foreground batch` | Run `--search` on the process name. If it comes back marked `full` only, add `--database uslci-full`. If it comes back with no matches, the UUID is wrong. For a foreground link, check the provider's `process_name` spelling exactly. |
 | `Foreground CSV has N processes — specify one with --target-process` | More than one process; say which is the functional unit. |
 | `unit '…' is incompatible with reference unit '…'` | Different flow property. Express the amount in a compatible unit. |
 | `production exchange amount must be > 0` | A zero or negative production amount gives a singular matrix. |
