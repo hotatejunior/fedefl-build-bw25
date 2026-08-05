@@ -83,14 +83,17 @@ python general/04_run_lca.py --search "petroleum refining"
 ```
 1 match(es) for 'petroleum refining':
 
-  0aaf1e13-5d80-37f9-b7bb-81a6b8965c71  subset,full  US   m3     Petroleum refining; at refinery
+  0aaf1e13-5d80-37f9-b7bb-81a6b8965c71  full  US   m3     Petroleum refining; at refinery
 
 Run the first with:
-  python general/04_run_lca.py --uuid 0aaf1e13-5d80-37f9-b7bb-81a6b8965c71
+  python general/04_run_lca.py --uuid 0aaf1e13-5d80-37f9-b7bb-81a6b8965c71 --database uslci-full
 ```
 
-The third column tells you which build holds the process. Add words to narrow a broad search:
-`diesel` returns 224 processes, `diesel boiler` returns 20.
+The third column is which build holds the process, and the command at the bottom already carries the
+`--database` you need. You built one database, `uslci-full`; if you later import per-process bundles
+as well, processes in both show as `subset,full`.
+
+Add words to narrow a broad search: `diesel` returns 224 processes, `diesel boiler` returns 20.
 
 ## 4. Your first result
 
