@@ -422,10 +422,39 @@ whatever the export shipped, and nothing tells the user a knob exists. (Incident
 the negative combustion GWPs: paper products have `non_biomass_C_content = 0`, so their combustion
 CO2 is entirely biogenic and uncounted, leaving only the avoided-electricity credit.)
 
-Candidate work, in increasing order of ambition: surface the parameters a process carries in
-`general/04`'s target block and the manifest so the frozen knobs are at least visible; then allow
-overriding them at run time and re-evaluating the affected exchanges. Restate the crosswalk's
-limitation in these terms rather than as an unqualified gap.
+Restate the crosswalk's limitation in these terms rather than as an unqualified gap.
+
+#### Future development — parametric modelling (raised 2026-08-05)
+
+The frozen-knob observation generalizes into what may be the largest capability jump available, in
+three stages of increasing ambition:
+
+1. **Make the knobs visible.** Surface a process's parameters and their shipped values in
+   `general/04`'s target block and in the manifest. Cheap, and it converts an invisible constraint
+   into a stated one — a practitioner can at least see that `disinfect = 0.0` decided part of their
+   result.
+2. **Parametric USLCI runs.** Override shipped parameter values at run time and re-evaluate the
+   affected exchanges — `--param disinfect=1.0`, or a small params file. This is what an openLCA user
+   does routinely, and it is the difference between "you get the dataset as shipped" and "you can
+   model your case."
+3. **Parameterized foreground CSV.** Let a study's own inventory carry parameters and formulas
+   rather than only literal amounts, so one CSV expresses a family of scenarios.
+
+Stages 2 and 3 together are what unlock **scenario and sensitivity analysis** — sweep a parameter,
+get a curve rather than a point. That also feeds the Monte Carlo chart already stubbed in
+`general/06` (`mc_results.csv`), and it plays directly to the programmability-over-openLCA argument:
+scripted parameter sweeps are exactly the thing a GUI makes tedious.
+
+Two design constraints to settle before building:
+
+- **Evaluation must not be `eval`.** These formulas arrive from data files, and this project has
+  already been bitten once by naive evaluation of a data string — brightway's geomapping `eval()`ing
+  a location containing parentheses crashed the first full-DB build. An `ast`-based evaluator
+  restricted to arithmetic and known symbols is the right shape. (The one-off analysis behind this
+  section used a restricted `eval` with no builtins; that is fine for a scan, not for a feature.)
+- **Provenance.** A result computed at non-default parameters is not the shipped dataset's result.
+  The manifest must record every overridden value, and the validation harness must keep running at
+  shipped defaults so parity is never quietly compared against a re-parameterized build.
 
 ### Documentation (scoped 2026-08-05)
 
