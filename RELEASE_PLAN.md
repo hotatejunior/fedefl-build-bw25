@@ -424,69 +424,86 @@ CO2 is entirely biogenic and uncounted, leaving only the avoided-electricity cre
 
 Restate the crosswalk's limitation in these terms rather than as an unqualified gap.
 
-#### Future development — parametric modelling (raised 2026-08-05)
+#### Future development — parametric modelling (raised 2026-08-05, scoped 2026-08-05)
 
-The frozen-knob observation generalizes into what may be the largest capability jump available, in
-three stages of increasing ambition:
+Priority set by HW: **parameterize the foreground and sweep parameter ranges quickly.** USLCI-side
+(supply-chain) parameters are explicitly **pinned** — not merely deferred, because pinning them is
+what makes fast sweeps possible.
 
-1. **Make the knobs visible.** Surface a process's parameters and their shipped values in
-   `general/04`'s target block and in the manifest. Cheap, and it converts an invisible constraint
-   into a stated one — a practitioner can at least see that `disinfect = 0.0` decided part of their
-   result.
-2. **Parametric USLCI runs.** Override shipped parameter values at run time and re-evaluate the
-   affected exchanges — `--param disinfect=1.0`, or a small params file. This is what an openLCA user
-   does routinely, and it is the difference between "you get the dataset as shipped" and "you can
-   model your case."
-3. **Parameterized foreground CSV.** Let a study's own inventory carry parameters and formulas
-   rather than only literal amounts, so one CSV expresses a family of scenarios.
+**Why the pin is a design constraint, not a postponement.** With the background fixed, a foreground
+result is *linear* in its exchange amounts: for a foreground process drawing `a_i` of background
+activity `i` with direct emissions `e_j`,
 
-Stages 2 and 3 together are what unlock **scenario and sensitivity analysis** — sweep a parameter,
-get a curve rather than a point. That also feeds the Monte Carlo chart already stubbed in
-`general/06` (`mc_results.csv`), and it plays directly to the programmability-over-openLCA argument:
-scripted parameter sweeps are exactly the thing a GUI makes tedious.
+    score = Σ a_i · S_i  +  Σ e_j · CF_j
 
-Two design constraints to settle before building:
+where `S_i` is that background activity's own unit score — computed **once**. Every parameter
+combination after that is a dot product, so thousands of scenarios cost about what one solve costs
+today. This form was verified empirically on 2026-08-05: the two-process test foreground came to
+`1.5·CF_CO2 + 0.02·CF_CH4 + 0.5·(subassembly) + 0.2·(fishmeal) = 2.584981`, matching the pipeline to
+4e-9. Allow USLCI parameters in and `S_i` itself becomes variable, so every combination needs a real
+solve (~10 s each) and interactivity is gone.
 
-- **Evaluation must not be `eval`.** These formulas arrive from data files, and this project has
-  already been bitten once by naive evaluation of a data string — brightway's geomapping `eval()`ing
-  a location containing parentheses crashed the first full-DB build. An `ast`-based evaluator
-  restricted to arithmetic and known symbols is the right shape. (The one-off analysis behind this
-  section used a restricted `eval` with no builtins; that is fine for a scan, not for a feature.)
-- **Provenance.** A result computed at non-default parameters is not the shipped dataset's result.
-  The manifest must record every overridden value, and the validation harness must keep running at
-  shipped defaults so parity is never quietly compared against a re-parameterized build.
+**CSV shape — declare in the inventory, override in a params file.** Two mechanisms with different
+jobs:
 
-### Second probe round (2026-08-05) — one invariant verified, two gaps found
+- **Declare** parameters in the foreground CSV, since they are process-scoped and belong with the
+  process. A new `exchange_type = parameter` row keeps the file self-contained and needs no schema
+  change; the `amount` column then accepts a formula referencing declared parameters:
 
-**Contributions arithmetic — VERIFIED CLEAN.** Nothing had ever checked that the per-process
-contributions CSV sums to the reported score, though it drives two of the four charts. Checked across
-34 runs × 10 categories (340 checks): largest relative gap **4.3e-15**, pure float accumulation, zero
-checks outside 1e-6. Recorded because a passed invariant is evidence, and this one was previously
-assumed rather than known.
+      Widget assembly,parameter,,,transport_km,250,km,false,,
+      Widget assembly,technosphere,,<provider>,Transport,transport_km * 0.004,t*km,false,,
 
-**Uncertainty data is silently dropped — now DOCUMENTED (import still TODO).** USLCI ships uncertainty on **5,740
-exchanges (7.1%) across 91 processes (6.4%)** — 5,218 lognormal, 476 triangular, 46 uniform. No
-script references the field: `setup/03`, `general/04` and `general/foreground_importer` have zero
-occurrences of `uncertainty`. Unlike `amountFormula`, which at least carries a "dropped ⚠" row,
-`SCHEMA_CROSSWALK.md` does not mention uncertainty **at all**.
+  Same formula language USLCI uses — pure arithmetic, `+ - * /`, no function calls — so one
+  evaluator serves both sides.
+- **Override** in a params file for sweeps, so varying a value never means editing the inventory. The
+  CSV says *what varies*; the params file (or `--sweep transport_km=100:2000:20`) says *what to try*.
 
-Two things make this different from the parameter gap. It is the missing input for the Monte Carlo
-chart already stubbed in `general/06` (`mc_results.csv`), so the feature is blocked on data the
-importer discards. And **none of the nine validated cases carry any uncertainty** — so unlike
-formulas, where four validated cases prove the stored amounts match openLCA, the parity evidence
-says nothing about this path in either direction. Minimum fix: document it as dropped. Real fix:
-carry the distributions into brightway's uncertainty fields, which is what would make the MC chart
-live.
+Rejected: a `params` column on exchange rows. It puts process-scoped data on every row of the
+process and invites rows of the same process contradicting each other.
 
-**FIXED — `scenario_comparison` was unreachable through the documented workflow.** `general/04` opens the
-results CSV with mode `"w"` — every run overwrites the last — and there is no append or accumulate
-option. So a multi-scenario results CSV cannot be produced by running the pipeline; it can only be
-made by hand-concatenating files. Measured: **0 of 43** chart runs produced `scenario_comparison.png`
-(each emitted 4 charts, skipping it with "only one scenario in results CSV"); the only one that
-appeared came from a CSV concatenated manually. One of the four shipped general charts therefore has
-no supported path to its own input. Fix is small — an `--append` mode on `04`, or a `--results` glob
-on `06` — but it should come with the baseline and legend fixes above, since a genuinely multi-
-scenario CSV is what exposed those.
+**Stages**
+
+1. **Parameter declarations + formula-valued amounts in the foreground CSV.** `ast`-based evaluator
+   (arithmetic only, topologically ordered — see the dependency note below), the `parameter` row
+   type, and manifest recording of every declared value.
+2. **Params file + `--sweep`.** Run N scenarios, accumulate with the `--append` added 2026-08-05,
+   chart with the baseline/legend guards fixed the same day. This is the deliverable that makes a
+   sweep a curve instead of a point.
+3. **Fast path.** Precompute background unit scores and evaluate combinations as arithmetic. Do this
+   when a sweep feels slow, not up front — correctness first, and stage 2 is already usable at ~10 s
+   per scenario.
+4. **PINNED — USLCI process and upstream parameters.** Overriding a shipped process parameter, and
+   propagating a change to an activity *inside* a supply chain (which means substituting it for its
+   consumers). Revisit only if a study actually needs it.
+
+**What the USLCI data looks like**, measured on v1.2026-06.0 — relevant to stage 4 and to the shared
+evaluator:
+
+- 1,247 process parameters (max 28 on one process): 927 input, 320 calculated, of which **291
+  reference another parameter** — so evaluation must be topologically ordered.
+- 1 global parameter (`CH4_LEAKAGE_METHOD = 1.0`); process scope shadows global scope.
+- Formulas are **pure arithmetic**: only `+ - * /`, zero function calls. An `ast` evaluator is small.
+- The most common parameters are transport terms — `longHaul_dist`, `longHaul_mass_frac`,
+  `rail_dist`, `lightTruck_dist`. "What if my supplier were 1,200 km away instead of 795?" is the
+  question these would answer, which is worth remembering when stage 4 is reconsidered.
+- **Gotcha:** a calculated parameter's stored `value` is unreliable. In
+  `Transport; average mix; other chemical products`, `longHaul_kgkm` stores `0.0` while its formula
+  `longHaul_dist * longHaul_mass_frac` evaluates to 601.925 — which is what the exchange's stored
+  amount correctly holds. Evaluate formulas; never read a calculated parameter's value.
+
+**Design constraints**
+
+- **Evaluation must not be `eval`.** These formulas arrive from data files, and this project was
+  already bitten by naive evaluation of a data string — brightway's geomapping `eval()`ing a location
+  containing parentheses crashed the first full-DB build. `ast`-based, restricted to arithmetic and
+  known symbols. (The one-off analyses behind this section used a restricted `eval` with no builtins;
+  fine for a scan, not for a feature.)
+- **Provenance, not prohibition.** The manifest must record every parameter value a result was
+  computed at. A hard refusal to run parameterized against the validation build was considered and
+  **rejected**: the harness runs `validation/05`, which never goes through `general/04`, so overrides
+  cannot reach the locked comparison and there is no false-PASS mechanism to guard. The locked
+  results are pinned to frozen inputs regardless (see the validation-build/working-build split
+  above).
 
 ### Documentation (scoped 2026-08-05)
 
