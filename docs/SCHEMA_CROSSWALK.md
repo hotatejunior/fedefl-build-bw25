@@ -3,7 +3,7 @@
 How `setup/03_import_uslci.py` maps the openLCA JSON-LD process schema onto the brightway `db_data`
 schema, field by field — and, more importantly, **how it resolves the places where the two data
 models don't line up.** Read alongside [`DEVLOG.md`](DEVLOG.md) (design decisions) and
-[`CLAUDE.md`](CLAUDE.md) (pipeline overview). Line references are to `setup/03_import_uslci.py`
+[`CLAUDE.md`](../CLAUDE.md) (pipeline overview). Line references are to `setup/03_import_uslci.py`
 unless noted.
 
 ---
@@ -91,8 +91,8 @@ stored verbatim; *dropped* means brightway carries no equivalent.
 | `name` | activity `name` | Copied (line 763); co-product activities decorated `… [causal co-product: <flow>]` (line 766). |
 | `location.name` | activity `location` | Normalized via `LOCATION_MAP` ("United States of America (the)"→"US"); unmapped names pass through, empty→"GLO" (lines 446, 758). |
 | `exchanges[]` | activity `exchanges` | The core loop — each exchange becomes one production / technosphere / biosphere exchange (tables 2–3). |
-| `defaultAllocationMethod` | *(drives)* | Selects the allocation regime — native / mass / causal — in the pre-pass ([`fedefl_bw25/allocation.py`](fedefl_bw25/allocation.py), line 508). |
-| `allocationFactors[]` | *(drives)* | Supplies per-exchange causal factor columns and scalar physical/economic factors ([`fedefl_bw25/allocation.py`](fedefl_bw25/allocation.py)). |
+| `defaultAllocationMethod` | *(drives)* | Selects the allocation regime — native / mass / causal — in the pre-pass ([`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py), line 508). |
+| `allocationFactors[]` | *(drives)* | Supplies per-exchange causal factor columns and scalar physical/economic factors ([`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py)). |
 | `version` | *(dedup + sidecar)* | Precedence key when one `@id` appears in several bundles (line 241); also recorded in `uslci_db_provenance.json` (line 781). |
 | `lastChange` | *(dedup + sidecar)* | Tiebreak after `version`; also in the sidecar. |
 | `@type`, `processType`, `isInfrastructureProcess`, `lastInternalId` | *dropped* | Constant or irrelevant discriminators. |
@@ -204,7 +204,7 @@ sensitive trap is handled explicitly: `Mg` (megagram) vs `mg` (milligram), a 10�
 brightway wants one production exchange per activity; a USLCI process can output several products
 under a `defaultAllocationMethod`. Resolved in a **pre-pass** (lines 508–537) that runs before the
 build loop, because a consumer can be built before the supplier it points at is visited. Logic lives
-in [`fedefl_bw25/allocation.py`](fedefl_bw25/allocation.py) (extracted so it unit-tests on synthetic JSON). Three
+in [`fedefl_bw25/allocation.py`](../fedefl_bw25/allocation.py) (extracted so it unit-tests on synthetic JSON). Three
 regimes:
 
 - **native / mass (scalar).** One factor scales every input and biosphere exchange of the single

@@ -139,7 +139,7 @@ python examples/full_pipeline.py
 ```
 
 It builds whatever is missing, skips what already exists, and runs a study across several
-processes. Copy it and edit the CONFIGURE block for your own work; see HOWTO.md §4.
+processes. Copy it and edit the CONFIGURE block for your own work; see docs/HOWTO.md §4.
 
 ### 4. Run an analysis
 
@@ -217,7 +217,7 @@ for you. Parity means the arithmetic is trustworthy; the science of the study is
 defend.
 
 Method, per-process results, and the technical appendix are in
-[`VALIDATION_REPORT.md`](VALIDATION_REPORT.md); the reproducible harness and running provenance log
+[`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md); the reproducible harness and running provenance log
 are in [`validation/`](validation/).
 
 ---
@@ -233,14 +233,14 @@ the trust case does **not** rest on who typed the code.
 - **Human accountability.** A human expert made the method decisions (allocation approach,
   electricity-boundary control, generic-vs-regional CF selection), ran every openLCA reference
   session by hand, directed the debugging, and audited each script against
-  [`QC_PROTOCOL.md`](QC_PROTOCOL.md). Where AI-generated work was accepted without proportionate
-  review, that is tracked openly in the release plan's "under-review ledger" to be checked later.
+  [`QC_PROTOCOL.md`](docs/QC_PROTOCOL.md). Where AI-generated work was accepted without proportionate
+  review, that is tracked openly in the [devlog's](docs/DEVLOG.md) under-review ledger to be checked later.
 - **The governing principle: VALIDATE, do not FIT.** Discrepancies against openLCA were root-caused,
   never tuned away. The code is general and data-driven — no hardcoded per-dataset constants, no
   special-casing of the test processes. Petroleum's toxicity categories started at **2.0×** openLCA
   and took three genuine bug fixes to reach 1.000; two comfortable-sounding intermediate explanations
   were *disproven* by evidence, including one that wrongly blamed the openLCA reference and had to be
-  retracted. All of it is kept on the record in [`DEVLOG.md`](DEVLOG.md) and the chronological
+  retracted. All of it is kept on the record in [`DEVLOG.md`](docs/DEVLOG.md) and the chronological
   [`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md), not quietly deleted.
 
 **Why provenance is orthogonal to correctness here.** The evidence chain is *pinned inputs →
@@ -254,13 +254,14 @@ chain does not depend on who — or what — typed the code.
 
 | File | Purpose |
 |------|---------|
-| [`HOWTO.md`](HOWTO.md) | Task guides for running your own study: reading and changing the functional unit, linking a foreground CSV to USLCI, and choosing what background a result is calculated against |
-| [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) | Field-by-field map of USLCI openLCA JSON-LD → the brightway schema, and how the parser resolves the places the two data models don't line up |
-| [`ALLOCATION.md`](ALLOCATION.md) | How multi-output processes are split — the four allocation paths, how N co-products are reshaped into brightway's one-product-per-activity matrix, and what USLCI actually contains |
-| [`DEVLOG.md`](DEVLOG.md) | Engine design decisions and the bugs fixed to reach validation — read before changing any script |
-| [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md) | The openLCA parity write-up — method, results, technical appendix |
+| [`HOWTO.md`](docs/HOWTO.md) | Task guides for running your own study: reading and changing the functional unit, linking a foreground CSV to USLCI, and choosing what background a result is calculated against |
+| [`SCHEMA_CROSSWALK.md`](docs/SCHEMA_CROSSWALK.md) | Field-by-field map of USLCI openLCA JSON-LD → the brightway schema, and how the parser resolves the places the two data models don't line up |
+| [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split — the four allocation paths, how N co-products are reshaped into brightway's one-product-per-activity matrix, and what USLCI actually contains |
+| [`DEVLOG.md`](docs/DEVLOG.md) | Engine design decisions, the bugs fixed to reach validation, and the dated release-plan record — read before changing any script |
+| [`ROADMAP.md`](docs/ROADMAP.md) | What is still open, and what has been ruled out |
+| [`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md) | The openLCA parity write-up — method, results, technical appendix |
 | [`validation/`](validation/) | The parity harness, locked result CSVs, and `VALIDATION_LOG.md` (every run, disproven theory, and fix, in order). See [`validation/README.md`](validation/README.md) to replicate |
-| [`QC_PROTOCOL.md`](QC_PROTOCOL.md) | The per-script human audit process each script was reviewed against |
+| [`QC_PROTOCOL.md`](docs/QC_PROTOCOL.md) | The per-script human audit process each script was reviewed against |
 
 ---
 
@@ -281,11 +282,12 @@ chain does not depend on who — or what — typed the code.
 - **Now:** the engine is built, audited, and validated against openLCA — nine test cases at full
   parity (100/100 cells within 0.1%), spanning physical, causal, and no-allocation processes across
   two electricity-baseline vintages.
-- **Next:** whole-database import — load all 1,341 USLCI processes at once with fast process
-  selection, replacing per-process bundle downloads. The intended workflow *today* is per-process:
-  you download the specific unit processes you need.
-- **Then:** dynamic LCA — time-resolved, parameterized, scenario-swept impact modeling on top of this
-  engine, run programmatically and faster than the incumbent GUI tools.
+- **Next:** parameterized foregrounds and fast scenario sweeps — declare parameters in the
+  inventory CSV, vary them from a params file, and get a curve instead of a point.
+- **Then:** dynamic LCA — time-resolved, scenario-swept impact modeling on top of this engine, run
+  programmatically and faster than the incumbent GUI tools.
+
+Open items in detail: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 

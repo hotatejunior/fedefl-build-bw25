@@ -55,7 +55,7 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `fedefl_bw25/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
 | `fedefl_bw25/vintage_detect.py` | Module (not standalone) — reads which electricity-baseline vintage each bundle's own `defaultProvider` references point at, so `03b` can default to it. Classifies by *dominance*, not presence (the 2025 bundles each carry one stray 2026 reference). Unit-tested by `tests/test_vintage_detect.py` |
 | `setup/03b_import_electricity_baseline.py` | CLI front-end over `fedefl_bw25/setup_baseline.py` — injects the US electricity baseline as aggregated background activities, discovered from the bundles **and** the full USLCI zip; auto-fetches + hash-verifies the library. Vintage auto-detected via `fedefl_bw25/vintage_detect.py` (`--vintage` overrides; mixed-vintage hard-stops). `--yes` skips the overwrite prompt for scripted rebuilds |
-| `fedefl_bw25/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py`. Behaviour documented in `ALLOCATION.md` |
+| `fedefl_bw25/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py`. Behaviour documented in `docs/ALLOCATION.md` |
 | `setup/03_import_uslci.py` | CLI front-end over `fedefl_bw25/setup_uslci.py` — parses USLCI JSON-LD into brightway; multi-output allocation via `fedefl_bw25/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Writes `uslci_db_provenance.json` for `general/04`'s audit manifest. `--full-db` (or `USLCI_FULL_DB=1`) builds the whole database; `--yes` skips the overwrite prompt |
 | `fedefl_bw25/search.py` | Module — `search_processes()` behind `general/04 --search`; finds a process by name when the runner needs a UUID. All query words must appear somewhere in the name, in any order (`hdpe flake` → `Recycled postconsumer high-density polyethylene, HDPE, flake; at plant`, which contains no such substring). Ranks a hit in the pre-semicolon product segment above one anywhere else, so `diesel` returns fuels before the 200-odd diesel-powered transport processes. Matching and ranking are brightway-free; unit-tested by `tests/test_search.py` |
 | `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV. `--search TEXT` looks a process up by name across every built database, prints the UUID and the exact command to run it, and exits (before importing bw2calc). States the build's **electricity-baseline vintage** in the console target block (always, even under `--no-manifest`) and emits `validation_manifest.json` (per-run audit manifest: provenance + electricity vintage + per-result completeness); `--no-manifest` to skip |
@@ -66,8 +66,17 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `validation/05_validate_uslci.py` | Parity harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports, ending with an explicit **REPLICATION GATE: PASS/FAIL** (every cell within `TOLERANCE`, 0.1%). That gate — not a `git diff` on the CSV — is the replication check: absolute scores reproduce only to ~1e-14 and shift with the build's bundle composition. Cases with no reference export SKIP by name, and any such run writes `…_partial.csv` so it can't overwrite the locked table. Mode via `--mode {full_chain,direct}`, default `full_chain`; a non-default electricity vintage writes a tagged CSV (e.g. `…_2026.csv`) |
 | `validation/06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
 
-Design decisions and the bugs fixed to reach validation are in `DEVLOG.md`. Read it before making
+Design decisions and the bugs fixed to reach validation are in `docs/DEVLOG.md`. Read it before making
 changes to any script.
+
+## Documentation layout
+
+Only `README.md` and this file live at the repo root; everything else is under `docs/` (moved
+2026-08-05). `docs/DEVLOG.md` carries both the engine history and the verbatim release-plan record;
+`docs/ROADMAP.md` carries open work only, and is the file to update when something lands. The
+`validation/` directory is separate on purpose: it holds evidence and verbatim history, and
+`VALIDATION_LOG.md` in particular is never rewritten — stale names and paths there are corrected by
+appending to its provenance note, not by editing the body.
 
 ## Validation Status
 
@@ -98,7 +107,7 @@ added later landed on 1.000 on first run. This **supersedes ledger #2**: the ear
 crude-electricity discrepancy; openLCA was correct throughout. The waste-treatment output-linking fix
 (prior commit) was itself correct — it *exposed* the dormant avoided-product bug by pulling the
 landfilling process into the supply chains. Full write-up (method, results, appendix) in
-`VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file provenance (`VALIDATION_LOG.md`,
+`docs/VALIDATION_REPORT.md`; the harness, locked result CSVs, and per-file provenance (`VALIDATION_LOG.md`,
 SHA256-pinned asset manifest) live in `validation/`.
 
 **The 2026 build (added 2026-07-23) is where allocation is actually stressed.** `chlorine`

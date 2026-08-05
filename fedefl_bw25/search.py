@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from fedefl_bw25.config import PROJECT_NAME, USLCI_DB, USLCI_FULL_DB
 
-# Marks the dedicated activity built for one causal co-product (see ALLOCATION.md).
+# Marks the dedicated activity built for one causal co-product (see docs/ALLOCATION.md).
 COPRODUCT_MARKER = "__co__"
 
 DEFAULT_LIMIT = 20

@@ -10,7 +10,7 @@ functional unit. Comparing "1 m3 of diesel" against "1 kg of cement" puts
 petroleum at ~100% on every category and everything else near zero — a ~849x
 density artifact, not an impact difference. The legend labelled the units
 correctly and the chart was still misleading, which is the same failure mode
-recorded in RELEASE_PLAN.md for 2026-07-13 (per-m3 petroleum scores first read
+recorded in the devlog for 2026-07-13 (per-m3 petroleum scores first read
 as wrong numbers).
 
 Policy: the baseline scenario's functional unit defines the comparable group.

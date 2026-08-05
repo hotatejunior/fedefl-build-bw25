@@ -58,7 +58,7 @@ TARGETS = {
     "steel billets":      "ac54bc7d-5db5-3b4f-9175-5dd02f678312",
 }
 
-# A foreground CSV instead of / alongside UUID targets — see HOWTO.md §2.
+# A foreground CSV instead of / alongside UUID targets — see docs/HOWTO.md §2.
 # Set to a path and give TARGET_PROCESS the row it should measure.
 FOREGROUND_CSV = None
 TARGET_PROCESS = None

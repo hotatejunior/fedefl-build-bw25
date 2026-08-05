@@ -70,11 +70,11 @@ Every one of the 100 results lands on 1.000 — full agreement to at least three
 
 **2025-vintage build** — petroleum, corn, cement, steel:
 
-![brightway / openLCA ratio, 2025 build](charts/validation/validation_ratio_full_chain.png)
+![brightway / openLCA ratio, 2025 build](../charts/validation/validation_ratio_full_chain.png)
 
 **2026-vintage build** — steel, HDPE flake, PET flake, chlorine, hardboard, soy meal:
 
-![brightway / openLCA ratio, 2026 build](charts/validation/validation_ratio_full_chain_2026.png)
+![brightway / openLCA ratio, 2026 build](../charts/validation/validation_ratio_full_chain_2026.png)
 
 *Each dot is one impact category for one process; the vertical line is perfect agreement (ratio =
 1.0). The green band is ±5%. All 100 dots sit exactly on the line.*
@@ -127,7 +127,7 @@ throughout, and the residual was always brightway's mishandled landfill-gas cred
 waste-treatment output-linking fix was itself correct; it simply *exposed* this dormant bug by pulling
 the landfilling process into the supply chains for the first time. The full chronological trail
 (including the superseded diagnosis, kept on the record) is in
-[`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md) and [`DEVLOG.md`](DEVLOG.md).
+[`validation/VALIDATION_LOG.md`](../validation/VALIDATION_LOG.md) and [`DEVLOG.md`](DEVLOG.md).
 
 ## How the numbers got here — the debugging arc
 
@@ -155,7 +155,7 @@ never a tweak to make the test cases agree. The five processes added on 2026-07-
 after every fix in this report had already landed, and they reproduced openLCA immediately.
 
 The full chronological trace — every run, wrong theory, and fix — is in
-[`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md); the engineering narrative is in
+[`validation/VALIDATION_LOG.md`](../validation/VALIDATION_LOG.md); the engineering narrative is in
 [`DEVLOG.md`](DEVLOG.md).
 
 ## Honest scope
@@ -238,7 +238,7 @@ Both engines and all data sources, pinned to the versions used for these results
 | FEDEFL biosphere | 332,133 flows, keyed by UUID |
 
 Per-file SHA-256 hashes for every input are pinned in
-[`validation/README.md`](validation/README.md) and [`validation/VALIDATION_LOG.md`](validation/VALIDATION_LOG.md),
+[`validation/README.md`](../validation/README.md) and [`validation/VALIDATION_LOG.md`](../validation/VALIDATION_LOG.md),
 alongside the validation harness (`validation/05_validate_uslci.py`, `validation/06_visualize_validation.py`)
 and the locked result CSVs — all in **this** repo. The bulky openLCA reference exports (~130 MB of
 xlsx) are hash-pinned there but not yet redistributed with the repo (hosting decision pending); a
@@ -357,7 +357,7 @@ The 2026-vintage build (`validation_full_chain_results_2026.csv`) adds 60 furthe
 HDPE flake, PET flake, chlorine, hardboard, soy meal — all within **0.001%**, max deviation
 0.00077%:
 
-![brightway / openLCA, % of reference, 2026 build](charts/validation/validation_pct_full_chain_2026.png)
+![brightway / openLCA, % of reference, 2026 build](../charts/validation/validation_pct_full_chain_2026.png)
 
 ## F. Tolerance ladder
 
@@ -383,26 +383,26 @@ impact category. Petroleum's toxicity categories are dominated by the grid-elect
 same structure that framed the residual investigation); cement is split between its own kiln, the
 grid, and coal.
 
-![Petroleum — process contribution](charts/general/contribution_analysis_petroleum.png)
+![Petroleum — process contribution](../charts/general/contribution_analysis_petroleum.png)
 
-![Corn — process contribution](charts/general/contribution_analysis_corn.png)
+![Corn — process contribution](../charts/general/contribution_analysis_corn.png)
 
-![Cement — process contribution](charts/general/contribution_analysis_cement.png)
+![Cement — process contribution](../charts/general/contribution_analysis_cement.png)
 
 **Foreground vs background.** How much of each category is the process's own direct (gate)
 emissions versus its upstream supply chain.
 
-![Petroleum — foreground vs background](charts/general/foreground_background_petroleum.png)
+![Petroleum — foreground vs background](../charts/general/foreground_background_petroleum.png)
 
-![Corn — foreground vs background](charts/general/foreground_background_corn.png)
+![Corn — foreground vs background](../charts/general/foreground_background_corn.png)
 
-![Cement — foreground vs background](charts/general/foreground_background_cement.png)
+![Cement — foreground vs background](../charts/general/foreground_background_cement.png)
 
 ## Reproducing this
 
 Everything below runs in **this** repo — setup, the practitioner steps, and the validation harness
 that regenerates the Appendix E/F numbers and the hero chart. See
-[`validation/README.md`](validation/README.md) for the full replication guide and the SHA256-pinned
+[`validation/README.md`](../validation/README.md) for the full replication guide and the SHA256-pinned
 asset manifest.
 
 ```

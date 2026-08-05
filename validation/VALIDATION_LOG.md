@@ -11,6 +11,11 @@ the harness will later emit a machine-readable `validation_manifest.json` from t
 > project's local asset paths (`/Users/harrisonwatson/…/openlca_resources/`). Those names are
 > historical; they are not the current repo's identifiers. Do not "correct" them here — the current
 > names live in `config.py`, `environment.yml`, and `validation/README.md`.
+>
+> **Addendum (2026-08-05).** The same applies to filenames. Entries below cite `RELEASE_PLAN.md`,
+> which was split on 2026-08-05 into `docs/ROADMAP.md` (open work) and a verbatim record inside
+> `docs/DEVLOG.md`; the cited sections are in the latter. The methodology and how-to documents moved
+> from the repo root into `docs/` on the same day.
 
 ## Validation design (agreed)
 

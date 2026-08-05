@@ -51,7 +51,7 @@ from fedefl_bw25.config import USLCI_DB, USLCI_FULL_DB, REPO_ROOT
 USLCI_DATABASE    = USLCI_DB
 # Petroleum refining, US — a locked validation case, so its result is a known
 # quantity to check a fresh build against. Note its reference unit is m3, not kg
-# (see HOWTO.md §1).
+# (see docs/HOWTO.md §1).
 PROCESS_UUID      = "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71"
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
