@@ -265,9 +265,17 @@ brightway exchange:  {"input": ("biosphere-fedefl", "12b39b80-…"), "amount": 2
 
 ## Known limitations
 
-- **`amountFormula` is not evaluated.** Parameterized exchange amounts use their resolved numeric
-  `amount`; processes whose values are meant to be recomputed from `parameters` are imported at their
-  stored values only.
+- **`amountFormula` is not evaluated — parametric processes are frozen at their shipped
+  configuration.** Exchange amounts use the resolved numeric `amount`. Measured on USLCI
+  v1.2026-06.0 (2026-08-05): 105 processes carry parameters and 264 carry at least one exchange
+  formula, 18.5% of the database. This costs **no accuracy at the shipped parameter values** — four
+  validated cases (petroleum, chlorine, HDPE, PET) carry formulas and still reproduce openLCA at
+  1.000, which is itself proof that the stored `amount` equals openLCA's evaluation, and all 29
+  formula exchanges with a zero stored amount evaluate to exactly 0 at their shipped values. What is
+  lost is the ability to **change** a parameter: the wastewater-treatment models ship with switches
+  like `disinfect` and `filter_include` set to 0, and an openLCA user would flip them to model a
+  different treatment train. Here they are fixed, and nothing surfaces that a knob exists. See
+  RELEASE_PLAN Phase 6 for the parametric-modelling roadmap.
 - **Process `category` is dropped** for USLCI activities (biosphere nodes keep FEDEFL context as
   `categories`).
 - **Genuinely ambiguous links become cutoffs.** When a flow has several producers and no usable

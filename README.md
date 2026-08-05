@@ -214,6 +214,7 @@ chain does not depend on who — or what — typed the code.
 
 | File | Purpose |
 |------|---------|
+| [`HOWTO.md`](HOWTO.md) | Task guides for running your own study: reading and changing the functional unit, linking a foreground CSV to USLCI, and choosing what background a result is calculated against |
 | [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) | Field-by-field map of USLCI openLCA JSON-LD → the brightway schema, and how the parser resolves the places the two data models don't line up |
 | [`ALLOCATION.md`](ALLOCATION.md) | How multi-output processes are split — the four allocation paths, how N co-products are reshaped into brightway's one-product-per-activity matrix, and what USLCI actually contains |
 | [`DEVLOG.md`](DEVLOG.md) | Engine design decisions and the bugs fixed to reach validation — read before changing any script |

@@ -465,9 +465,15 @@ engine does and why*, the last three are task-shaped for a practitioner with the
 |---|---|---|
 | olca JSON-LD → brightway schema crosswalk | methodology | **DONE** — [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) |
 | Allocation handling | methodology | **DONE** — [`ALLOCATION.md`](ALLOCATION.md) |
-| Defining and changing the functional unit | how-to | TODO |
-| Linking a foreground CSV to USLCI | how-to | TODO |
-| Toggling foreground vs full-background calculation | how-to | TODO — **blocked on a feature gap** |
+| Defining and changing the functional unit | how-to | **DONE** — [`HOWTO.md`](HOWTO.md) §1 |
+| Linking a foreground CSV to USLCI | how-to | **DONE** — [`HOWTO.md`](HOWTO.md) §2 |
+| Toggling foreground vs full-background calculation | how-to | **DONE with a stated gap** — [`HOWTO.md`](HOWTO.md) §3 |
+
+All five written as of 2026-08-05. Every command and figure in `HOWTO.md` was executed against a
+`uslci-full` build of v1.2026-06.0 before being written down. The remaining work on these is not
+prose but the two gaps the guides had to disclose: `chart_units.py` guards commensurable units but
+not commensurable magnitudes (§1), and `general/04` has no foreground-only mode for a USLCI process
+target (§3) — both above.
 
 - **Functional unit.** The machinery exists and is scattered: `general/04` states it in the target
   block and writes a `functional_unit` column, `chart_units.py` refuses to compare across units, and
