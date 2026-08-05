@@ -58,7 +58,7 @@ comparable to the baseline 'Alfalfa hay production' (per 1 kg).
 ```
 
 A percentage between a per-Item(s) and a per-kg result would be a unit artifact, not a difference in
-impact. The guard is in `general/chart_units.py`.
+impact. The guard is in `fedefl_bw25/chart_units.py`.
 
 Magnitude is guarded too. Because every bar is a percentage *of the baseline*, a near-zero baseline
 makes the chart a picture of its own denominator, so the comparison is refused rather than drawn:
@@ -147,7 +147,7 @@ Widget assembly,biosphere,be7b7ec1-c39a-376b-a50f-682256b29299,,Methane,0.02,kg,
 Get the foreground-to-foreground UUID from the process name:
 
 ```bash
-python -c "import sys; sys.path.insert(0,'general'); from foreground_importer import fg_uuid; print(fg_uuid('Widget subassembly'))"
+python -c "from fedefl_bw25.foreground_importer import fg_uuid; print(fg_uuid('Widget subassembly'))"
 ```
 
 Run it, naming which process is the functional unit:

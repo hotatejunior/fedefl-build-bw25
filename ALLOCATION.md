@@ -353,7 +353,7 @@ Allocation-specific coverage:
 
 | | |
 |---|---|
-| `setup/allocation.py` | All allocation logic. Pure functions, no brightway dependency: `allocation_for` (which path, what α), `causal_coproducts` (per-co-product grid columns), `coproduct_multipliers` (the re-basis formula) |
+| `fedefl_bw25/allocation.py` | All allocation logic. Pure functions, no brightway dependency: `allocation_for` (which path, what α), `causal_coproducts` (per-co-product grid columns), `coproduct_multipliers` (the re-basis formula) |
 | `setup/03_import_uslci.py` | Calls the above in a pre-pass, then applies factors while building exchanges; builds the dedicated causal activities; handles `isAvoidedProduct` |
 | `tests/test_allocation.py` | Unit tests on synthetic openLCA JSON — no import run required |
 

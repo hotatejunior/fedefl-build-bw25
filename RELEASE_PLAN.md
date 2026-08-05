@@ -225,7 +225,7 @@ any individual result they compute, not just the locked test cases.
 >   crosses this result's solved supply chain (`lca.dicts.activity`) against the sidecar. Aggregated
 >   background (electricity baseline) is counted but flagged as not per-exchange auditable, not
 >   penalized. `--manifest` / `--no-manifest` control it.
-> - **New pure module `general/run_manifest.py`** holds the completeness + assembly logic (no
+> - **New pure module `fedefl_bw25/run_manifest.py`** holds the completeness + assembly logic (no
 >   brightway import) so it unit-tests without a built DB. **`tests/test_run_manifest.py`** (7 tests)
 >   passes; full suite still green.
 > - **NOT YET VERIFIED END-TO-END** (this machine has no `source_data/`): the byte-for-byte harness
@@ -530,7 +530,7 @@ target (§3) — both above.
   and change it* — including the petroleum m3-vs-kg trap that produced an 849× surprise (DEVLOG,
   2026-07-13), and the fact that a process's declared reference amount is often an arbitrary
   quantity rather than a sensible basis.
-- **Foreground CSV → USLCI.** `general/foreground_importer.py` validates the format and `general/04`
+- **Foreground CSV → USLCI.** `fedefl_bw25/foreground_importer.py` validates the format and `general/04`
   builds a transient `FOREGROUND_DB` that links into the USLCI background, but the README gives it
   one example line. Needs the column contract, how a foreground row resolves to a USLCI provider,
   what happens when it doesn't, and a worked end-to-end example.

@@ -28,7 +28,7 @@ This project closes that gap. Four choices carry the design:
   what avoids the `isInput` misclassification.
 - **FEDEFL UUIDs as the universal key.** Every biosphere flow — in the brightway DB, in the TRACI
   method, in the USLCI data — is keyed by FEDEFL UUID. Linking is deterministic; no name-matching.
-- **openLCA library interoperability.** `setup/olca_library.py` decodes openLCA's pre-aggregated
+- **openLCA library interoperability.** `fedefl_bw25/olca_library.py` decodes openLCA's pre-aggregated
   *library* (matrix) packages — a format brightway cannot otherwise read — so a pre-solved background
   such as the US Electricity Baseline can be injected directly.
 
@@ -40,9 +40,12 @@ Three directories: **`setup/`** (one-time per machine), **`general/`** (the prac
 engine — no openLCA dependency), and **`validation/`** (the openLCA parity harness and locked
 results). The scripts are deliberately numbered and single-purpose.
 
+The reusable logic lives in an importable package, **`fedefl_bw25`**; the numbered scripts are CLI
+front-ends over it.
+
 | Script | Role |
 |--------|------|
-| `config.py` | Shared brightway identifiers (project, database, method names) — imported by every script |
+| `fedefl_bw25/config.py` | Shared brightway identifiers (project, database, method names) — imported by every script |
 | `setup/00_build_flow_conversion_table.py` | Parse the full USLCI zip for substance-specific unit-conversion factors (rebuild-only; ships prebuilt) |
 | `setup/01_setup_biosphere_fedefl.py` | Load FEDEFL elementary flows into brightway |
 | `setup/02_setup_traci22.py` | Load TRACI 2.2 characterization factors, mapped to FEDEFL UUIDs |
@@ -52,9 +55,9 @@ results). The scripts are deliberately numbered and single-purpose.
 | `general/06_visualize.py` | Charts from `04`'s CSVs (no brightway dependency) |
 | `validation/05_validate_uslci.py` | Parity harness — diffs brightway against the locked openLCA reference exports, ending in a PASS/FAIL replication gate |
 
-Supporting modules (not run directly): `setup/allocation.py`, `setup/olca_library.py`,
-`setup/vintage_detect.py`, `general/foreground_importer.py`, `general/run_manifest.py`,
-`general/chart_units.py`. All are unit-tested under `tests/`.
+Supporting modules (not run directly): `fedefl_bw25/allocation.py`, `fedefl_bw25/olca_library.py`,
+`fedefl_bw25/vintage_detect.py`, `fedefl_bw25/foreground_importer.py`, `fedefl_bw25/run_manifest.py`,
+`fedefl_bw25/chart_units.py`. All are unit-tested under `tests/`.
 
 A practitioner brings a foreground inventory as CSV, pulls the relevant background processes from
 LCA Commons, and gets TRACI results on a fully open stack — the classic brightway workflow, made
@@ -73,6 +76,16 @@ conda activate fedefl-build-bw25
 
 This pins the exact package set the pipeline was validated against, including the two EPA packages
 (`fedelemflowlist`, `lciafmt`) that install from GitHub rather than PyPI.
+
+Then install this repo itself, so `fedefl_bw25` is importable and the scripts resolve it:
+
+```bash
+pip install -e .
+```
+
+Editable is the supported mode: the scripts, `source_data/` and the default output locations all
+anchor to the checkout. With that in place you can also drive the pipeline as a library —
+`from fedefl_bw25.foreground_importer import load_foreground_csv` — rather than only as scripts.
 
 ### 2. Assemble the data assets (`source_data/`)
 

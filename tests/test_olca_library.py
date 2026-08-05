@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import olca_library
+from fedefl_bw25 import olca_library
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "source_data" / "U.S._electricity_baseline_v1.2025-06.0_from_olca"

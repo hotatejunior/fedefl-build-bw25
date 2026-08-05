@@ -24,8 +24,7 @@ import zipfile
 import json
 import bw2data as bd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_BUNDLE_DB_NAME, \
+from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_BUNDLE_DB_NAME, \
     USLCI_FULL_DB as USLCI_FULL_DB_NAME, \
     ELECTRICITY_BASELINE_DB as EXTERNAL_PROVIDER_DB, REPO_ROOT
 # EXTERNAL_PROVIDER_DB: the optional injected background DB consulted when a
@@ -492,7 +491,7 @@ def _resolve_provider(exc, flow_uuid):
 # Allocation logic lives in setup/allocation.py (extracted verbatim so it is
 # unit-testable with synthetic openLCA JSON — see tests/test_allocation.py).
 # The thin wrapper binds this script's normalize() and FLOW_CONV table.
-from allocation import allocation_for, causal_coproducts, coproduct_multipliers
+from fedefl_bw25.allocation import allocation_for, causal_coproducts, coproduct_multipliers
 
 
 def _allocation_for(proc, proc_uuid):

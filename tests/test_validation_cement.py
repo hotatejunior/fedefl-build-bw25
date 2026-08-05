@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from config import PROJECT_NAME, USLCI_DB, METHOD_ROOT
+from fedefl_bw25.config import PROJECT_NAME, USLCI_DB, METHOD_ROOT
 
 bd = pytest.importorskip("bw2data")
 bc = pytest.importorskip("bw2calc")

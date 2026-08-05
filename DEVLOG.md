@@ -38,7 +38,7 @@ engine). See CLAUDE.md for the script table and run order.
   requirement — in [`ALLOCATION.md`](ALLOCATION.md).
 - **FEDEFL UUIDs as the universal key.** Every biosphere flow — in the brightway DB, the TRACI
   method, and the USLCI data — is keyed by FEDEFL UUID. Linking is deterministic; no name-matching.
-- **openLCA library interoperability.** `setup/olca_library.py` decodes openLCA's pre-aggregated
+- **openLCA library interoperability.** `fedefl_bw25/olca_library.py` decodes openLCA's pre-aggregated
   library (matrix) packages so their pre-solved background (e.g. the electricity baseline) can be
   injected directly — a format brightway cannot otherwise read.
 - **Dedicated activities for causal co-products** (2026-07-15). Causal allocation is per-exchange,
@@ -196,7 +196,7 @@ database. Evidence chain: `validation/VALIDATION_LOG.md` (2026-07-17 and 2026-07
   bundles never referenced. The bundles already encode the answer — their `defaultProvider` entries
   name a specific US-average grid UUID — so `setup/03b` now reads it. The same bundle scan that
   discovers which library processes to inject also classifies each bundle's vintage
-  (`setup/vintage_detect.py`, pure + unit-tested), and `--vintage` defaults to the detected value.
+  (`fedefl_bw25/vintage_detect.py`, pure + unit-tested), and `--vintage` defaults to the detected value.
   **The trap, found while implementing: presence is not the test.** Every locked 2025 bundle also
   contains a single stray reference to the *2026* node (79–80 citations of `7068192a` against 1 of
   `75d4be66`), so a "does this bundle mention the 2026 UUID?" detector classifies **every** bundle in

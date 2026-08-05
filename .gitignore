@@ -24,3 +24,6 @@ validation/*.xlsx
 
 # Partial harness runs (subset of cases — not a locked artifact)
 validation/validation_*_partial.csv
+
+# Editable-install metadata
+*.egg-info/

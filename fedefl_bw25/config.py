@@ -15,11 +15,18 @@ Scripts import this from a subdirectory via:
 
 from pathlib import Path
 
-# Repo root — this file lives at the top level, so its parent directory IS the
-# repo. Default output locations (lca_results.csv, charts/) anchor here so
-# scripts produce the same files no matter which directory they are run from.
+# Repo root — this file now lives inside the `fedefl_bw25` package, so the repo is
+# its GRANDparent. Default output locations (lca_results.csv, charts/) anchor here
+# so scripts produce the same files no matter which directory they are run from.
 # Paths given explicitly on the command line still resolve against the CWD.
-REPO_ROOT = Path(__file__).resolve().parent
+#
+# This holds for a source checkout and for `pip install -e .`, which is the
+# supported way to use the package. A non-editable install into site-packages has
+# no repo to anchor to, so the fallback is the current working directory —
+# otherwise defaults would silently write into site-packages. The marker is
+# `setup/`, which exists in a checkout and never in an installed wheel.
+_PKG_PARENT = Path(__file__).resolve().parent.parent
+REPO_ROOT = _PKG_PARENT if (_PKG_PARENT / "setup").is_dir() else Path.cwd()
 
 PROJECT_NAME = "fedefl-build-bw25"
 BIOSPHERE_DB = "biosphere-fedefl"

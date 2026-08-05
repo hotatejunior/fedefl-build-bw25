@@ -34,19 +34,20 @@ explicitly on the CLI resolve against the CWD, as is standard.
 
 | Script | Role |
 |--------|------|
-| `config.py` | Shared identifiers (`PROJECT_NAME`, `BIOSPHERE_DB`, `USLCI_DB`, `ELECTRICITY_BASELINE_DB`, `METHOD_ROOT`) and `REPO_ROOT` — single source of truth, imported by every script below via a `sys.path.insert(0, repo_root)` + `from config import ...` at the top |
+| `fedefl_bw25/` | **The importable package** — the pure, side-effect-free core (`config`, `allocation`, `olca_library`, `vintage_detect`, `foreground_importer`, `run_manifest`, `chart_units`). No brightway dependency; `pip install -e .` to use. The numbered scripts below are CLI front-ends over it |
+| `fedefl_bw25/config.py` | Shared identifiers (`PROJECT_NAME`, `BIOSPHERE_DB`, `USLCI_DB`, `USLCI_FULL_DB`, `ELECTRICITY_BASELINE_DB`, `METHOD_ROOT`) and `REPO_ROOT` — single source of truth, imported by every script below as `from fedefl_bw25.config import ...` |
 | `setup/00_build_flow_conversion_table.py` | Parses full USLCI zip for unit conversion factors (rebuild-only; a prebuilt `uslci_flow_conversions.json` ships) |
 | `setup/01_setup_biosphere_fedefl.py` | Loads FEDEFL elementary flows into brightway |
 | `setup/02_setup_traci22.py` | Loads TRACI 2.2 CFs mapped to FEDEFL UUIDs |
-| `setup/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
-| `setup/vintage_detect.py` | Module (not standalone) — reads which electricity-baseline vintage each bundle's own `defaultProvider` references point at, so `03b` can default to it. Classifies by *dominance*, not presence (the 2025 bundles each carry one stray 2026 reference). Unit-tested by `tests/test_vintage_detect.py` |
-| `setup/03b_import_electricity_baseline.py` | Injects the US electricity baseline into brightway as aggregated background activities, discovered per-bundle; auto-fetches + hash-verifies the library. Vintage is **auto-detected from the bundles** via `setup/vintage_detect.py` (`--vintage` overrides; a mixed-vintage bundle dir hard-stops with the split named) |
-| `setup/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py`. Behaviour documented in `ALLOCATION.md` |
-| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway; multi-output allocation via `setup/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
+| `fedefl_bw25/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
+| `fedefl_bw25/vintage_detect.py` | Module (not standalone) — reads which electricity-baseline vintage each bundle's own `defaultProvider` references point at, so `03b` can default to it. Classifies by *dominance*, not presence (the 2025 bundles each carry one stray 2026 reference). Unit-tested by `tests/test_vintage_detect.py` |
+| `setup/03b_import_electricity_baseline.py` | Injects the US electricity baseline into brightway as aggregated background activities, discovered per-bundle; auto-fetches + hash-verifies the library. Vintage is **auto-detected from the bundles** via `fedefl_bw25/vintage_detect.py` (`--vintage` overrides; a mixed-vintage bundle dir hard-stops with the split named) |
+| `fedefl_bw25/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py`. Behaviour documented in `ALLOCATION.md` |
+| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway; multi-output allocation via `fedefl_bw25/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
 | `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV. States the build's **electricity-baseline vintage** in the console target block (always, even under `--no-manifest`) and emits `validation_manifest.json` (per-run audit manifest: provenance + electricity vintage + per-result completeness); `--no-manifest` to skip |
-| `general/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
-| `general/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness, and attests the electricity-baseline vintage behind the result (flagging an `inconsistent` build where `03b` was re-run without `03`). Unit-tested by `tests/test_run_manifest.py` |
-| `general/chart_units.py` | Module (not standalone) — functional-unit commensurability guard for the scenario-comparison chart: only scenarios sharing the baseline's functional unit are compared, so a "1 m3" vs "1 kg" ratio can't be read as an impact difference. Unit-tested by `tests/test_chart_units.py` |
+| `fedefl_bw25/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
+| `fedefl_bw25/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness, and attests the electricity-baseline vintage behind the result (flagging an `inconsistent` build where `03b` was re-run without `03`). Unit-tested by `tests/test_run_manifest.py` |
+| `fedefl_bw25/chart_units.py` | Module (not standalone) — functional-unit commensurability guard for the scenario-comparison chart: only scenarios sharing the baseline's functional unit are compared, so a "1 m3" vs "1 kg" ratio can't be read as an impact difference. Unit-tested by `tests/test_chart_units.py` |
 | `general/06_visualize.py` | Reads CSVs from `general/04`, produces general-use charts |
 | `validation/05_validate_uslci.py` | Parity harness — runs brightway LCIA for the locked test cases and diffs against openLCA reference exports, ending with an explicit **REPLICATION GATE: PASS/FAIL** (every cell within `TOLERANCE`, 0.1%). That gate — not a `git diff` on the CSV — is the replication check: absolute scores reproduce only to ~1e-14 and shift with the build's bundle composition. Cases with no reference export SKIP by name, and any such run writes `…_partial.csv` so it can't overwrite the locked table. Mode via `--mode {full_chain,direct}`, default `full_chain`; a non-default electricity vintage writes a tagged CSV (e.g. `…_2026.csv`) |
 | `validation/06_visualize_validation.py` | Renders `charts/validation/*.png` from the harness CSVs |
@@ -109,9 +110,16 @@ practitioner.
 - All biosphere flows keyed by FEDEFL UUID throughout — no name matching
 - TRACI methods registered as `('TRACI', '2.2', <indicator>)`
 - `bd.projects.migrate_project_25()` is guarded with `if not bd.projects.twofive` — do not remove the guard
-- Shared brightway identifiers live in `config.py` at repo root, not redefined per script. A
+- **Reusable logic lives in the `fedefl_bw25` package; the numbered scripts are CLI front-ends.**
+  Install once with `pip install -e .` — the old `sys.path.insert` bootstraps are gone, and scripts
+  import normally (`from fedefl_bw25.config import ...`). Anything a test needs to reach is a
+  reason to move that logic into the package: the numbered scripts are not importable (leading
+  digits, and they execute on import).
+- Shared brightway identifiers live in `fedefl_bw25/config.py`, not redefined per script. A
   script's own local name can still differ (e.g. `setup/03_import_uslci.py`'s `USLCI_DB_NAME`) —
-  import the value with `as` rather than hardcoding a fresh literal: `from config import USLCI_DB
-  as USLCI_DB_NAME`. Anything not duplicated elsewhere (e.g. `FOREGROUND_DB`, `TEMP_DB_NAME`) stays
-  local to its script.
+  import the value with `as` rather than hardcoding a fresh literal: `from fedefl_bw25.config
+  import USLCI_DB as USLCI_DB_NAME`. Anything not duplicated elsewhere (e.g. `FOREGROUND_DB`,
+  `TEMP_DB_NAME`) stays local to its script.
 - Default output paths anchor to `config.REPO_ROOT`; explicit CLI path args resolve against CWD.
+  `REPO_ROOT` is the checkout when one is detectable (the package's parent contains `setup/`) and
+  falls back to CWD otherwise, so a non-editable install never writes into site-packages.

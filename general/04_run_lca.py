@@ -31,11 +31,10 @@ import numpy as np
 import bw2data as bd
 import bw2calc as bc
 
-from foreground_importer import load_foreground_csv, fg_uuid
-import run_manifest
+from fedefl_bw25.foreground_importer import load_foreground_csv, fg_uuid
+from fedefl_bw25 import run_manifest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
+from fedefl_bw25.config import (PROJECT_NAME, BIOSPHERE_DB, USLCI_DB, USLCI_FULL_DB,
                     ELECTRICITY_BASELINE_DB, METHOD_ROOT, REPO_ROOT)
 # %%
 

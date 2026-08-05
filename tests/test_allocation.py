@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from allocation import (MASS_FP_UUID, allocation_for, causal_coproducts,
+from fedefl_bw25.allocation import (MASS_FP_UUID, allocation_for, causal_coproducts,
                         coproduct_multipliers)
 
 VOLUME_FP_UUID = "93a60a56-a3c8-22da-a746-0800200c9a66"  # arbitrary non-mass fp

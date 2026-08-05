@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fedefl-bw25"
+version = "0.2.0.dev0"
+description = "USLCI · FEDEFL · TRACI 2.2 life-cycle inventory pipeline for brightway25"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Harrison Watson" }]
+keywords = ["LCA", "life cycle assessment", "brightway", "USLCI", "FEDEFL", "TRACI"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+]
+
+# The importable core is deliberately thin: numpy and scipy only (olca_library
+# decodes the baseline's sparse matrices). It does NOT depend on brightway —
+# allocation, run_manifest, chart_units, vintage_detect and foreground_importer
+# all operate on plain Python data supplied by the caller, which is why they
+# unit-test without a built database. The scripts that DO drive brightway are
+# CLI front-ends; their stack is pinned in environment.yml, because the EPA
+# packages (fedelemflowlist, lciafmt) are not on PyPI and install only from
+# GitHub at specific commits. Declaring them here would be a second, drifting
+# source of truth for the versions the validation was computed against.
+dependencies = ["numpy", "scipy"]
+
+[project.optional-dependencies]
+charts = ["pandas", "matplotlib", "seaborn"]
+dev = ["pytest"]
+
+[project.urls]
+Repository = "https://github.com/hotatejunior/fedefl-build-bw25"
+
+[tool.setuptools]
+packages = ["fedefl_bw25"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

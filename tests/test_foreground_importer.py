@@ -8,7 +8,7 @@ import csv
 
 import pytest
 
-import foreground_importer as fi
+from fedefl_bw25 import foreground_importer as fi
 
 HEADER = [
     "process_name", "exchange_type", "flow_uuid", "provider_uuid",

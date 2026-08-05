@@ -41,10 +41,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
 
-import chart_units
+from fedefl_bw25 import chart_units
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import REPO_ROOT
+from fedefl_bw25.config import REPO_ROOT
 
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 

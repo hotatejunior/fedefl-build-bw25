@@ -59,8 +59,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import REPO_ROOT
+from fedefl_bw25.config import REPO_ROOT
 
 HERE     = Path(__file__).parent
 OUT_PATH = HERE / "uslci_flow_conversions.json"

@@ -6,7 +6,7 @@ exercise the per-result completeness crossing directly. This mirrors how
 general/04 calls it (solved keys from lca.dicts.activity, provenance from
 uslci_db_provenance.json).
 """
-import run_manifest as rm
+from fedefl_bw25 import run_manifest as rm
 
 USLCI = "uslci"
 ELEC = "electricity-baseline"

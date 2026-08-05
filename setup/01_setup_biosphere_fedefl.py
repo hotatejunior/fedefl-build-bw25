@@ -18,8 +18,7 @@ import pandas as pd
 import bw2data as bd
 import fedelemflowlist as fedefl
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB
+from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB
 
 
 def _pkg_version(name):

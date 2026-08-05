@@ -54,12 +54,11 @@ from pathlib import Path
 
 import bw2data as bd
 
-from olca_library import OlcaLibrary, read_library
-from vintage_detect import classify_bundle, decide_vintage, format_conflict
+from fedefl_bw25.olca_library import OlcaLibrary, read_library
+from fedefl_bw25.vintage_detect import classify_bundle, decide_vintage, format_conflict
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, ELECTRICITY_BASELINE_DB as INJECTED_DB_NAME, \
+from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB, ELECTRICITY_BASELINE_DB as INJECTED_DB_NAME, \
     REPO_ROOT
 
 # Defaults to source_data/ at the repo root; override with the SOURCE_DATA_DIR

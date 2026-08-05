@@ -26,8 +26,7 @@ import lciafmt
 import lciafmt.cache as lciafmt_cache
 import fedelemflowlist
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, METHOD_ROOT
+from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB, METHOD_ROOT
 
 # Populated only if a unit conflict is detected at runtime and operator intervention
 # is required. e.g. UNIT_OVERRIDES = {"Eutrophication (Marine)": "kg N eq"}

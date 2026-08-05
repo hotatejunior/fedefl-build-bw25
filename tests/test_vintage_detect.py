@@ -11,7 +11,7 @@ the 2026-drop bundles reference only the 2026 node, 80-92 times. That stray
 single reference is why detection is by dominance, not presence — a
 presence-based test would classify every bundle in the repo as 2026.
 """
-import vintage_detect as vd
+from fedefl_bw25 import vintage_detect as vd
 
 G25 = "7068192a-999c-39b6-bf66-234a294bdf92"
 G26 = "75d4be66-12a7-30b3-bc57-fa724c941b0e"

@@ -1,15 +1,11 @@
 """Shared pytest setup.
 
-Puts the repo root and the `general/` + `setup/` script dirs on sys.path so tests
-can import the modules directly (`import foreground_importer`, `import olca_library`,
-`from config import ...`) without the scripts being an installed package.
+The library modules live in the `fedefl_bw25` package and are imported normally
+(`from fedefl_bw25 import run_manifest`), so no sys.path manipulation is needed —
+install the repo once with `pip install -e .`.
+
+The numbered CLI scripts in `setup/`, `general/` and `validation/` remain
+unimportable: their filenames start with digits and they execute their whole body
+on import. Tests therefore exercise the package, and anything a test cannot reach
+is a signal that the logic belongs in the package rather than in a script.
 """
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-
-for _p in (ROOT, ROOT / "general", ROOT / "setup"):
-    _sp = str(_p)
-    if _sp not in sys.path:
-        sys.path.insert(0, _sp)
