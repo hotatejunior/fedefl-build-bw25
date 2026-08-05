@@ -312,9 +312,16 @@ Two defects surfaced and were fixed, both invisible under the bundle build:
 3. **Explain a zero rather than printing it bare.** When a result is 0.0 across all ten categories and
    the target has non-zero inputs, name the cause: all its inputs are cutoffs. Measured on the current
    full DB this fires on 10 of 1,371 — the other 84 zeros are legitimately zero (82 have no exchanges
-   at all, 2 have all-zero amounts). Not a stop; those 10 are honest answers, badly presented.
-4. **Process discovery** (`--search` / `--list` by name) — the felt half of the feature; today you
-   need the 36-char UUID. ~1–2 days, the largest remaining piece.
+   at all, 2 have all-zero amounts). Not a stop; those 10 are correct answers, badly presented.
+4. ~~**Process discovery** (`--search` / `--list` by name)~~ DONE 2026-08-05, ahead of the docs
+   rewrite, because the practitioner tutorial could not be written honestly without it — step 3 would
+   have read "open LCA Commons in a browser and copy the UUID out of the URL". `general/04 --search`
+   now takes words in any order: the deciding case is `hdpe flake`, which appears nowhere in
+   `Recycled postconsumer high-density polyethylene, HDPE, flake; at plant` as a substring and so
+   returns nothing under a naive search. Hits in the pre-semicolon product segment rank first, which
+   is what keeps `diesel` from burying its five fuels under 219 diesel-powered transport processes.
+   Output names which build each hit is in and prints the exact command to run it. 22 tests. Took
+   about an hour, not the 1–2 days estimated.
 5. ~~**Tests for `03b`.**~~ DONE 2026-08-05 as a side effect of the extraction — its logic moved to
    `fedefl_bw25/setup_baseline.py` and became reachable, so `tests/test_setup_baseline.py` now covers
    provider discovery (the gap behind the 42 silent zeros) and the vintage config.

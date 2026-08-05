@@ -181,7 +181,7 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
 
 def _completeness_notes(missing_prov, external_keys,
                         bio_unmatched, tech_unlinked, tech_ambiguous):
-    """Human-readable caveats, honest about what the counts do and don't attest."""
+    """Human-readable caveats stating what the counts do and don't attest."""
     notes = []
     if missing_prov:
         notes.append(

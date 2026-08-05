@@ -32,8 +32,9 @@ from pathlib import Path
 
 from fedefl_bw25 import run_manifest
 from fedefl_bw25.config import USLCI_DB, USLCI_FULL_DB, REPO_ROOT
-from fedefl_bw25.run import (run_lca, write_results_csv, write_contributions_csv,
-                             write_manifest_json)
+
+# fedefl_bw25.run pulls in bw2calc, which is slow to import and prints a solver
+# warning on ARM. --search needs neither, so the import waits until after it.
 
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
@@ -68,6 +69,15 @@ APPEND_RESULTS    = False  # True (or --append) accumulates scenarios in OUTPUT_
 parser = argparse.ArgumentParser(
     description="Run LCIA for a USLCI process or foreground system."
 )
+parser.add_argument("--search",            default=None, metavar="TEXT",
+                    help="find a process by name instead of UUID, then exit. Every "
+                         "word must appear somewhere in the name, in any order: "
+                         "'hdpe flake' finds 'Recycled postconsumer high-density "
+                         "polyethylene, HDPE, flake; at plant'. Searches every built "
+                         "USLCI database and names which one each hit is in. Pass an "
+                         "empty string to list everything.")
+parser.add_argument("--limit",             default=None, type=int,
+                    help="how many search results to show (default 20; 0 for all)")
 parser.add_argument("--uuid",              default=None, help="USLCI target process UUID")
 parser.add_argument("--foreground",        default=None, help="Path to foreground inventory CSV")
 parser.add_argument("--target-process",    default=None, dest="target_process",
@@ -92,6 +102,24 @@ parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLC
                          f"against). '{USLCI_FULL_DB}' is the whole-database build from "
                          f"USLCI_FULL_DB=1 setup/03_import_uslci.py.")
 args = parser.parse_args()
+
+# --search answers "what is this process called?", which is the question a
+# practitioner actually arrives with. It runs before anything else is resolved and
+# exits, so it works on a build you haven't chosen a target in yet.
+if args.search is not None:
+    from fedefl_bw25.search import (DEFAULT_LIMIT, format_matches, load_processes,
+                                    rank_entries)
+    limit = DEFAULT_LIMIT if args.limit is None else args.limit
+    try:
+        processes = load_processes(args.database)
+    except RuntimeError as e:
+        raise SystemExit(str(e))
+    matches, total = rank_entries(processes, args.search, limit=limit)
+    print(format_matches(matches, total, args.search, all_processes=processes))
+    raise SystemExit(0 if matches else 1)
+
+from fedefl_bw25.run import (run_lca, write_results_csv,        # noqa: E402
+                             write_contributions_csv, write_manifest_json)
 
 database   = args.database or USLCI_DATABASE
 db_source  = "--database" if args.database else "CONFIG USLCI_DATABASE"

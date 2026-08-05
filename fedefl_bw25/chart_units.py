@@ -9,7 +9,7 @@ the baseline scenario's, so it only means anything when the scenarios share a
 functional unit. Comparing "1 m3 of diesel" against "1 kg of cement" puts
 petroleum at ~100% on every category and everything else near zero — a ~849x
 density artifact, not an impact difference. The legend labelled the units
-honestly and the chart was still misleading, which is the same failure mode
+correctly and the chart was still misleading, which is the same failure mode
 recorded in RELEASE_PLAN.md for 2026-07-13 (per-m3 petroleum scores first read
 as wrong numbers).
 

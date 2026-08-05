@@ -143,11 +143,25 @@ processes. Copy it and edit the CONFIGURE block for your own work; see HOWTO.md 
 
 ### 4. Run an analysis
 
-```bash
-# a USLCI process you imported in step 2, by UUID:
-python general/04_run_lca.py --uuid <USLCI-process-UUID>
+Find the process you want by name — every word has to appear somewhere in it, in any order:
 
-# ...or your own foreground system from a CSV inventory:
+```bash
+python general/04_run_lca.py --search "hdpe flake"
+```
+
+```
+1 match(es) for 'hdpe flake':
+
+  17664c37-72c0-4813-a4b9-93f962962c63  subset,full  RNA  kg  Recycled postconsumer high-density polyethylene, HDPE, flake; at plant
+
+Run the first with:
+  python general/04_run_lca.py --uuid 17664c37-72c0-4813-a4b9-93f962962c63
+```
+
+Then run it, or point the runner at your own inventory instead:
+
+```bash
+python general/04_run_lca.py --uuid <USLCI-process-UUID>
 python general/04_run_lca.py --foreground my_inventory.csv --target-process "My process"
 ```
 

@@ -1215,7 +1215,7 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
     # version string: the full zip carries no intrinsic version field (its
     # openlca.json names only the electricity-library dependency), and the release
     # hash in bundle filenames proved unreliable as a content marker. A content hash
-    # is the honest identity -- it says exactly which bytes produced this database
+    # is the real identity -- it says exactly which bytes produced this database
     # even when it cannot say what upstream calls them.
     bd.databases[db_name]["uslci_source"] = source
     bd.databases.flush()
