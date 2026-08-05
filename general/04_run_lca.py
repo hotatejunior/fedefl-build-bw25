@@ -49,18 +49,25 @@ USLCI_DB_DEFAULT = USLCI_DB
 # =============================================================================
 # CONFIG  — edit here for IDE / notebook use; CLI args override at runtime
 # =============================================================================
+# These are the SHIPPED DEFAULTS — a neutral starting point, not a saved session.
+# Edit freely for your own runs; just avoid committing a personal target back, so
+# the repo keeps landing on the same known-good example for the next reader.
+#
 # Which USLCI build to run against. USLCI_DB is the per-process bundle set the
-# locked validation cases were computed against; USLCI_FULL_DB is the whole
-# database (USLCI_FULL_DB=1 setup/03_import_uslci.py), needed to reach processes
-# no bundle shipped. Overridden by --database.
-
-USLCI_DATABASE    = USLCI_FULL_DB
-PROCESS_UUID      = "c8c0b1ab-1547-4c65-b5bc-6c0d57f95a6f"  
+# locked validation cases were computed against (the default, matching
+# --database's); USLCI_FULL_DB is the whole database from
+# `USLCI_FULL_DB=1 setup/03_import_uslci.py`, needed to reach processes no
+# bundle shipped. Overridden by --database.
+USLCI_DATABASE    = USLCI_DB
+# Petroleum refining, US — a locked validation case, so its result is a known
+# quantity to check a fresh build against. Note its reference unit is m3, not kg
+# (see HOWTO.md §1).
+PROCESS_UUID      = "0aaf1e13-5d80-37f9-b7bb-81a6b8965c71"
 FOREGROUND_CSV    = None   # path to foreground inventory CSV, or None to skip
 TARGET_PROCESS    = None   # foreground process_name to use as functional unit
                             # required when CSV has >1 process; ignored without CSV
-OUTPUT_CSV        = REPO_ROOT / "lca_results_scanner.csv"        # CLI --output resolves against CWD instead
-CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions_scanner.csv"  # per-process scores; set None to skip
+OUTPUT_CSV        = REPO_ROOT / "lca_results.csv"        # CLI --output resolves against CWD instead
+CONTRIBUTIONS_CSV = REPO_ROOT / "lca_contributions.csv"  # per-process scores; set None to skip
 MANIFEST_JSON     = REPO_ROOT / run_manifest.MANIFEST_FILENAME  # per-run audit manifest; set None to skip
 SCENARIO_LABEL    = None   # human label for this run; defaults to target process name
 APPEND_RESULTS    = False  # True (or --append) accumulates scenarios in OUTPUT_CSV
