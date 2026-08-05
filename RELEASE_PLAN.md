@@ -325,6 +325,70 @@ Not in scope: *under-reporting* — a non-zero result that is too low because pa
 cut. That is endemic to LCA rather than a defect, and the per-result completeness block is the right
 instrument for it now that it reports the actual supply chain.
 
+### Presentation & messaging defects (found 2026-08-05 by a 37-process exploratory sweep)
+
+Ran 37 processes chosen for *weirdness* rather than representativeness — the units added that day,
+dangling flow refs, unusual locations, magnitude extremes, negative results, degenerate zeros — plus
+43 chart sets. Every one solved, and the runner agreed with an independent sweep 37/37 to 1e-9. The
+defects were all in the layer the harness by construction never touches: presentation and messaging.
+None would fail a gate or a test.
+
+1. **`impact_profile` renders credits as burdens.** `general/06` takes `sub["score"].abs()` so the
+   log scale works, and nothing marks the sign. `Combustion of newspaper` is negative in all ten
+   categories; its chart shows ten positive bars labelled "Impact score per 1 kg". This is the
+   `isAvoidedProduct` bug's shape — a credit read as a burden — moved into the chart layer. 6 of 43
+   scenarios had ≥1 negative score; the locked tables carry 3 (steel billets). No shipped artifact is
+   currently wrong (`charts/general/` is petroleum/corn/cement), and
+   `validation/06_visualize_validation.py` plots ratios with no `abs()`, so it is unaffected.
+2. **`general/06` silently charts an unrelated process's contributions.** With no `--contributions`
+   it falls back to the repo-root `lca_contributions.csv` and never checks it corresponds to the
+   results file. Worse, it fires *automatically*: a zero-score process makes `general/04` write no
+   contributions CSV, so the fallback engages exactly when the result is empty — and fills the
+   directory, so the failure looks like success. Three of the 37 hit this. `general/04` gained a
+   sidecar/database mismatch guard; `06` needs the equivalent.
+3. **The zero-score warning names the wrong cause.** "all 10 TRACI scores are 0.0 — this almost
+   certainly indicates a biosphere UUID mismatch" fired on three processes whose zeros are
+   legitimate (every technosphere input is a genuine cutoff) and whose biosphere mapping is fine.
+4. **`scenario_comparison`'s baseline is arbitrary and may be ~zero.** It plots "% of baseline"
+   against whichever scenario sorts first. With `Alfalfa hay` (GWP 0.016 kg CO2-eq/kg) as
+   denominator the y-axis reached **1e7** — fifty million percent — with no warning. `chart_units.py`
+   already guards incommensurable *units*; nothing guards an incommensurable *magnitude*. Wants an
+   explicit `--baseline`, and a refusal when the denominator is near zero.
+5. **Legend and palette are unbounded.** At 43 scenarios the legend consumed ~85% of
+   `normalized_profile`'s figure — plot squeezed to a strip, title rendered behind the legend box —
+   and ~60% of `scenario_comparison`, overlapping the tick labels. Colors cycle past the palette
+   length, so entries share swatches. Fine at the 2–4 scenarios the script was built for; degrades
+   silently past that. Wants a top-N cap with an "N others omitted" note.
+
+### Documentation (scoped 2026-08-05)
+
+Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the
+engine does and why*, the last three are task-shaped for a practitioner with their own study.
+
+| Topic | Kind | Status |
+|---|---|---|
+| olca JSON-LD → brightway schema crosswalk | methodology | **DONE** — [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) |
+| Allocation handling | methodology | **DONE** — [`ALLOCATION.md`](ALLOCATION.md) |
+| Defining and changing the functional unit | how-to | TODO |
+| Linking a foreground CSV to USLCI | how-to | TODO |
+| Toggling foreground vs full-background calculation | how-to | TODO — **blocked on a feature gap** |
+
+- **Functional unit.** The machinery exists and is scattered: `general/04` states it in the target
+  block and writes a `functional_unit` column, `chart_units.py` refuses to compare across units, and
+  the harness re-bases to 1 kg. What's missing is the practitioner-facing account of *how to choose
+  and change it* — including the petroleum m3-vs-kg trap that produced an 849× surprise (DEVLOG,
+  2026-07-13), and the fact that a process's declared reference amount is often an arbitrary
+  quantity rather than a sensible basis.
+- **Foreground CSV → USLCI.** `general/foreground_importer.py` validates the format and `general/04`
+  builds a transient `FOREGROUND_DB` that links into the USLCI background, but the README gives it
+  one example line. Needs the column contract, how a foreground row resolves to a USLCI provider,
+  what happens when it doesn't, and a worked end-to-end example.
+- **Foreground vs full background — the gap.** `--mode {direct,full_chain}` exists **only in
+  `validation/05`**. `general/04` has no equivalent, so a practitioner cannot compute
+  foreground-only impacts through the general runner. This can't be documented as a how-to until the
+  capability is exposed in `general/`; document the concept, then add the flag (or decide the
+  harness is the only place it belongs and say so).
+
 ---
 
 ## Under-review ledger — where Claude was over-delegated
