@@ -314,8 +314,8 @@ Two defects surfaced and were fixed, both invisible under the bundle build:
    full DB this fires on 10 of 1,371 — the other 84 zeros are legitimately zero (82 have no exchanges
    at all, 2 have all-zero amounts). Not a stop; those 10 are correct answers, badly presented.
 4. ~~**Process discovery** (`--search` / `--list` by name)~~ DONE 2026-08-05, ahead of the docs
-   rewrite, because the practitioner tutorial could not be written honestly without it — step 3 would
-   have read "open LCA Commons in a browser and copy the UUID out of the URL". `general/04 --search`
+   rewrite. Without it, step 3 of the practitioner tutorial would have read "open LCA Commons in a
+   browser and copy the UUID out of the URL". `general/04 --search`
    now takes words in any order: the deciding case is `hdpe flake`, which appears nowhere in
    `Recycled postconsumer high-density polyethylene, HDPE, flake; at plant` as a substring and so
    returns nothing under a naive search. Hits in the pre-semicolon product segment rank first, which
