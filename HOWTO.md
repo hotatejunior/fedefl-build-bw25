@@ -333,7 +333,22 @@ a callable instead if you want your own gate.
 > matrix. Always follow `03b` with `03`. This is why the manifest reports an
 > `inconsistent` electricity vintage when the two disagree.
 
+`setup/03` is callable too, so a whole rebuild is one script:
+
+```python
+from fedefl_bw25.setup_baseline import inject_baseline
+from fedefl_bw25.setup_uslci import import_uslci
+
+inject_baseline(vintage="2026", overwrite=True)     # 03b first — 03 links against it
+import_uslci(overwrite=True)                        # the bundle build
+import_uslci(full_db=True, overwrite=True)          # and the whole database
+```
+
+`import_uslci()` returns a `UslciBuild` with the activity count, the link/match
+totals, the source identity (zip names + SHA256) and the sidecar path — the same
+diagnostics the script prints, as data you can assert on.
+
 ### What's still script-only
 
-`setup/00`, `01`, `02` and `03` remain scripts; `03` — which builds the validated
-database — is the next extraction.
+`setup/00`, `01` and `02` remain scripts. They are one-shot and rarely re-run, so
+they are lower value to extract than the two that rebuild per vintage.

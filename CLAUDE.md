@@ -23,6 +23,8 @@ foreground CSV or USLCI UUID → LCIA results, no openLCA dependency), and `vali
 parity harness + locked result CSVs + `VALIDATION_LOG.md`; run to reproduce the validation claim).
 
 Run once per machine, in order: `setup/00` → `setup/01` → `setup/02` → `setup/03b` → `setup/03`.
+`03b` and `03` are also callable — `inject_baseline()` / `import_uslci()` — so a rebuild can be
+scripted; both take `overwrite=True` rather than prompting.
 Then run `general/04` per study, or `validation/05` to reproduce the parity check. `setup/03b` must run before `setup/03` — it injects the electricity
 baseline background that `03`'s relink fallback resolves against. `setup/03b` auto-fetches the
 version-pinned baseline library from the Federal LCA Commons GitHub and verifies its SHA256
@@ -36,6 +38,7 @@ explicitly on the CLI resolve against the CWD, as is standard.
 |--------|------|
 | `fedefl_bw25/` | **The importable package** — the pure, side-effect-free core (`config`, `allocation`, `olca_library`, `vintage_detect`, `foreground_importer`, `run_manifest`, `chart_units`). No brightway dependency; `pip install -e .` to use. The numbered scripts below are CLI front-ends over it |
 | `fedefl_bw25/run.py` | Module — `run_lca()` returns an `LcaRun` instead of writing files; the callable core behind `general/04`. The one package module that imports brightway |
+| `fedefl_bw25/setup_uslci.py` | Module — `import_uslci()` behind `setup/03`; **builds the database the locked validation is computed against**, so treat any change as a validation event (rebuild both builds, re-run the gate) |
 | `fedefl_bw25/setup_baseline.py` | Module — `inject_baseline()` behind `setup/03b`; scans sources, decodes the openLCA library, writes the baseline. Prints nothing and never prompts (`overwrite=` / `confirm=`) |
 | `fedefl_bw25/config.py` | Shared identifiers (`PROJECT_NAME`, `BIOSPHERE_DB`, `USLCI_DB`, `USLCI_FULL_DB`, `ELECTRICITY_BASELINE_DB`, `METHOD_ROOT`) and `REPO_ROOT` — single source of truth, imported by every script below as `from fedefl_bw25.config import ...` |
 | `setup/00_build_flow_conversion_table.py` | Parses full USLCI zip for unit conversion factors (rebuild-only; a prebuilt `uslci_flow_conversions.json` ships) |
@@ -45,7 +48,7 @@ explicitly on the CLI resolve against the CWD, as is standard.
 | `fedefl_bw25/vintage_detect.py` | Module (not standalone) — reads which electricity-baseline vintage each bundle's own `defaultProvider` references point at, so `03b` can default to it. Classifies by *dominance*, not presence (the 2025 bundles each carry one stray 2026 reference). Unit-tested by `tests/test_vintage_detect.py` |
 | `setup/03b_import_electricity_baseline.py` | CLI front-end over `fedefl_bw25/setup_baseline.py` — injects the US electricity baseline as aggregated background activities, discovered from the bundles **and** the full USLCI zip; auto-fetches + hash-verifies the library. Vintage auto-detected via `fedefl_bw25/vintage_detect.py` (`--vintage` overrides; mixed-vintage hard-stops). `--yes` skips the overwrite prompt for scripted rebuilds |
 | `fedefl_bw25/allocation.py` | Module (not standalone) — multi-output allocation logic: reference-product factors, scalar co-product re-basis multipliers, and causal per-exchange factor columns; no brightway dependency. Unit-tested by `tests/test_allocation.py`. Behaviour documented in `ALLOCATION.md` |
-| `setup/03_import_uslci.py` | Parses per-process USLCI JSON-LD exports into brightway; multi-output allocation via `fedefl_bw25/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Also writes `uslci_db_provenance.json` (per-process import diagnostics) for `general/04`'s audit manifest — additive, does not affect `db_data`/the harness |
+| `setup/03_import_uslci.py` | CLI front-end over `fedefl_bw25/setup_uslci.py` — parses USLCI JSON-LD into brightway; multi-output allocation via `fedefl_bw25/allocation.py`, with a dedicated per-exchange activity per causal co-product (see DEVLOG). Writes `uslci_db_provenance.json` for `general/04`'s audit manifest. `--full-db` (or `USLCI_FULL_DB=1`) builds the whole database; `--yes` skips the overwrite prompt |
 | `general/04_run_lca.py` | Operational LCA runner — USLCI process or foreground CSV → 10-category TRACI results CSV. States the build's **electricity-baseline vintage** in the console target block (always, even under `--no-manifest`) and emits `validation_manifest.json` (per-run audit manifest: provenance + electricity vintage + per-result completeness); `--no-manifest` to skip |
 | `fedefl_bw25/foreground_importer.py` | Module (not standalone) — loaded by `general/04_run_lca.py` to parse and validate foreground inventory CSVs |
 | `fedefl_bw25/run_manifest.py` | Module (not standalone) — pure (no brightway) assembly of `general/04`'s audit manifest; crosses a result's solved supply chain against `uslci_db_provenance.json` for per-result completeness, and attests the electricity-baseline vintage behind the result (flagging an `inconsistent` build where `03b` was re-run without `03`). Unit-tested by `tests/test_run_manifest.py` |
