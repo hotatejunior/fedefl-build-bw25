@@ -210,7 +210,8 @@ def build_foreground(csv_path, database, log=_NOOP):
     long-lived session (a sweep, a notebook) doesn't accumulate state.
     """
     bio_db = bd.Database(BIOSPHERE_DB)
-    fg_processes = load_foreground_csv(Path(csv_path), bio_db, bd.Database(database))
+    fg_processes = load_foreground_csv(Path(csv_path), bio_db, bd.Database(database),
+                                       log=log)
     log(f"  {len(fg_processes)} foreground process(es) loaded.")
     fg_uuids = {p["uuid"] for p in fg_processes.values()}
 

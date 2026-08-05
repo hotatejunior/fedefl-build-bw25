@@ -543,6 +543,39 @@ is evaluated before `_meta` is assigned, so the `-1` undercounts). Carried over 
 still reproduces the committed table byte-for-byte; nothing reads the field — `setup/03` pins
 `source_zip_sha256`. Worth fixing in a commit that regenerates the table.
 
+#### Structural pass (DONE 2026-08-05)
+
+Extraction moved the bulk without reshaping it: `import_uslci` was one 955-line function with helpers
+nested inside it — a faithful move, not a good design. Split into named stages, longest function now
+133 lines, and the same pass caught the two other outliers:
+
+| | Was | Now |
+|---|---|---|
+| `import_uslci` | 955 | 124, over 9 named stages |
+| `load_foreground_csv` | 233 | 75, over 5 |
+| `import_traci` | 167 | 55, over 4 |
+
+Nothing above 133 lines remains anywhere in the repo (`allocation_for`, at 133, is dense domain logic
+that is already unit-tested and was left alone).
+
+**Verification, since this touches the validated build.** Both databases were dumped
+activity-by-activity and exchange-by-exchange (exact float reprs, deterministic order) before and
+after: **identical**, 17,140 and 78,571 lines. Both provenance sidecars identical apart from their
+timestamp. Gate PASS 60/60, locked CSVs unchanged. TRACI verified the same way — method units, CF
+counts and CF content hashes identical across all 10. The foreground path reproduces the documented
+2.584980824789767 kg CO₂-eq, including via the `200 g` unit-conversion route.
+
+**The payoff is testability**, which was the argument for splitting rather than the pretext:
+`tests/test_setup_uslci.py` adds 31 tests over logic that previously could only be exercised by
+building a database — among them the Mg/mg case collision (a silent 1e9 error), the parenthesised
+country name that crashed brightway's geomapping, version-based process precedence (ledger #5), and
+the stale-hint-resolved-by-name path that keeps the grid linked across baseline vintages. 123 → 154
+tests.
+
+**One defect fixed in passing:** `load_foreground_csv` printed its warnings and parse summary
+unconditionally, so `run_lca()` printed despite documenting that it doesn't — the output leaked past
+the no-op log. It now takes `log=`, and `run.build_foreground` passes it through.
+
 ### Documentation (scoped 2026-08-05)
 
 Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the

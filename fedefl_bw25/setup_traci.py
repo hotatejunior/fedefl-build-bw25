@@ -157,6 +157,147 @@ def enforce_cf_hashes(method_meta, log=_NOOP) -> None:
     log("  ✓ TRACI CF source files verified against pinned SHA256.")
 
 
+def fetch_traci(log=_NOOP):
+    """Download (or read from cache) TRACI 2.2, hash-checked. Returns
+    (raw factors, method metadata, provenance)."""
+    log("Fetching TRACI 2.2 from lciafmt...")
+    method      = lciafmt.Method.TRACI2_2
+    method_meta = method.get_metadata()
+    traci_raw   = lciafmt.get_method(method)   # downloads + caches the CF source files
+
+    provenance = cf_provenance(method_meta)    # cached files now exist -> real hashes
+    log("\n--- TRACI CF provenance ---")
+    for key, value in provenance.items():
+        log(f"  {key}: {value}")
+    log("---------------------------\n")
+    enforce_cf_hashes(method_meta, log=log)    # STOP if either CF file changed (ledger #4)
+    log(f"  {len(traci_raw)} raw characterization factors retrieved.")
+    return traci_raw, method_meta, provenance
+
+
+def map_to_fedefl(traci_raw, mapping_system, log=_NOOP):
+    """Replace raw source flow names with FEDEFL UUIDs. Returns (mapped, dropped detail).
+
+    Required, not optional: without it `Flow UUID` holds source-format ids that match
+    nothing in the biosphere database. Mapping is run twice so the rows that fall out
+    at the name→UUID step can be named rather than merely counted.
+    """
+    log(f"  Applying FEDEFL flow mappings (system: '{mapping_system}')...")
+    traci_all = lciafmt.map_flows(traci_raw, system=mapping_system, preserve_unmapped=True)
+    traci     = lciafmt.map_flows(traci_raw, system=mapping_system, preserve_unmapped=False)
+
+    dropped = traci_all[traci_all[UUID_COLUMN].isna() | (traci_all[UUID_COLUMN] == "")]
+    log(f"  {len(traci_raw)} raw factors → {len(traci)} mapped "
+        f"({len(dropped)} dropped at name→UUID step).")
+
+    dropped_detail = (dropped.groupby(["Indicator", "Flowable"])
+                             .size()
+                             .reset_index(name="count")
+                             .sort_values(["Indicator", "count"], ascending=[True, False]))
+    if len(dropped):
+        log("  Dropped flows by category (see build.dropped_detail for the full list):")
+        for indicator, count in dropped_detail.groupby("Indicator")["count"].sum().items():
+            log(f"    {indicator}: {count} factor(s) dropped")
+    return traci, dropped_detail
+
+
+def filter_locations(traci, eutro_location, log=_NOOP):
+    """Keep one spatial variant per flow — otherwise bw2calc sums them all.
+
+    TRACI 2.2 eutrophication uses spatially-explicit CFs (national + US-state +
+    county-level), so each FEDEFL UUID gets many entries. Without filtering,
+    bw2calc sums all spatial variants and inflates the characterization matrix
+    massively.
+
+    Location semantics (lciafmt output; cross-checked against the lcacommons TRACI
+    2.2 openLCA JSON, category files under lcia_categories/):
+      ""      = generic / non-located CF  (== the openLCA `location: null` factor)
+      "00000" = US national average       (== the openLCA US-country factor)
+      FIPS codes (e.g. "48001") = county-level; country names = international
+
+    Non-eutrophication categories have ONLY Location=="" rows (no spatial variants)
+    — which is exactly why they already validate 1:1 against openLCA. For
+    eutrophication we mirror that: match the non-located USLCI inventory flows to
+    the non-located (generic) CF, driven by eutro_location (default ""), for
+    openLCA parity. The US-national variant ("00000") is a ~2.775x higher
+    freshwater CF and a ~0.15x lower marine CF than generic — real TRACI values,
+    but they DIVERGE from the openLCA reference (which uses generic). See DEVLOG
+    "Eutrophication regionalization."
+    """
+    eutro_mask = traci["Indicator"].str.contains("Eutrophication")
+    traci = traci[
+        (~eutro_mask & (traci["Location"] == "")) |
+        ( eutro_mask & (traci["Location"] == eutro_location))
+    ]
+    log(f"  {len(traci)} factors after location filter "
+        f"(non-eutro: generic ''; eutro: '{eutro_location}').")
+    log(f"  Indicators: {sorted(traci['Indicator'].unique())}\n")
+
+    missing_cols = REQUIRED_COLUMNS - set(traci.columns)
+    if missing_cols:
+        raise RuntimeError(
+            f"lciafmt output missing expected columns: {missing_cols}\n"
+            f"  Actual columns: {list(traci.columns)}"
+        )
+    return traci
+
+
+def write_method(category, group, bio_uuids, unit_overrides, log=_NOOP):
+    """Register and write one brightway Method. Returns (key, cfs, unit, unmatched, notes)."""
+    method_key = METHOD_ROOT + (category,)
+    notes = []
+
+    # Clear any existing version
+    m = bd.Method(method_key)
+    if method_key in bd.methods:
+        m.deregister()
+
+    unit = _resolve_unit(category, group, unit_overrides, log)
+    m.register(unit=unit, description=f"TRACI 2.2 – {category}")
+
+    cfs_dict = {}    # uuid -> cf; last value wins if duplicates exist
+    duplicates = {}  # uuid -> count of extra occurrences
+    unmatched = []
+    for _, row in group.iterrows():
+        uuid = row[UUID_COLUMN]
+        cf   = row.get(CF_COLUMN, None)
+        if pd.isna(uuid) or cf is None or pd.isna(cf):
+            continue
+        if uuid in bio_uuids:
+            if uuid in cfs_dict:
+                duplicates[uuid] = duplicates.get(uuid, 1) + 1
+            cfs_dict[uuid] = float(cf)
+        else:
+            unmatched.append(row.get("Flowable", uuid))
+    cfs = [((BIOSPHERE_DB, uuid), cf) for uuid, cf in cfs_dict.items()]
+    if duplicates:
+        note = (f"[{category}]: {len(duplicates)} UUID(s) had duplicate CF entries "
+                f"— kept last value. Duplicates: {list(duplicates.keys())[:5]}"
+                + (f" and {len(duplicates) - 5} more" if len(duplicates) > 5 else ""))
+        notes.append(note)
+        log(f"  WARNING {note}")
+
+    if not cfs:
+        raise RuntimeError(
+            f"[{category}] No CFs matched any biosphere UUID — method would be empty. "
+            f"Check FEDEFL version alignment between lciafmt and "
+            f"setup/01_setup_biosphere_fedefl.py."
+        )
+    m.write(cfs)
+
+    total = len(cfs) + len(unmatched)
+    pct = 100 * len(unmatched) / total if total > 0 else 0
+    match_msg = f"  ✓ {category}: {len(cfs)}/{total} flows matched"
+    if unmatched:
+        match_msg += f" ({pct:.1f}% unmatched: {', '.join(unmatched[:5])}"
+        match_msg += ", ..." if len(unmatched) > 5 else ")"
+        if len(unmatched) > 5:
+            match_msg += f" and {len(unmatched) - 5} more)"
+    log(match_msg)
+
+    return method_key, cfs, unit, unmatched, notes
+
+
 def import_traci(*, eutro_location=EUTRO_LOCATION, unit_overrides=None,
                  project=PROJECT_NAME, log=_NOOP) -> TraciBuild:
     """Fetch TRACI 2.2 via lciafmt and register one brightway Method per category.
@@ -176,76 +317,9 @@ def import_traci(*, eutro_location=EUTRO_LOCATION, unit_overrides=None,
             f"'{BIOSPHERE_DB}' not found. Run setup/01_setup_biosphere_fedefl.py first."
         )
 
-    log("Fetching TRACI 2.2 from lciafmt...")
-    method      = lciafmt.Method.TRACI2_2
-    method_meta = method.get_metadata()
-    traci_raw   = lciafmt.get_method(method)   # downloads + caches the CF source files
-
-    provenance = cf_provenance(method_meta)    # cached files now exist -> real hashes
-    log("\n--- TRACI CF provenance ---")
-    for key, value in provenance.items():
-        log(f"  {key}: {value}")
-    log("---------------------------\n")
-    enforce_cf_hashes(method_meta, log=log)    # STOP if either CF file changed (ledger #4)
-    log(f"  {len(traci_raw)} raw characterization factors retrieved.")
-
-    # map_flows() is required — it replaces raw source flow names with FEDEFL UUIDs.
-    # Without this step, Flow UUID contains source-format IDs that won't match the
-    # biosphere database.
-    mapping_system = method_meta.get("mapping")
-    log(f"  Applying FEDEFL flow mappings (system: '{mapping_system}')...")
-
-    # First call preserves unmapped rows so we can identify exactly which dropped.
-    traci_all = lciafmt.map_flows(traci_raw, system=mapping_system, preserve_unmapped=True)
-    traci     = lciafmt.map_flows(traci_raw, system=mapping_system, preserve_unmapped=False)
-
-    dropped = traci_all[traci_all[UUID_COLUMN].isna() | (traci_all[UUID_COLUMN] == "")]
-    log(f"  {len(traci_raw)} raw factors → {len(traci)} mapped "
-        f"({len(dropped)} dropped at name→UUID step).")
-
-    dropped_detail = (dropped.groupby(["Indicator", "Flowable"])
-                             .size()
-                             .reset_index(name="count")
-                             .sort_values(["Indicator", "count"], ascending=[True, False]))
-    if len(dropped):
-        log("  Dropped flows by category (see build.dropped_detail for the full list):")
-        for indicator, count in dropped_detail.groupby("Indicator")["count"].sum().items():
-            log(f"    {indicator}: {count} factor(s) dropped")
-
-    # TRACI 2.2 eutrophication uses spatially-explicit CFs (national + US-state +
-    # county-level), so each FEDEFL UUID gets many entries. Without filtering,
-    # bw2calc sums all spatial variants and inflates the characterization matrix
-    # massively.
-    #
-    # Location semantics (lciafmt output; cross-checked against the lcacommons TRACI
-    # 2.2 openLCA JSON, category files under lcia_categories/):
-    #   ""      = generic / non-located CF  (== the openLCA `location: null` factor)
-    #   "00000" = US national average       (== the openLCA US-country factor)
-    #   FIPS codes (e.g. "48001") = county-level; country names = international
-    #
-    # Non-eutrophication categories have ONLY Location=="" rows (no spatial variants)
-    # — which is exactly why they already validate 1:1 against openLCA. For
-    # eutrophication we mirror that: match the non-located USLCI inventory flows to
-    # the non-located (generic) CF, driven by eutro_location (default ""), for
-    # openLCA parity. The US-national variant ("00000") is a ~2.775x higher
-    # freshwater CF and a ~0.15x lower marine CF than generic — real TRACI values,
-    # but they DIVERGE from the openLCA reference (which uses generic). See DEVLOG
-    # "Eutrophication regionalization."
-    eutro_mask = traci["Indicator"].str.contains("Eutrophication")
-    traci = traci[
-        (~eutro_mask & (traci["Location"] == "")) |
-        ( eutro_mask & (traci["Location"] == eutro_location))
-    ]
-    log(f"  {len(traci)} factors after location filter "
-        f"(non-eutro: generic ''; eutro: '{eutro_location}').")
-    log(f"  Indicators: {sorted(traci['Indicator'].unique())}\n")
-
-    missing_cols = REQUIRED_COLUMNS - set(traci.columns)
-    if missing_cols:
-        raise RuntimeError(
-            f"lciafmt output missing expected columns: {missing_cols}\n"
-            f"  Actual columns: {list(traci.columns)}"
-        )
+    traci_raw, method_meta, provenance = fetch_traci(log=log)
+    traci, dropped_detail = map_to_fedefl(traci_raw, method_meta.get("mapping"), log=log)
+    traci = filter_locations(traci, eutro_location, log=log)
 
     # Index of all UUIDs in the FEDEFL biosphere database
     bio_uuids = {act["code"] for act in bd.Database(BIOSPHERE_DB)}
@@ -258,60 +332,14 @@ def import_traci(*, eutro_location=EUTRO_LOCATION, unit_overrides=None,
 
     for category in categories:
         group = traci[traci["Indicator"] == category].copy()
-        method_key = METHOD_ROOT + (category,)
-
-        # Clear any existing version
-        m = bd.Method(method_key)
-        if method_key in bd.methods:
-            m.deregister()
-
-        unit = _resolve_unit(category, group, unit_overrides, log)
-        m.register(unit=unit, description=f"TRACI 2.2 – {category}")
-
-        cfs_dict = {}    # uuid -> cf; last value wins if duplicates exist
-        duplicates = {}  # uuid -> count of extra occurrences
-        unmatched = []
-        for _, row in group.iterrows():
-            uuid = row[UUID_COLUMN]
-            cf   = row.get(CF_COLUMN, None)
-            if pd.isna(uuid) or cf is None or pd.isna(cf):
-                continue
-            if uuid in bio_uuids:
-                if uuid in cfs_dict:
-                    duplicates[uuid] = duplicates.get(uuid, 1) + 1
-                cfs_dict[uuid] = float(cf)
-            else:
-                unmatched.append(row.get("Flowable", uuid))
-        cfs = [((BIOSPHERE_DB, uuid), cf) for uuid, cf in cfs_dict.items()]
-        if duplicates:
-            note = (f"[{category}]: {len(duplicates)} UUID(s) had duplicate CF entries "
-                    f"— kept last value. Duplicates: {list(duplicates.keys())[:5]}"
-                    + (f" and {len(duplicates) - 5} more" if len(duplicates) > 5 else ""))
-            notes.append(note)
-            log(f"  WARNING {note}")
-
-        if not cfs:
-            raise RuntimeError(
-                f"[{category}] No CFs matched any biosphere UUID — method would be empty. "
-                f"Check FEDEFL version alignment between lciafmt and "
-                f"setup/01_setup_biosphere_fedefl.py."
-            )
-        m.write(cfs)
-        methods.append(method_key)
+        key, cfs, unit, unmatched, cat_notes = write_method(
+            category, group, bio_uuids, unit_overrides, log=log)
+        methods.append(key)
         cf_counts[category] = len(cfs)
         units[category] = unit
+        notes += cat_notes
         total_matched   += len(cfs)
         total_unmatched += len(unmatched)
-
-        total = len(cfs) + len(unmatched)
-        pct = 100 * len(unmatched) / total if total > 0 else 0
-        match_msg = f"  ✓ {category}: {len(cfs)}/{total} flows matched"
-        if unmatched:
-            match_msg += f" ({pct:.1f}% unmatched: {', '.join(unmatched[:5])}"
-            match_msg += ", ..." if len(unmatched) > 5 else ")"
-            if len(unmatched) > 5:
-                match_msg += f" and {len(unmatched) - 5} more)"
-        log(match_msg)
 
     log(f"\nDone. {total_matched} total CFs written across {len(categories)} methods.")
     if total_unmatched:
@@ -321,7 +349,8 @@ def import_traci(*, eutro_location=EUTRO_LOCATION, unit_overrides=None,
     return TraciBuild(
         methods=methods, cf_counts=cf_counts, units=units,
         total_matched=total_matched, total_unmatched=total_unmatched,
-        dropped_count=len(dropped), dropped_detail=dropped_detail,
+        dropped_count=int(dropped_detail["count"].sum()) if len(dropped_detail) else 0,
+        dropped_detail=dropped_detail,
         eutro_location=eutro_location, provenance=provenance, notes=notes,
     )
 

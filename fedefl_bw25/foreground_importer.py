@@ -34,7 +34,10 @@ CSV schema (one row per exchange, one file for all foreground processes):
 import csv
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+
+_NOOP = lambda *a, **k: None          # noqa: E731  — default `log`
 
 # Stable project-specific namespace for foreground process UUIDs.
 FOREGROUND_NS = uuid.UUID("7d3e2a91-4f8c-5b6d-9e0f-1a2b3c4d5e6f")
@@ -147,26 +150,8 @@ def fg_uuid(process_name: str) -> str:
     return str(uuid.uuid5(FOREGROUND_NS, process_name.strip().lower()))
 
 
-def load_foreground_csv(csv_path, bio_db, uslci_db):
-    """
-    Parse and validate a foreground inventory CSV.
-
-    Parameters
-    ----------
-    csv_path : str or Path
-    bio_db   : brightway Database object for "biosphere-fedefl"
-    uslci_db : brightway Database object for "uslci-subset"
-
-    Returns
-    -------
-    dict  {process_name: {"uuid": str, "exchanges": [row_dict, ...]}}
-
-    Raises
-    ------
-    FileNotFoundError  if csv_path does not exist
-    ValueError         if any required columns are missing
-    ValueError         if any validation errors are found (all collected before raising)
-    """
+def read_rows(csv_path):
+    """The CSV's data rows, with the column contract enforced."""
     path = Path(csv_path)
     if not path.exists():
         raise FileNotFoundError(f"Foreground CSV not found: {csv_path}")
@@ -187,172 +172,242 @@ def load_foreground_csv(csv_path, bio_db, uslci_db):
 
     if not rows:
         raise ValueError(f"Foreground CSV '{path}' contains no data rows (header only).")
+    return rows
 
-    # Build lookup sets from brightway DBs once (avoids repeated iteration).
-    bio_codes       = {act["code"]: act.get("unit", "") for act in bio_db}
-    # Unit as well as code: a technosphere amount is applied against the
-    # provider's reference unit, so converting to it requires knowing it.
-    uslci_proc_units = {act["code"]: act.get("unit", "") for act in uslci_db}
-    uslci_proc_codes = set(uslci_proc_units)
 
-    # Group rows by process_name; collect lineno for error messages.
+def group_by_process(rows):
+    """Rows grouped by process_name as {name: [(lineno, row), ...]}, plus errors.
+
+    Line numbers are carried from here on so every later message can name the row
+    the operator actually has to fix.
+    """
     groups = defaultdict(list)
-    errors   = []
-    warnings = []
+    errors = []
     for i, row in enumerate(rows, start=2):  # row 1 = header
         pname = row["process_name"].strip()
         if not pname:
             errors.append(f"Row {i}: process_name is empty")
             continue
         groups[pname].append((i, row))
+    return groups, errors
 
-    # Pre-build foreground UUID set so cross-process links can be validated
-    # before processing each group individually.
-    fg_uuids    = {name: fg_uuid(name) for name in groups}
-    fg_uuid_set = set(fg_uuids.values())
 
-    # Reference unit of each foreground process, taken from its own production
-    # row, so a foreground-to-foreground link converts on the same rule as a
-    # link into USLCI. Keyed by UUID because that is what provider_uuid carries.
-    fg_ref_units = {}
-    for _name, _rows in groups.items():
-        for _lineno, _r in _rows:
-            if _r["exchange_type"].strip().lower() == "production":
-                fg_ref_units[fg_uuids[_name]] = _r["unit"].strip()
+def foreground_ref_units(groups, fg_uuids):
+    """Each foreground process's reference unit, from its own production row.
+
+    So a foreground-to-foreground link converts on the same rule as a link into
+    USLCI. Keyed by UUID because that is what provider_uuid carries.
+    """
+    ref_units = {}
+    for name, rows in groups.items():
+        for _lineno, r in rows:
+            if r["exchange_type"].strip().lower() == "production":
+                ref_units[fg_uuids[name]] = r["unit"].strip()
                 break
+    return ref_units
+
+
+def check_reference_row(process_name, group_rows):
+    """Exactly one is_ref=true row, and it has to be the production exchange."""
+    errors = []
+    ref_rows = [(i, r) for i, r in group_rows
+                if r["is_ref"].strip().lower() == "true"]
+    if len(ref_rows) != 1:
+        errors.append(
+            f"Process '{process_name}': expected exactly 1 is_ref=true row, "
+            f"found {len(ref_rows)}"
+        )
+    elif ref_rows[0][1]["exchange_type"].strip().lower() != "production":
+        errors.append(
+            f"Process '{process_name}': is_ref=true must be on the production "
+            f"exchange, but found it on a "
+            f"'{ref_rows[0][1]['exchange_type'].strip()}' row (line {ref_rows[0][0]})"
+        )
+    return errors
+
+
+def parse_row(row, lineno, *, proc_uuid, lookups):
+    """One CSV row -> (exchange dict or None, errors, warnings).
+
+    None means the row was rejected outright (an unknown exchange_type); anything
+    else comes back as an exchange even when it collected errors, so a single pass
+    can report every problem in the file rather than the first.
+    """
+    errors, warnings = [], []
+    etype         = row["exchange_type"].strip().lower()
+    flow_uuid_val = row["flow_uuid"].strip()
+    prov_uuid     = row["provider_uuid"].strip()
+    amount_raw    = row["amount"].strip()
+    unit          = row["unit"].strip()
+    is_ref        = row["is_ref"].strip().lower() == "true"
+    location      = row.get("location", "").strip() or "US"
+    comment       = row.get("comment", "").strip()
+
+    if etype not in VALID_EXCHANGE_TYPES:
+        errors.append(
+            f"Row {lineno}: invalid exchange_type '{etype}' "
+            f"— must be one of {sorted(VALID_EXCHANGE_TYPES)}"
+        )
+        return None, errors, warnings
+
+    try:
+        amount = float(amount_raw)
+    except ValueError:
+        errors.append(f"Row {lineno}: amount '{amount_raw}' is not a valid number")
+        amount = None
+
+    if amount == 0.0 and etype != "production":
+        warnings.append(
+            f"Row {lineno}: amount is 0 for a {etype} exchange "
+            f"('{row['flow_name'].strip()}') — likely a data entry error"
+        )
+
+    if etype == "biosphere":
+        if flow_uuid_val not in lookups.bio_units:
+            errors.append(
+                f"Row {lineno}: biosphere flow_uuid '{flow_uuid_val}' "
+                f"not found in biosphere-fedefl"
+            )
+        else:
+            # Convert onto the flow's reference unit. A compatibility
+            # check alone is not enough: g and kg are both mass, so a
+            # property check passes "1500 g" for a kg flow and the amount
+            # was then used as 1500 kg.
+            ref_unit = lookups.bio_units[flow_uuid_val]
+            amount, err, note = convert_to_ref_unit(amount, unit, ref_unit)
+            if err:
+                errors.append(f"Row {lineno}: {err} (flow '{flow_uuid_val}')")
+            elif note:
+                warnings.append(f"Row {lineno}: {note}")
+                unit = ref_unit
+        if prov_uuid:
+            errors.append(
+                f"Row {lineno}: biosphere exchange must have empty provider_uuid "
+                f"(got '{prov_uuid}')"
+            )
+
+    elif etype == "technosphere":
+        if not prov_uuid:
+            errors.append(
+                f"Row {lineno}: technosphere exchange requires a provider_uuid"
+            )
+        elif prov_uuid == proc_uuid:
+            errors.append(
+                f"Row {lineno}: technosphere exchange points back to its own "
+                f"process (provider_uuid == process UUID '{proc_uuid}') "
+                f"— circular dependency"
+            )
+        elif prov_uuid in lookups.uslci_units or prov_uuid in lookups.fg_uuids:
+            # Valid provider (USLCI background, or another foreground
+            # process). The amount is applied against that provider's
+            # reference unit, so convert onto it — this column was
+            # previously decorative, making "200 g" of a kg-based
+            # provider a silent 1000x error.
+            ref_unit = (lookups.uslci_units.get(prov_uuid)
+                        if prov_uuid in lookups.uslci_units
+                        else lookups.fg_units.get(prov_uuid, ""))
+            amount, err, note = convert_to_ref_unit(amount, unit, ref_unit)
+            if err:
+                errors.append(
+                    f"Row {lineno}: {err} (provider '{prov_uuid}')")
+            elif note:
+                warnings.append(f"Row {lineno}: {note}")
+                unit = ref_unit
+        else:
+            errors.append(
+                f"Row {lineno}: provider_uuid '{prov_uuid}' not found in "
+                f"uslci-subset or the current foreground batch. "
+                f"If this is a foreground-to-foreground link, check that the "
+                f"provider process_name spelling matches exactly — UUIDs are "
+                f"derived from the lowercased name."
+            )
+
+    elif etype == "production":
+        if prov_uuid:
+            errors.append(
+                f"Row {lineno}: production exchange must have empty provider_uuid "
+                f"(got '{prov_uuid}')"
+            )
+        if amount is not None and amount <= 0:
+            errors.append(
+                f"Row {lineno}: production exchange amount must be > 0 "
+                f"(got {amount}) — this will cause a singular matrix in brightway"
+            )
+
+    exchange = {
+        "exchange_type": etype,
+        "flow_uuid":     flow_uuid_val,
+        "provider_uuid": prov_uuid,
+        "flow_name":     row["flow_name"].strip(),
+        "amount":        amount,
+        "unit":          unit,
+        "is_ref":        is_ref,
+        "location":      location,
+        "comment":       comment,
+    }
+    return exchange, errors, warnings
+
+
+@dataclass
+class _Lookups:
+    """What a row is validated against: reference units on both sides, and which
+    provider UUIDs exist at all."""
+    bio_units: dict      # FEDEFL flow UUID -> its reference unit
+    uslci_units: dict    # USLCI process UUID -> its reference unit
+    fg_uuids: set        # foreground process UUIDs in this batch
+    fg_units: dict       # foreground process UUID -> its reference unit
+
+
+def load_foreground_csv(csv_path, bio_db, uslci_db, log=_NOOP):
+    """
+    Parse and validate a foreground inventory CSV.
+
+    Parameters
+    ----------
+    csv_path : str or Path
+    bio_db   : brightway Database object for "biosphere-fedefl"
+    uslci_db : brightway Database object for the USLCI background
+    log      : optional callable for warnings and the parse summary
+
+    Returns
+    -------
+    dict  {process_name: {"uuid": str, "exchanges": [row_dict, ...]}}
+
+    Raises
+    ------
+    FileNotFoundError  if csv_path does not exist
+    ValueError         if any required columns are missing
+    ValueError         if any validation errors are found (all collected before raising)
+    """
+    rows = read_rows(csv_path)
+    groups, errors = group_by_process(rows)
+    warnings = []
+
+    # Foreground UUIDs up front so cross-process links can be validated before any
+    # one group is processed.
+    fg_uuids = {name: fg_uuid(name) for name in groups}
+    lookups = _Lookups(
+        # Unit as well as code on both sides: an amount is applied against the
+        # counterpart's reference unit, so converting to it requires knowing it.
+        bio_units={act["code"]: act.get("unit", "") for act in bio_db},
+        uslci_units={act["code"]: act.get("unit", "") for act in uslci_db},
+        fg_uuids=set(fg_uuids.values()),
+        fg_units=foreground_ref_units(groups, fg_uuids),
+    )
 
     processes = {}
     for process_name, group_rows in groups.items():
         proc_uuid = fg_uuids[process_name]
-
-        ref_rows = [(i, r) for i, r in group_rows
-                    if r["is_ref"].strip().lower() == "true"]
-        ref_count = len(ref_rows)
-        if ref_count != 1:
-            errors.append(
-                f"Process '{process_name}': expected exactly 1 is_ref=true row, "
-                f"found {ref_count}"
-            )
-        elif ref_rows[0][1]["exchange_type"].strip().lower() != "production":
-            errors.append(
-                f"Process '{process_name}': is_ref=true must be on the production "
-                f"exchange, but found it on a "
-                f"'{ref_rows[0][1]['exchange_type'].strip()}' row (line {ref_rows[0][0]})"
-            )
+        errors += check_reference_row(process_name, group_rows)
 
         parsed_exchanges = []
         for lineno, row in group_rows:
-            etype         = row["exchange_type"].strip().lower()
-            flow_uuid_val = row["flow_uuid"].strip()
-            prov_uuid     = row["provider_uuid"].strip()
-            amount_raw    = row["amount"].strip()
-            unit          = row["unit"].strip()
-            is_ref        = row["is_ref"].strip().lower() == "true"
-            location      = row.get("location", "").strip() or "US"
-            comment       = row.get("comment", "").strip()
-
-            if etype not in VALID_EXCHANGE_TYPES:
-                errors.append(
-                    f"Row {lineno}: invalid exchange_type '{etype}' "
-                    f"— must be one of {sorted(VALID_EXCHANGE_TYPES)}"
-                )
-                continue
-
-            try:
-                amount = float(amount_raw)
-            except ValueError:
-                errors.append(f"Row {lineno}: amount '{amount_raw}' is not a valid number")
-                amount = None
-
-            if amount == 0.0 and etype != "production":
-                warnings.append(
-                    f"Row {lineno}: amount is 0 for a {etype} exchange "
-                    f"('{row['flow_name'].strip()}') — likely a data entry error"
-                )
-
-            if etype == "biosphere":
-                if flow_uuid_val not in bio_codes:
-                    errors.append(
-                        f"Row {lineno}: biosphere flow_uuid '{flow_uuid_val}' "
-                        f"not found in biosphere-fedefl"
-                    )
-                else:
-                    # Convert onto the flow's reference unit. A compatibility
-                    # check alone is not enough: g and kg are both mass, so a
-                    # property check passes "1500 g" for a kg flow and the amount
-                    # was then used as 1500 kg.
-                    ref_unit = bio_codes[flow_uuid_val]
-                    amount, err, note = convert_to_ref_unit(amount, unit, ref_unit)
-                    if err:
-                        errors.append(f"Row {lineno}: {err} (flow '{flow_uuid_val}')")
-                    elif note:
-                        warnings.append(f"Row {lineno}: {note}")
-                        unit = ref_unit
-                if prov_uuid:
-                    errors.append(
-                        f"Row {lineno}: biosphere exchange must have empty provider_uuid "
-                        f"(got '{prov_uuid}')"
-                    )
-
-            elif etype == "technosphere":
-                if not prov_uuid:
-                    errors.append(
-                        f"Row {lineno}: technosphere exchange requires a provider_uuid"
-                    )
-                elif prov_uuid == proc_uuid:
-                    errors.append(
-                        f"Row {lineno}: technosphere exchange points back to its own "
-                        f"process (provider_uuid == process UUID '{proc_uuid}') "
-                        f"— circular dependency"
-                    )
-                elif prov_uuid in uslci_proc_codes or prov_uuid in fg_uuid_set:
-                    # Valid provider (USLCI background, or another foreground
-                    # process). The amount is applied against that provider's
-                    # reference unit, so convert onto it — this column was
-                    # previously decorative, making "200 g" of a kg-based
-                    # provider a silent 1000x error.
-                    ref_unit = (uslci_proc_units.get(prov_uuid)
-                                if prov_uuid in uslci_proc_codes
-                                else fg_ref_units.get(prov_uuid, ""))
-                    amount, err, note = convert_to_ref_unit(amount, unit, ref_unit)
-                    if err:
-                        errors.append(
-                            f"Row {lineno}: {err} (provider '{prov_uuid}')")
-                    elif note:
-                        warnings.append(f"Row {lineno}: {note}")
-                        unit = ref_unit
-                else:
-                    errors.append(
-                        f"Row {lineno}: provider_uuid '{prov_uuid}' not found in "
-                        f"uslci-subset or the current foreground batch. "
-                        f"If this is a foreground-to-foreground link, check that the "
-                        f"provider process_name spelling matches exactly — UUIDs are "
-                        f"derived from the lowercased name."
-                    )
-
-            elif etype == "production":
-                if prov_uuid:
-                    errors.append(
-                        f"Row {lineno}: production exchange must have empty provider_uuid "
-                        f"(got '{prov_uuid}')"
-                    )
-                if amount is not None and amount <= 0:
-                    errors.append(
-                        f"Row {lineno}: production exchange amount must be > 0 "
-                        f"(got {amount}) — this will cause a singular matrix in brightway"
-                    )
-
-            parsed_exchanges.append({
-                "exchange_type": etype,
-                "flow_uuid":     flow_uuid_val,
-                "provider_uuid": prov_uuid,
-                "flow_name":     row["flow_name"].strip(),
-                "amount":        amount,
-                "unit":          unit,
-                "is_ref":        is_ref,
-                "location":      location,
-                "comment":       comment,
-            })
+            exchange, row_errors, row_warnings = parse_row(
+                row, lineno, proc_uuid=proc_uuid, lookups=lookups)
+            errors += row_errors
+            warnings += row_warnings
+            if exchange is not None:
+                parsed_exchanges.append(exchange)
 
         processes[process_name] = {
             "uuid":      proc_uuid,
@@ -360,21 +415,19 @@ def load_foreground_csv(csv_path, bio_db, uslci_db):
         }
 
     if errors:
-        n = len(errors)
         raise ValueError(
-            f"Foreground CSV validation failed — {n} error(s):\n"
+            f"Foreground CSV validation failed — {len(errors)} error(s):\n"
             + "\n".join(f"  [{i + 1}] {e}" for i, e in enumerate(errors))
         )
 
-    if warnings:
-        for w in warnings:
-            print(f"  WARNING: {w}")
+    for w in warnings:
+        log(f"  WARNING: {w}")
 
     n_bio  = sum(e["exchange_type"] == "biosphere"    for p in processes.values() for e in p["exchanges"])
     n_tech = sum(e["exchange_type"] == "technosphere" for p in processes.values() for e in p["exchanges"])
     n_prod = sum(e["exchange_type"] == "production"   for p in processes.values() for e in p["exchanges"])
     n_ref  = sum(e["is_ref"]                          for p in processes.values() for e in p["exchanges"])
-    print(
+    log(
         f"  Parsed {len(processes)} process(es): {n_bio + n_tech + n_prod} exchanges "
         f"({n_bio} biosphere, {n_tech} technosphere, {n_prod} production, {n_ref} ref)"
     )
