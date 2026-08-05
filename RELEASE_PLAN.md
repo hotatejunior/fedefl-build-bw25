@@ -456,6 +456,38 @@ Two design constraints to settle before building:
   The manifest must record every overridden value, and the validation harness must keep running at
   shipped defaults so parity is never quietly compared against a re-parameterized build.
 
+### Second probe round (2026-08-05) — one invariant verified, two gaps found
+
+**Contributions arithmetic — VERIFIED CLEAN.** Nothing had ever checked that the per-process
+contributions CSV sums to the reported score, though it drives two of the four charts. Checked across
+34 runs × 10 categories (340 checks): largest relative gap **4.3e-15**, pure float accumulation, zero
+checks outside 1e-6. Recorded because a passed invariant is evidence, and this one was previously
+assumed rather than known.
+
+**Uncertainty data is silently dropped, and undocumented.** USLCI ships uncertainty on **5,740
+exchanges (7.1%) across 91 processes (6.4%)** — 5,218 lognormal, 476 triangular, 46 uniform. No
+script references the field: `setup/03`, `general/04` and `general/foreground_importer` have zero
+occurrences of `uncertainty`. Unlike `amountFormula`, which at least carries a "dropped ⚠" row,
+`SCHEMA_CROSSWALK.md` does not mention uncertainty **at all**.
+
+Two things make this different from the parameter gap. It is the missing input for the Monte Carlo
+chart already stubbed in `general/06` (`mc_results.csv`), so the feature is blocked on data the
+importer discards. And **none of the nine validated cases carry any uncertainty** — so unlike
+formulas, where four validated cases prove the stored amounts match openLCA, the parity evidence
+says nothing about this path in either direction. Minimum fix: document it as dropped. Real fix:
+carry the distributions into brightway's uncertainty fields, which is what would make the MC chart
+live.
+
+**`scenario_comparison` is unreachable through the documented workflow.** `general/04` opens the
+results CSV with mode `"w"` — every run overwrites the last — and there is no append or accumulate
+option. So a multi-scenario results CSV cannot be produced by running the pipeline; it can only be
+made by hand-concatenating files. Measured: **0 of 43** chart runs produced `scenario_comparison.png`
+(each emitted 4 charts, skipping it with "only one scenario in results CSV"); the only one that
+appeared came from a CSV concatenated manually. One of the four shipped general charts therefore has
+no supported path to its own input. Fix is small — an `--append` mode on `04`, or a `--results` glob
+on `06` — but it should come with the baseline and legend fixes above, since a genuinely multi-
+scenario CSV is what exposed those.
+
 ### Documentation (scoped 2026-08-05)
 
 Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the
