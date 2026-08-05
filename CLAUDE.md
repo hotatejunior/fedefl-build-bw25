@@ -23,12 +23,16 @@ foreground CSV or USLCI UUID → LCIA results, no openLCA dependency), and `vali
 parity harness + locked result CSVs + `VALIDATION_LOG.md`; run to reproduce the validation claim).
 
 Run once per machine, in order: `setup/00` → `setup/01` → `setup/02` → `setup/03b` → `setup/03`.
-`03b` and `03` are also callable — `inject_baseline()` / `import_uslci()` — so a rebuild can be
-scripted; both take `overwrite=True` rather than prompting.
 Then run `general/04` per study, or `validation/05` to reproduce the parity check. `setup/03b` must run before `setup/03` — it injects the electricity
 baseline background that `03`'s relink fallback resolves against. `setup/03b` auto-fetches the
 version-pinned baseline library from the Federal LCA Commons GitHub and verifies its SHA256
 (`--no-fetch` / `--library` to override).
+
+**Every step is also callable, so the whole pipeline fits in one script** —
+`examples/full_pipeline.py` is that script. Setup steps take `overwrite=True` (or a `confirm`
+callback) rather than prompting, return a build object rather than printing, and send progress to
+an optional `log`. The chain is directional: rebuilding a step renumbers brightway's internal ids,
+so everything downstream of it must be rebuilt too or the next solve goes non-square.
 
 Scripts can be invoked from any directory: default output locations (`lca_results.csv`,
 `lca_contributions.csv`, `charts/`) anchor to the repo root via `config.REPO_ROOT`. Paths passed
@@ -36,14 +40,18 @@ explicitly on the CLI resolve against the CWD, as is standard.
 
 | Script | Role |
 |--------|------|
-| `fedefl_bw25/` | **The importable package** — the pure, side-effect-free core (`config`, `allocation`, `olca_library`, `vintage_detect`, `foreground_importer`, `run_manifest`, `chart_units`). No brightway dependency; `pip install -e .` to use. The numbered scripts below are CLI front-ends over it |
-| `fedefl_bw25/run.py` | Module — `run_lca()` returns an `LcaRun` instead of writing files; the callable core behind `general/04`. The one package module that imports brightway |
+| `fedefl_bw25/` | **The importable package** — every step of the pipeline as a function, plus the pure helpers (`config`, `allocation`, `olca_library`, `vintage_detect`, `foreground_importer`, `run_manifest`, `chart_units`, `setup_conversions`), which are brightway-free and unit-test without a built database. `pip install -e .` to use. The numbered scripts below are CLI front-ends over it |
+| `examples/full_pipeline.py` | **The whole pipeline in one file** — conversion table → biosphere → TRACI → baseline → USLCI → a multi-target study, as library calls. Idempotent (each step's `…Exists` means "skip"); `--rebuild` redoes the whole chain. Meant to be copied and edited |
+| `fedefl_bw25/run.py` | Module — `run_lca()` returns an `LcaRun` instead of writing files; the callable core behind `general/04` |
 | `fedefl_bw25/setup_uslci.py` | Module — `import_uslci()` behind `setup/03`; **builds the database the locked validation is computed against**, so treat any change as a validation event (rebuild both builds, re-run the gate) |
 | `fedefl_bw25/setup_baseline.py` | Module — `inject_baseline()` behind `setup/03b`; scans sources, decodes the openLCA library, writes the baseline. Prints nothing and never prompts (`overwrite=` / `confirm=`) |
 | `fedefl_bw25/config.py` | Shared identifiers (`PROJECT_NAME`, `BIOSPHERE_DB`, `USLCI_DB`, `USLCI_FULL_DB`, `ELECTRICITY_BASELINE_DB`, `METHOD_ROOT`) and `REPO_ROOT` — single source of truth, imported by every script below as `from fedefl_bw25.config import ...` |
-| `setup/00_build_flow_conversion_table.py` | Parses full USLCI zip for unit conversion factors (rebuild-only; a prebuilt `uslci_flow_conversions.json` ships) |
-| `setup/01_setup_biosphere_fedefl.py` | Loads FEDEFL elementary flows into brightway |
-| `setup/02_setup_traci22.py` | Loads TRACI 2.2 CFs mapped to FEDEFL UUIDs |
+| `fedefl_bw25/setup_conversions.py` | Module — `build_conversions()` / `write_conversion_table()` / `describe_conversions()` behind `setup/00`. No brightway; unit-tested by `tests/test_setup_conversions.py` |
+| `setup/00_build_flow_conversion_table.py` | CLI front-end — parses the full USLCI zip for cross-flow-property conversion factors (rebuild-only; a prebuilt `uslci_flow_conversions.json` ships). Without `--rebuild` it only reports the committed table's provenance |
+| `fedefl_bw25/setup_biosphere.py` | Module — `import_biosphere()` behind `setup/01`. Guards the FEDEFL fetch (renamed columns, short fetch, UUID collisions); unit-tested by `tests/test_setup_biosphere.py` |
+| `setup/01_setup_biosphere_fedefl.py` | CLI front-end — loads FEDEFL elementary flows into brightway. `--yes` skips the rebuild prompt |
+| `fedefl_bw25/setup_traci.py` | Module — `import_traci()` behind `setup/02`; enforces the pinned CF-source SHA256s (ledger #4). No exists-guard: methods carry no downstream ids, so each run rewrites them. Unit-tested by `tests/test_setup_traci.py` |
+| `setup/02_setup_traci22.py` | CLI front-end — loads TRACI 2.2 CFs mapped to FEDEFL UUIDs. `--eutro-location` selects the eutrophication spatial variant (`''` = generic, the openLCA-parity default) |
 | `fedefl_bw25/olca_library.py` | Module (not standalone) — decodes openLCA library/matrix packages (e.g. the electricity baseline); no brightway dependency |
 | `fedefl_bw25/vintage_detect.py` | Module (not standalone) — reads which electricity-baseline vintage each bundle's own `defaultProvider` references point at, so `03b` can default to it. Classifies by *dominance*, not presence (the 2025 bundles each carry one stray 2026 reference). Unit-tested by `tests/test_vintage_detect.py` |
 | `setup/03b_import_electricity_baseline.py` | CLI front-end over `fedefl_bw25/setup_baseline.py` — injects the US electricity baseline as aggregated background activities, discovered from the bundles **and** the full USLCI zip; auto-fetches + hash-verifies the library. Vintage auto-detected via `fedefl_bw25/vintage_detect.py` (`--vintage` overrides; mixed-vintage hard-stops). `--yes` skips the overwrite prompt for scripted rebuilds |
@@ -120,6 +128,15 @@ practitioner.
   import normally (`from fedefl_bw25.config import ...`). Anything a test needs to reach is a
   reason to move that logic into the package: the numbered scripts are not importable (leading
   digits, and they execute on import).
+- **Package code neither prints nor prompts.** Progress goes to an optional `log` callable
+  (defaulting to a no-op); replacing an existing database takes `overwrite=True` or a `confirm`
+  callback, so a scripted build never blocks on stdin. Each step returns a build object rather
+  than printing its diagnostics — the CLI owns all console output and all file writing.
+- Extractions of a numbered script are done as a **mechanical copy-and-indent**, then verified by
+  rebuilding — not by retyping. Reconstructing `03b`'s helpers from memory introduced three silent
+  bugs; the copy-and-verify method has since been clean. For `01`/`02` the check was a build into a
+  throwaway project diffed cell-for-cell against the live one, which leaves the validated build
+  untouched.
 - Shared brightway identifiers live in `fedefl_bw25/config.py`, not redefined per script. A
   script's own local name can still differ (e.g. `setup/03_import_uslci.py`'s `USLCI_DB_NAME`) —
   import the value with `as` rather than hardcoding a fresh literal: `from fedefl_bw25.config

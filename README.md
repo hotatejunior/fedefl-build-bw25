@@ -46,6 +46,7 @@ front-ends over it.
 | Script | Role |
 |--------|------|
 | `fedefl_bw25/config.py` | Shared brightway identifiers (project, database, method names) — imported by every script |
+| `examples/full_pipeline.py` | The whole pipeline in one file — every step below as a library call, from setup through a multi-target study |
 | `setup/00_build_flow_conversion_table.py` | Parse the full USLCI zip for substance-specific unit-conversion factors (rebuild-only; ships prebuilt) |
 | `setup/01_setup_biosphere_fedefl.py` | Load FEDEFL elementary flows into brightway |
 | `setup/02_setup_traci22.py` | Load TRACI 2.2 characterization factors, mapped to FEDEFL UUIDs |
@@ -55,9 +56,12 @@ front-ends over it.
 | `general/06_visualize.py` | Charts from `04`'s CSVs (no brightway dependency) |
 | `validation/05_validate_uslci.py` | Parity harness — diffs brightway against the locked openLCA reference exports, ending in a PASS/FAIL replication gate |
 
-Supporting modules (not run directly): `fedefl_bw25/allocation.py`, `fedefl_bw25/olca_library.py`,
-`fedefl_bw25/vintage_detect.py`, `fedefl_bw25/foreground_importer.py`, `fedefl_bw25/run_manifest.py`,
-`fedefl_bw25/chart_units.py`. All are unit-tested under `tests/`.
+Every script above is a thin front-end over a package function — `import_biosphere()`,
+`import_traci()`, `inject_baseline()`, `import_uslci()`, `run_lca()` — so the whole pipeline can be
+configured and run from a single script instead of five invocations. Supporting modules (not run
+directly): `fedefl_bw25/allocation.py`, `fedefl_bw25/olca_library.py`, `fedefl_bw25/vintage_detect.py`,
+`fedefl_bw25/foreground_importer.py`, `fedefl_bw25/run_manifest.py`, `fedefl_bw25/chart_units.py`.
+All are unit-tested under `tests/`.
 
 A practitioner brings a foreground inventory as CSV, pulls the relevant background processes from
 LCA Commons, and gets TRACI results on a fully open stack — the classic brightway workflow, made
@@ -127,6 +131,15 @@ python setup/02_setup_traci22.py                 # TRACI 2.2 methods (downloads 
 python setup/03b_import_electricity_baseline.py  # electricity background (auto-fetches)
 python setup/03_import_uslci.py                  # USLCI processes
 ```
+
+Or do all five — and the analysis in step 4 — from one script:
+
+```bash
+python examples/full_pipeline.py
+```
+
+It builds whatever is missing, skips what already exists, and runs a study across several
+processes. Copy it and edit the CONFIGURE block for your own work; see HOWTO.md §4.
 
 ### 4. Run an analysis
 

@@ -19,15 +19,18 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-# The importable core is deliberately thin: numpy and scipy only (olca_library
-# decodes the baseline's sparse matrices). It does NOT depend on brightway —
-# allocation, run_manifest, chart_units, vintage_detect and foreground_importer
-# all operate on plain Python data supplied by the caller, which is why they
-# unit-test without a built database. The scripts that DO drive brightway are
-# CLI front-ends; their stack is pinned in environment.yml, because the EPA
-# packages (fedelemflowlist, lciafmt) are not on PyPI and install only from
-# GitHub at specific commits. Declaring them here would be a second, drifting
-# source of truth for the versions the validation was computed against.
+# Declared dependencies are deliberately thin: numpy and scipy only (olca_library
+# decodes the baseline's sparse matrices). Brightway, fedelemflowlist and lciafmt
+# are NOT declared here even though run/setup_biosphere/setup_traci/setup_baseline/
+# setup_uslci import them — that stack is pinned in environment.yml, because the
+# EPA packages are not on PyPI and install only from GitHub at specific commits.
+# Declaring them here would be a second, drifting source of truth for the versions
+# the validation was computed against.
+#
+# What numpy+scipy alone buys: allocation, run_manifest, chart_units,
+# vintage_detect, foreground_importer, olca_library and setup_conversions import
+# and unit-test with no brightway present, since they operate on plain data
+# supplied by the caller.
 dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]

@@ -315,9 +315,9 @@ Two defects surfaced and were fixed, both invisible under the bundle build:
    at all, 2 have all-zero amounts). Not a stop; those 10 are honest answers, badly presented.
 4. **Process discovery** (`--search` / `--list` by name) — the felt half of the feature; today you
    need the 36-char UUID. ~1–2 days, the largest remaining piece.
-5. **Tests for `03b`.** It has none, before or after this work. Its pure logic lives in
-   `vintage_detect.py` and is tested there; `find_full_db_zip` and the union-merge are script-level,
-   verified only end-to-end by a rebuild-and-gate cycle.
+5. ~~**Tests for `03b`.**~~ DONE 2026-08-05 as a side effect of the extraction — its logic moved to
+   `fedefl_bw25/setup_baseline.py` and became reachable, so `tests/test_setup_baseline.py` now covers
+   provider discovery (the gap behind the 42 silent zeros) and the vintage config.
 6. **Decide whether full-DB mode is a supported feature or stays opt-in.** Today: an env var, absent
    from the README, with the vintage forced to 2025 by the full zip.
 
@@ -504,6 +504,44 @@ evaluator:
   cannot reach the locked comparison and there is no false-PASS mechanism to guard. The locked
   results are pinned to frozen inputs regardless (see the validation-build/working-build split
   above).
+
+### Packaging — the whole pipeline in one file (DONE 2026-08-05)
+
+The workflow was "run five numbered scripts in order, then one per study." It is now "configure and
+run the pipeline from a single script," which is the shape a programmable engine needs. Five
+extractions, each a thin CLI left over a package function:
+
+| Script | Was | Now | Package module |
+|---|---|---|---|
+| `general/04` | 750 | 181 | `run.py` — `run_lca()` → `LcaRun` |
+| `setup/03b` | 474 | 69 | `setup_baseline.py` — `inject_baseline()` |
+| `setup/03` | 1036 | 78 | `setup_uslci.py` — `import_uslci()` |
+| `setup/00` | 255 | 85 | `setup_conversions.py` — `build_conversions()` |
+| `setup/01` | 179 | 59 | `setup_biosphere.py` — `import_biosphere()` |
+| `setup/02` | 301 | 56 | `setup_traci.py` — `import_traci()` |
+
+Two conventions make the result scriptable rather than merely importable: package code **prints
+nothing** (progress goes to an optional `log`) and **prompts for nothing** (`overwrite=` /
+`confirm=`), and every step returns a build object instead of writing files, so a caller can assert
+on what it got. `examples/full_pipeline.py` is the deliverable — setup through a multi-target study
+in one file, idempotent, `--rebuild` to redo the chain.
+
+**Method note, learned the hard way.** Reconstructing `03b`'s helpers from memory introduced three
+silent bugs (a dropped `not exc.get("isInput")`, a location read from the wrong field, and
+`reference_product_flow_uuid` taken from `ref.get("flow")` instead of `ref.get("id")` — load-bearing
+for `03`'s relink). Every extraction since has been a **mechanical copy-and-indent** verified by
+rebuild: `03` by dedenting the extracted body and diffing it against the original (105 differing
+lines, 76 of them `print(` → `log(`, 29 exactly the intended changes), then rebuilding both
+databases; `00` by rebuilding the conversion table to a scratch path (byte-identical apart from
+`generated_at`); `01`/`02` by building into a **throwaway brightway project** and diffing it
+cell-for-cell against the live one — 332,133 flows at an identical content hash, all 10 TRACI methods
+identical in unit, CF count and CF content hash — which verifies the extraction without disturbing
+the validated build. Gate PASS 60/60 after, locked CSVs byte-identical, 123 tests.
+
+Left as-is deliberately: `_meta.flow_count` in the conversion table is off by one (the dict literal
+is evaluated before `_meta` is assigned, so the `-1` undercounts). Carried over verbatim so a rebuild
+still reproduces the committed table byte-for-byte; nothing reads the field — `setup/03` pins
+`source_zip_sha256`. Worth fixing in a commit that regenerates the table.
 
 ### Documentation (scoped 2026-08-05)
 

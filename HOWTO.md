@@ -348,7 +348,41 @@ import_uslci(full_db=True, overwrite=True)          # and the whole database
 totals, the source identity (zip names + SHA256) and the sidecar path — the same
 diagnostics the script prints, as data you can assert on.
 
-### What's still script-only
+### The whole pipeline in one file
 
-`setup/00`, `01` and `02` remain scripts. They are one-shot and rarely re-run, so
-they are lower value to extract than the two that rebuild per vintage.
+Every step is callable, so a bare machine to finished results is one script.
+`examples/full_pipeline.py` is that script, ready to copy and edit; in outline:
+
+```python
+from fedefl_bw25.setup_biosphere import import_biosphere
+from fedefl_bw25.setup_traci import import_traci
+from fedefl_bw25.setup_baseline import inject_baseline
+from fedefl_bw25.setup_uslci import import_uslci
+from fedefl_bw25.run import run_lca, write_results_csv
+
+import_biosphere(overwrite=True)                 # 01  FEDEFL flows
+import_traci()                                   # 02  TRACI 2.2 methods
+inject_baseline(vintage="2026", overwrite=True)  # 03b electricity background
+import_uslci(full_db=True, overwrite=True)       # 03  the USLCI database
+
+for label, uuid in targets.items():
+    run = run_lca(uuid=uuid, database="uslci-full", scenario=label)
+    write_results_csv(run, "study.csv", append=True)
+```
+
+Order matters and the chain is directional: `01` → `03b` → `03`. Rebuilding a step
+renumbers brightway's internal ids, so everything downstream of it must be rebuilt
+too or the next solve fails with a non-square technosphere matrix. Rebuild the
+whole chain, not a piece of it.
+
+Two steps behave differently on purpose. `setup/00`'s conversion table ships
+committed and is not rebuilt here — it needs the full USLCI zip, and changing it is
+a validation event; `describe_conversions()` reports what is on disk, and
+`build_conversions()` + `write_conversion_table()` rebuild it when you mean to.
+`import_traci()` has no exists-guard and simply rewrites its methods: they carry no
+downstream ids, so there is nothing for a rebuild to invalidate.
+
+Each returns a build object rather than printing — `BiosphereBuild.flow_count`,
+`TraciBuild.total_matched`, `BaselineBuild.vintage`, `UslciBuild.totals` — so a
+scripted build can assert on what it got. Pass `log=print` for the console output
+the scripts produce.

@@ -69,6 +69,13 @@ class LcaRun:
                 return r["score"]
         raise KeyError(f"{method_name!r} not among {[r['method'] for r in self.results]}")
 
+    def unit(self, method_name):
+        """Indicator unit for one category ('kg CO2 eq'). Per `functional_unit`."""
+        for r in self.results:
+            if r["method"] == method_name:
+                return r["unit"]
+        raise KeyError(f"{method_name!r} not among {[r['method'] for r in self.results]}")
+
     def as_dict(self):
         return {r["method"]: r["score"] for r in self.results}
 
