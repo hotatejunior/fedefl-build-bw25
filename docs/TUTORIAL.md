@@ -119,7 +119,7 @@ A USLCI process declares its own reference unit, and it is often not the one you
 that 668.532 by diesel's density of 849 kg/m³ and you get 0.787 kg CO₂-eq per kg — the same process,
 the same data, a number 849 times smaller. Neither is wrong. They answer different questions.
 
-This is the most common way to misread a result, so the runner states the basis in three places: the
+Misreading this is easy and cost real debugging time on this project, so the runner states the basis in three places: the
 console header above, a `functional_unit` column in both CSVs, and the `target` block of the
 manifest. There is deliberately no `--basis` flag, because rescaling silently is how the mistake
 happens. To change the basis, either divide afterwards and say so in your write-up, or wrap the
@@ -175,7 +175,7 @@ run stops rather than guessing.
 
 ## 7. Check it by hand
 
-Do this once, on your own inventory. It is the cheapest way to confirm you linked what you think you
+Do this once, on your own inventory. It is a quick way to confirm you linked what you think you
 linked.
 
 The assembly's score is its own emissions, characterized, plus its inputs' scores:
@@ -211,7 +211,7 @@ refuses to plot scenarios whose functional units differ, so a "1 m3" result cann
 
 `validation_manifest.json` records what stood behind the result: which USLCI release, its content
 hash, the electricity-baseline vintage, package versions, and how much of the solved supply chain
-was cut. A reviewer will ask, and the run already answered.
+was cut. If anyone asks what a result stood on, the run already recorded it.
 
 ## 10. Where next
 

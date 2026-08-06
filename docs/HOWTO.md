@@ -17,7 +17,7 @@ v1.2026-06.0 with the 2026 electricity baseline.
 ## 1. Functional units
 
 **Every result is per one unit of the target's reference product, and that unit comes from the
-data, not from you.** It is the single most common way to misread a result, so `general/04` states
+data, not from you.** Misreading it is an easy mistake to make, so `general/04` states
 it in three places: the console target block, a `functional_unit` column in both output CSVs, and
 the `target` block of `validation_manifest.json`.
 
@@ -261,7 +261,7 @@ with no producer in USLCI. The counts tell you how much.
 
 > **Known gap.** For a *USLCI process* target there is no foreground-only switch. The harness has
 > `--mode direct` for exactly this, but `general/04` has no equivalent, so the trick above (a
-> foreground CSV with no technosphere rows) is the only route today. Tracked in RELEASE_PLAN Phase 6.
+> foreground CSV with no technosphere rows) is the only route today. Tracked in [`ROADMAP.md`](ROADMAP.md).
 
 ---
 

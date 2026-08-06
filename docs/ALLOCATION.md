@@ -31,7 +31,7 @@ are. Scaling both would divide the burden out twice.
 > whether you should have used substitution instead — is your judgment call, not the engine's. See
 > [What this means for you](#8-what-this-means-for-you).
 
-Allocation is the hardest part of the import, for three reasons. The two data models disagree about
+Allocation was the hardest part of this import to get right, for three reasons. The two data models disagree about
 shape, so the mismatch has to be resolved somewhere. The source data is not self-consistent: one
 process can ship three competing sets of factors, and only the declared method says which governs.
 And a wrong factor produces a plausible-looking number with no crash and no warning, which is how the
@@ -289,8 +289,8 @@ history is in `validation/VALIDATION_LOG.md` (2026-07-17 → 2026-07-21).
   the *declared* method.
 - **Causal co-products appear as extra activities.** Seeing `… [causal co-product: …]` in a
   contribution listing is expected, not a bug — see section 1(b).
-- **Allocation is where you should push back hardest.** It is the least mechanical part of the
-  pipeline and the part where a defensible study most often diverges from the database default.
+- **Allocation is worth scrutinising before anything else here.** It is the least mechanical part
+  of the pipeline, and the choice USLCI declares may not be the one your study wants.
 
 ---
 
