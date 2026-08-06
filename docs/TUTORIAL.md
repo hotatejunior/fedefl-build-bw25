@@ -40,18 +40,17 @@ mkdir -p source_data
 python examples/full_pipeline.py --setup-only
 ```
 
-Each step says what it produced. On a 2023 MacBook Pro, with the impact-method files already
-cached:
+Four steps run in order, each reporting what it produced:
 
-| Step | What it builds | Time |
-|---|---|---|
-| `01` | 332,133 FEDEFL elementary flows | 26s |
-| `02` | 10 TRACI 2.2 methods, 200,699 characterization factors | 90s |
-| `03b` | US electricity baseline, 17 background activities | 11s |
-| `03` | USLCI, 1,455 activities | 10s |
+| Step | What it builds |
+|---|---|
+| `01` | 332,133 FEDEFL elementary flows |
+| `02` | 10 TRACI 2.2 methods, 200,699 characterization factors |
+| `03b` | US electricity baseline, 17 background activities |
+| `03` | USLCI, 1,455 activities |
 
-The first run on a machine is slower: `02` downloads the EPA impact-method files, and `03b` fetches
-a 167 MB baseline library and checks it against a pinned hash. Both are cached afterwards.
+On a first run `02` downloads the EPA impact-method files and `03b` fetches a 167 MB baseline
+library, checking it against a pinned hash. Both are cached afterwards.
 
 Watch for this line, which tells you which electricity grid your results will stand on:
 
