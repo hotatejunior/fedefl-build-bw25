@@ -125,7 +125,8 @@ trust case deliberately does not rest on who typed it.
 
 `setup/` builds the databases once per machine, `general/` runs studies, `validation/` reproduces
 the parity claim, and `fedefl_bw25/` is the package the numbered scripts front. Pinned versions are
-in [`environment.yml`](environment.yml); developer notes in [`CLAUDE.md`](CLAUDE.md).
+in [`environment.yml`](environment.yml); engine design decisions in
+[`docs/DEVLOG.md`](docs/DEVLOG.md).
 
 ## What's next
 

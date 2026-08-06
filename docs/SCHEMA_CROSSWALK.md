@@ -3,7 +3,7 @@
 How `setup/03_import_uslci.py` maps the openLCA JSON-LD process schema onto the brightway `db_data`
 schema, field by field — and, more importantly, **how it resolves the places where the two data
 models don't line up.** Read alongside [`DEVLOG.md`](DEVLOG.md) (design decisions) and
-[`CLAUDE.md`](../CLAUDE.md) (pipeline overview). Line references are to `setup/03_import_uslci.py`
+[`ALLOCATION.md`](ALLOCATION.md) (multi-output handling). Line references are to `setup/03_import_uslci.py`
 unless noted.
 
 ---

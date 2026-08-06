@@ -12,6 +12,14 @@ the harness will later emit a machine-readable `validation_manifest.json` from t
 > historical; they are not the current repo's identifiers. Do not "correct" them here — the current
 > names live in `config.py`, `environment.yml`, and `validation/README.md`.
 >
+> **Addendum (2026-08-06) — this file was condensed.** Until now it was kept strictly unedited. On
+> 2026-08-06 the resolved openLCA-side operational blockers, the superseded build plan and the
+> asset checklists were removed, and the chronology was tightened, to make it readable ahead of
+> publishing the repo. **No dated entry, wrong turn, retraction or hash was dropped.** The complete
+> unedited original remains in git history and is recoverable with
+> `git log --follow -p -- validation/VALIDATION_LOG.md`, so the primary record is intact even though
+> this file is no longer it.
+>
 > **Addendum (2026-08-05).** The same applies to filenames. Entries below cite `RELEASE_PLAN.md`,
 > which was split on 2026-08-05 into `docs/ROADMAP.md` (open work) and a verbatim record inside
 > `docs/DEVLOG.md`; the cited sections are in the latter. The methodology and how-to documents moved
@@ -44,34 +52,16 @@ and openLCA's full database.
 openLCA database containing only the imported JSON-LD* — not the existing full-USLCI project — or
 the comparison is re-confounded. (Unit-process *direct* results are DB-independent and clean either way.)
 
-**Critical control (electricity baseline boundary):** The per-process bundles are **not
-self-contained for electricity**. Petroleum bundle has 7 electricity processes inline, but **11
-electricity providers point outside the bundle** — all US Electricity Baseline (eLCI) consumption
-mixes (US/MISO/PJM/ERCOT/NYISO + Canadian provincial grids). brightway imports only the bundle, so
-these become **cutoffs** (zero upstream). If openLCA mounts the Electricity Baseline library on
-import, it resolves them to full upstream electricity → **mismatched system boundaries → confounded
-comparison.** Both engines must use identical boundaries:
-- **Validation default (recommended):** do NOT mount the Electricity Baseline in openLCA; let those
-  11 mixes stay cutoff in both engines. Pipeline-fidelity comparison stays clean.
-- **Production-completeness alt:** import the Baseline JSON-LD into BOTH (brightway `03` + openLCA).
-- **Never:** openLCA *with* baseline vs brightway *without* — the one definitely-wrong config.
+**Critical control (electricity baseline boundary):** the per-process bundles are not
+self-contained for electricity. The petroleum bundle carries 7 electricity processes inline while 11
+providers point outside it, all US Electricity Baseline consumption mixes. If one engine resolves
+those and the other cuts them off, the system boundaries differ and the comparison is confounded.
 
-DECISION: **No-baseline (cutoff) configuration.** openLCA forces the Baseline library in at
-import time, so the method is: import JSON → **delete/unmount the Electricity Baseline library**
-→ **build the product system FRESH (after deletion)** → calculate → export. Order matters: a
-product system built while the library is mounted caches resolved links into the library and can
-silently keep pulling baseline background. Build it only after the library is gone.
-
-VERIFICATION (post-export): the 11 external Baseline consumption-mix provider UUIDs must be
-**absent** (or zero contribution) from the openLCA `Direct/Total upstream` process-contribution
-sheets. If any appears with nonzero contribution, baseline data lurked → re-export. The cross-engine
-Layer 2 diff is a second detector: lurking baseline shows up as electricity-upstream flows openLCA
-has but brightway lacks.
-
-External Baseline providers to check for (from petroleum bundle; expect similar in others):
-`7068192a-999c-39b6-bf66-234a294bdf92` (consumption mix - US),
-`a3685e49-...`/`2f731611-...`/`ee42bc0b-...`/`2b269627-...`/`67bd680c-...` (MISO/PJM/ERCOT/NYISO etc.),
-`379b1599-...`/`e1af8650-...`/`11c82858-...`/`7c799039-...`/`86b82e86-...` (Canadian provincial grids).
+The original decision here was to run **both** engines with the baseline unmounted, leaving those 11
+mixes as cutoffs. That was **superseded**: the locked cases are computed with the 2025 baseline
+mounted in both engines, which is why `setup/03b` exists and why a build carries exactly one vintage.
+The requirement that survived is the one that mattered — identical boundaries on both sides, never
+openLCA with the baseline against brightway without it.
 
 ## Environment versions (pinned)
 
@@ -108,77 +98,6 @@ current v00.01.014.)
   → openLCA is **not** on a different TRACI 2.2. (Full 10-category CF diff pending method JSON.)
 - brightway CF counts: GWP=1530, Acidification=221.
 
-## openLCA blocker — library deletion orphans core flow properties (OPEN)
-
-Deleting the Electricity Baseline library in openLCA breaks the import: ~2507/2521 flows turn red
-with "invalid flow property reference" and the DB won't calculate.
-
-Root cause (from on-disk bundle): the per-process JSON bundle ships **only 4 flow properties, all
-economic** (Jobs, Wages, Taxes, Producer price). It ships **no physical flow properties** — Mass
-(`93a60a56-a3c8-11da-a746-0800200b9a66`, referenced by 2200 flows), Energy, Volume, etc. come from
-openLCA **reference data**. In the broken setup that reference data was supplied by the Electricity
-Baseline library, so deleting the library removed Mass/Energy/Volume and orphaned nearly every flow.
-
-Key principle: openLCA blocks on dangling flow/flow-property refs; brightway treats an unlinked
-provider as a clean cutoff. A clean cutoff in openLCA needs the flow + its flow property to remain
-**valid** while only the **provider process** is absent. The deletion removed the flow properties
-themselves → fatal.
-
-(brightway is unaffected: `00` sourced Mass/Energy/unit data from the FULL USLCI zip into
-`uslci_flow_conversions.json`, so its unit handling never depended on the per-process bundle.)
-
-RESOLUTION:
-- **Option A — TESTED, FAILED.** Operator created the DB *with* units + flow properties, but
-  deleting the library still nuked them. Conclusion: openLCA bound the USLCI flows to the *library's*
-  flow-property objects (shadowing the DB reference data), so library deletion is destructive
-  regardless. Deleting the library is not viable. **Stop deleting the library.**
-
-New paths (keep library mounted so flow properties stay valid; match boundary another way):
-- **Path 1 — cutoff via product-system surgery.** Keep library mounted; build the product system;
-  then remove the 11 external Baseline electricity processes *from the product system* (post-build).
-  Their electricity outputs become cutoffs → matches brightway. Risk: openLCA auto-linker may re-link;
-  removal must stick through calculation. No brightway changes. Preserves the no-baseline boundary.
-- **Path 2 — include baseline on BOTH sides.** Keep library mounted, calculate as-is (with baseline);
-  import the US Electricity Baseline JSON-LD into brightway via `03` so both match *with* baseline.
-  Robust, no openLCA surgery; also the production-complete config. Requires exporting the Baseline
-  library to JSON-LD and brightway import work.
-
-DECISION: **Path 2 — include baseline on both sides.** openLCA keeps the library mounted and
-calculates as-is (electricity included); the US Electricity Baseline gets imported into brightway via
-`03` so both engines compute on identical *with-baseline* boundaries. Validation is now "with
-baseline" — still a valid pipeline comparison (identical data + boundary), and production-complete.
-
-Need from operator: the **complete** US Electricity Baseline as JSON-LD (whole library, not just the
-11 consumption mixes — their full upstream must be present in brightway too), matching the version
-openLCA mounted. Source: export the mounted library from openLCA to JSON-LD, or download the package
-from Federal LCA Commons. Record its version + SHA256 in the manifest.
-
-brightway integration to verify when data lands:
-- the 11 referenced Baseline provider UUIDs + their full upstream resolve in `flow_to_process`;
-- `uslci_flow_conversions.json` (built from full USLCI zip) covers any new Baseline flows/units, else
-  extend the conversion table;
-- Baseline likely ships economic-only flow properties (same as USLCI bundles) — brightway handles
-  units via the full-zip conversion table, so no flow-property dependency on the bundle.
-
-## Process-type composition & openLCA "preferred process type" toggle
-
-Each bundle = **~332 UNIT_PROCESS + 8 LCI_RESULT** (aggregated). The 8 LCI_RESULTs are background
-materials USLCI ships only in aggregated form: Steel (hot rolled coil, sections), Aluminum primary
-ingot, HCl, Carbon monoxide, Polyol ether, MF hardener, Forest residue. **None is also produced by
-a unit process in the bundle** → no flow has both a UP and an SP provider → the openLCA "preferred
-process type" toggle is a **no-op** for these bundles.
-
-DECISION: set openLCA toggle to **unit process** (correct intent; matches brightway's disaggregated
-solve for the 332; harmless for the 8 since no alternative exists).
-
-Symmetry confirmed: `03_import_uslci.py` does **not** filter on `processType` — imports all
-`processes/*.json` uniformly, so the 8 LCI_RESULTs become ordinary single-output background
-providers (`alloc_factor=1`), linked exactly as openLCA does. The 8 aggregates carry frozen upstream
-(incl. baked-in electricity) but from identical JSON → symmetric, and does not disturb the
-electricity-cutoff control (which governs only the 11 *live* external providers).
-
-Layer-2 harness check: confirm the 8 LCI_RESULT reference products contribute equally in both engines.
-
 ## Bundle provenance (SHA256 + target identity) — CURRENT (openlca_resources/, 2026-06-30)
 
 `shasum -a 256 <file>` on macOS. Per-process bundles carry 340–341 versioned processes; target row
@@ -210,77 +129,6 @@ bundles from the stale set are not in the current drop.)
 | `U.S._electricity_baseline_v1.2025-06.0_from_olca` | **CANONICAL baseline** — openLCA library (matrix); A 771×771, B 14818×771; the version the result exports were computed against. | `60b92381ce83f576a08cd873cf7fa587cc293421a9204ff49a6d5662d47d1f68` |
 | `U.S._electricity_baseline_v1.2026-06.0.zip` | SET ASIDE (wrong version) — library (matrix), A 947×947, regionalized 133683 flows. NOT used. | `fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143` |
 
-## Baseline integration (Path 2) — format blocker + route decision
-
-The Baseline is a **library/matrix package**, so `03`'s JSON-LD parser cannot read it. `meta.zip`
-process JSONs carry only the reference exchange (`nExch=1`); real exchanges are in `A.npz`/`B.npz`
-indexed by `index_A.bin`/`index_B.bin` (protobuf). Notably meta.zip ships its own 38 flow_properties
-+ 32 unit_groups, so a JSON-LD form would be more self-contained than the per-process bundles.
-
-- **Route A — UNAVAILABLE.** FedCommons ships the Baseline only as the library `.zip` (matrix), no
-  JSON-LD. Confirmed by operator.
-- **Route C — CHOSEN (lightweight matrix extraction).** The library is fully machine-readable:
-  `A.npz` 947×947, `B.npz` 133683×947, `INV.npy` 947×947 (≈A⁻¹), **`M.npy` 133683×947 = openLCA's
-  pre-computed cumulative inventory** (verified: US mix `75d4be66` has B_nnz=0 direct, M_nnz=125,631
-  cumulative — a pure aggregator). `index_A.bin`/`index_B.bin` store UUIDs as plain strings
-  (`index_A` = 2 per process; `[0::2]` = the 947 process UUIDs). Plan: parse indices → map the
-  electricity providers' M columns → inject as **aggregated background black boxes** keyed to the
-  electricity flow, exactly how openLCA consumes the library (pre-solved). No re-solve asymmetry;
-  uses openLCA's own M. (Full Route-B unit-process reconstruction unnecessary.)
-
-### RESOLVED — wrong baseline version. Use **v1.2025-06.0** (`_from_olca`), not 2026-06.0.
-
-openLCA had both 2025-06.0 and 2026-06.0 libraries installed; the one that made it into the product
-systems (and the result exports) is **v1.2025-06.0**. Operator exported it from openLCA as
-`U.S._electricity_baseline_v1.2025-06.0_from_olca` (matrix library: A 771×771, B 14818×771, 771
-processes). Verified it contains the bundles' electricity UUIDs: `7068192a` (dominant US mix) ✓, MISO
-✓, PJM ✓, ERCOT ✓ — and NOT `75d4be66` (that's the 2026 rename). **Canonical baseline = the 2025
-`_from_olca` file.** The 2026-06.0 download is set aside (different version; would re-introduce drift).
-The UUID-drift analysis below was against the wrong (2026) library — kept for the record.
-
-Current June bundles reference 12 external electricity providers; **only 6 are in v1.2026-06.0**:
-- IN-LIB: 5 Canadian grids (BC/Quebec/Manitoba/Ontario/New Brunswick) + US mix `75d4be66`.
-- MISSING: 5 US regional FERC/ISO mixes (ERCOT/MISO/PJM/NYISO/Midcontinent) + **`7068192a`**, the
-  *dominant* US consumption mix — 85 exchanges across 77 consumers, the supply chain's workhorse
-  electricity — absent from the **entire** library (index_A/index_B/meta.zip all negative).
-
-MITIGATION (confirmed): the `7068192a` exchanges consume flow `3bca3bc6-2443-3184-8976-72dc98d258f6`
-"Electricity, AC, 120 V"; library process `75d4be66` produces that **same flow**. openLCA links by
-flow, so it re-links the dominant electricity to `75d4be66`. So the missing provider UUID is likely
-benign — but disambiguation among multiple flow-producers (regional + Canadian grids) must be
-**confirmed empirically from the openLCA result export**, not assumed.
-
-BLOCKING NEED: openLCA **result export for petroleum, with baseline mounted** — it is simultaneously
-(a) the Layer-1/3 reference and (b) ground truth for which electricity processes openLCA actually
-used and their contribution. With it: confirm electricity → `75d4be66`, match brightway's M-injection
-exactly, then run the comparison. brightway must also re-link the electricity flow (provider
-`7068192a` won't exist) to the injected library US mix — mirror openLCA's flow-based relink in `03`.
-
-## openLCA assets checklist
-
-- [x] Full-chain JSON-LD bundles (3 of 4 full-chain; steel billets is direct-only)
-- [x] TRACI 2.2 method JSON
-- [x] US Electricity Baseline (library format — needs JSON-LD form for brightway, or Route B importer)
-- [ ] Result Excels from openLCA **with baseline mounted** (Path 2): Inventory + Impacts + Impact
-      contributions by flow + upstream sheets, one per test case
-- [x] openLCA app version recorded (2.6)
-- [ ] Confirm 5th test case (or lock lineup at these 4)
-
-## openLCA result exports (with 2025 baseline, in openlca_resources/)
-
-Exported 2026-06-30 ~15:25. Each `Amount: 1.0 kg`, TRACI 2.2.
-
-| File | impact_max | inventory in/out | Status |
-|------|-----------|------------------|--------|
-| `Corn__whole_plant__at_field___US_results.xlsx` | 1.555 | 544 / 3957 | ✓ good |
-| `Portland_cement__at_plant___US_results.xlsx` | 1.334 | 544 / 3946 | ✓ good |
-| `Steel__billets__at_plant___RNA_results.xlsx` | 2.429 | 10 / 81 | ✓ good (direct-only, 1-proc bundle) |
-| `Petroleum_refining__at_refinery___US___kg_results.xlsx` | 0.796 (GWP) | 544 / 3946 | ✓ good (RE-EXPORTED 15:58, new filename; GWP 0.79597, matches kg-basis 0.793; electricity resolves) |
-
-**Electricity resolution confirmed (cement):** upstream GWP includes the full 2025-library chain
-(`Electricity - GAS - Gridforce` → generation mix → consumption mix → `7068192a` US mix). The 2025
-baseline is the version that computed these results. ✓
-
 ## Governing principle — VALIDATE, do not FIT (operator directive)
 
 The 4 test cases (petroleum, corn, cement, steel) are the locked validation set. The code must be
@@ -294,27 +142,6 @@ The 4 test cases (petroleum, corn, cement, steel) are the locked validation set.
   meta.zip cross-check) — not circular fitting.
 - New code is isolated (standalone library-importer module); audited `00`–`05` stay untouched except
   one **general** linking rule (resolve technosphere by flow when hinted provider absent).
-
-## Build plan — brightway side (Path 2, 2025 baseline via M-injection)
-
-1. **openLCA library reader — DONE & VERIFIED** (`olca_library.py`, standalone, no brightway dep).
-   General decoder for any openLCA library. Reverse-engineered protobuf: `index_A` Entry{col,
-   processRef, refProductRef}; `index_B` Entry{row, flowRef, locationRef}; Ref{id,name,category,
-   type,unit}. Non-circular self-checks: index length == matrix dim; entry order == stored position
-   (else raise); index round-trip; **M == B·A⁻¹ max rel err 4.77e-26** (confirms M = cumulative
-   inventory AND correct decode). 771 proc / 14,818 flows. `cumulative_inventory(uuid)` → {flow_uuid:
-   amount} collapsed over locations.
-   NEXT (1b): brightway injection module consumes the reader — build aggregated electricity activities
-   (production exchange + cumulative_inventory as biosphere, mapped to `biosphere-fedefl`, non-FEDEFL
-   accounted). Totals exact; contribution = one lumped electricity node vs openLCA's sub-chain (doc'd).
-2. **Flow-based relink in `03`:** bundle electricity exchanges hint provider `7068192a` etc.; ensure
-   brightway links the electricity flow to the injected library process (mirror openLCA's flow link).
-3. **Map index_B → FEDEFL: VERIFIED.** 2025 lib biosphere IS FEDEFL-keyed — 2,181/2,356 distinct
-   flow UUIDs already in `biosphere-fedefl`; ~175 misses are mostly location UUIDs (regionalized) +
-   a few cutoffs. Aggregate regionalized (flow×location) B rows to national flows to match brightway.
-   Technical nut: parse `index_B.bin` protobuf IN ROW ORDER (1.86 uuids/row = mixed flow±location
-   entries) to map each of 14,818 B rows → its FEDEFL flow UUID.
-4. **Multi-layer harness** (Layers 1/2/3) per the design section, tolerance ladder, manifest emit.
 
 ## Results log
 

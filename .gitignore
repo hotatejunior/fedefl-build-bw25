@@ -27,3 +27,7 @@ validation/validation_*_partial.csv
 
 # Editable-install metadata
 *.egg-info/
+
+# Agent working notes — kept locally, not published (see docs/ for the public docs)
+CLAUDE.md
+.claude/

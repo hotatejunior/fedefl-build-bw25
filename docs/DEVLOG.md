@@ -25,7 +25,7 @@ workflow, with no ecoinvent license required.
 - **US Electricity Baseline** injected from an openLCA *library* (pre-solved matrix) package
 
 Compartmentalized into `setup/` (one-time, per machine) and `general/` (the practitioner-facing
-engine). See CLAUDE.md for the script table and run order.
+engine). See the README for the layout and [`TUTORIAL.md`](TUTORIAL.md) for the run order.
 
 ## Key Design Choices
 
@@ -412,87 +412,6 @@ target estimates are as written at the time; several are wrong in hindsight and 
   byte-for-byte. The "proof lives in a private repo" gap is closed.
 - `validation/README.md` written — replication guide + asset manifest + honest-scope notes.
 
-### Phase 1 — Repo hygiene & legal shareability (target: ~1–2 days of work)
-
-> **Progress — 2026-07-07 session.** Items 4 (scrub + `PROJECT_NAME` rename) and 5 (`validation/` in
-> pipeline tables) DONE. The rename `asphalt-lca` → `fedefl-build-bw25` was executed, the setup chain
-> rebuilt, and the harness re-run — `validation_full_chain_results.csv` reproduced byte-for-byte
-> (empty `git diff`), confirming the project name is non-load-bearing (logged in
-> `validation/README.md`). Items 1 (LICENSE — MIT, © 2026 Harrison Watson) and 2 (CITATION.cff +
-> "Maintainer, citation & reporting issues" README section, GitHub Issues as contact) DONE. Item 3
-> (reference-data hosting) DECIDED — peers regenerate in their own openLCA; regeneration guide
-> written; hash semantics clarified. (The optional release-asset mirror was dropped at tag time —
-> see item 3.) **Phase 1 is complete.**
-
-1. **LICENSE** (blocker — without it peers legally can't touch the code). Leading candidate for an
-   openly-shared scientific tool: BSD-3-Clause or MIT; check license compatibility notes for
-   fedelemflowlist/lciafmt (both EPA/public-domain-ish) before choosing.
-2. **CITATION.cff + named maintainer/contact** in README ("report discrepancies here").
-3. **Reference-data hosting — DECIDED 2026-07-07, simplified 2026-07-23.** The peer group
-   **regenerates** the openLCA exports in their own openLCA 2.6. That is now the only path — the
-   exports are not distributed at all. Decision:
-   - **Regeneration is the primary path.** Wrote `validation/REGENERATING_REFERENCE_EXPORTS.md`
-     (openLCA session steps + the exact sheet/cell format `05` parses, distilled from
-     `VALIDATION_LOG.md`).
-   - ~~**Optional mirror = GitHub Release asset** attached to `v0.1.0-beta`~~ **DROPPED
-     2026-07-23 at tag time.** The mirror would have served a middle audience that doesn't exist:
-     a casual reader does at most one spot-check in their own openLCA, and anything reaching formal
-     peer review gets fully independent verification, where a maintainer-supplied export is
-     irrelevant either way. Running the harness against the maintainer's own export only confirms
-     the maintainer reported honestly — it produces no independent evidence. Regeneration is the
-     only documented path. Reversible: the files can be attached to the existing release at any
-     time if a peer actually wants them.
-   - **Zenodo/DOI reserved for a citable release of the whole tool later**, not for these data files.
-     **Git LFS rejected** (recurring cost + client-side `git lfs` friction for files nobody needs in
-     the working tree).
-   - **Hash semantics clarified** (`validation/README.md`): input hashes are a `shasum -c` replication
-     gate; openLCA-export hashes pin only the maintainer's distributed copy and are **not**
-     reproducible by regeneration (openLCA bakes in timestamps/ordering) — the harness tolerance
-     check is the real openLCA-side gate.
-   - The xlsx are now **git-ignored** (`validation/*.xlsx` in `.gitignore`); the 33 MB
-     `validation/Petroleum_refining__at_refinery___US_kg_basis.xlsx` is no longer at risk of being
-     committed.
-4. **Scrub lurking `asphalt-lca` references** (inventory as of 2026-07-04):
-   - `config.py` → `PROJECT_NAME = "asphalt-lca"` (the brightway project name).
-   - `QC_PROTOCOL.md` title ("Asphalt LCA Pipeline").
-   - `VALIDATION_REPORT.md` Appendix A (conda env name) and "Reproducing this" section (still says
-     harness lives in the private parent — now false, update to point at `validation/`).
-   - `validation/VALIDATION_LOG.md` — historical record; keep verbatim but add a one-line
-     provenance header rather than rewriting history.
-   - Decision needed on `PROJECT_NAME`: renaming invalidates every existing local brightway build.
-     Correct sequencing is now cheap: rename → rebuild setup chain → re-run harness → confirm
-     byte-identical CSV. Do it once, before first peer share, not after.
-5. Update README/CLAUDE.md pipeline tables to include `validation/` as a first-class directory.
-
-### Phase 2 — Messaging: honest claims + AI provenance (target: same week as Phase 1)
-
-> **Progress — 2026-07-07 session.** All four items landed. (1) Validation claim reworded to
-> "engine parity — reproduces openLCA on identical inputs" across README, VALIDATION_REPORT.md, and
-> CLAUDE.md, with study-level responsibility explicitly left to the practitioner. (2) "Provenance &
-> how this was built" section added to README. (3) The 2.0×→1.03 debugging arc + two disproven
-> theories surfaced in a new VALIDATION_REPORT.md section. (4) Steel disclosed as direct-mode (1-proc
-> bundle) in VALIDATION_REPORT.md's Honest-scope section.
-
-1. **Reword the validation claim.** What exists is *engine verification against openLCA on
-   identical inputs* (parity/benchmarking), not validation of study results against reality.
-   Precise language: "reproduces openLCA to within X on identical inputs" — trust in mechanics,
-   with study-level responsibility (allocation appropriateness, cutoffs, data vintage) explicitly
-   left with the practitioner.
-2. **Add a "Provenance & how this was built" README section** covering, in one tight passage:
-   - AI-assisted development stated plainly (Claude wrote most implementation code).
-   - Human accountability stated plainly: who defined the method decisions, directed the
-     debugging, ran the openLCA sessions, and audited each script (per `QC_PROTOCOL.md`).
-   - The governing principle from VALIDATION_LOG: **"VALIDATE, do not FIT"** — discrepancies were
-     root-caused, never tuned away; two wrong theories were disproven and are kept on the record.
-   - Where AI-authored code most warrants independent scrutiny (pointer to the ledger below).
-   - The argument that provenance is orthogonal to correctness *because* the evidence chain
-     (pinned inputs → reproducible harness → locked outputs) doesn't depend on who typed the code.
-3. **Surface the debugging arc.** The 2.0×→1.03 causal-allocation story and the disproven-theory
-   record in VALIDATION_LOG are the strongest trust artifacts in the project — currently invisible
-   in the public-facing report. Add a short "how the bugs were found" section or link.
-4. **Steel disclosure:** the steel bundle has 1 process; full-chain ≡ direct for it. Say so in
-   VALIDATION_REPORT.md rather than presenting it as a fourth full-chain case.
-
 ### Phase 3 — Validation expansion (petroleum residual CLOSED 2026-07-21) (target: ~2–3 weeks, needs openLCA operator sessions)
 
 1. **New test cases chosen to hammer allocation**, not to pad the count:
@@ -567,113 +486,26 @@ target estimates are as written at the time; several are wrong in hindsight and 
 > discrepancy; openLCA was correct throughout. Docs corrected across README, VALIDATION_REPORT,
 > CLAUDE.md, DEVLOG, and `validation/`; the locked CSV and charts re-generated.
 
-### Phase 4 — Engineering hardening (parallel with Phase 3; all items are code edits, deliberately deferred from the 2026-07-04 session)
+### Phase 4 — Engineering hardening (DONE 2026-07-07 to 2026-07-20)
 
-> **Status: all of Phase 4 (4.1–4.5) is DONE and committed** on branch `release-prep-phase1-2` —
-> 4.1/4.2/4.3/4.5 in `34cdef8`, 4.4 in `50a0ac7`, CI + the `--mode` flag in `b0eef0a`. The
-> session-by-session notes below are kept as the work record; their "UNCOMMITTED" markers refer to the
-> state at the time of writing, not today.
->
-> **Progress — 2026-07-07 session (uncommitted at the time; landed in `34cdef8`).** Items 4.1,
-> 4.2, 4.3, 4.5 DONE and verified; 4.4 paused at a scope decision (see handoff note below). After the
-> setup/02 + setup/03 edits, the full setup chain was rebuilt and the harness re-run —
-> `validation_full_chain_results.csv` still reproduces **byte-for-byte**, so all changes are
-> behavior-preserving.
-> - **4.1 pytest suite** — DONE. New `tests/` (18 tests, all pass): `test_foreground_importer.py`
->   (12 pure-unit validation tests, no brightway), `test_olca_library.py` (5 decode self-checks vs
->   the real baseline, data-gated), `test_validation_cement.py` (cement full-chain cell vs locked
->   CSV, data-gated). `pytest.ini` added; `pytest` added to `environment.yml` as a dev dep. Scoped
->   to NOT refactor the validated `setup/03` (decision: normalize()/_allocation_for() unit tests
->   deferred — they'd need setup/03 made import-safe). CI wired 2026-07-20 (landed in `b0eef0a`):
->   **CI has run green on every push since it was wired** (confirmed 2026-07-23), which also
->   exercises the `environment.yml` build end-to-end on a clean runner — the ledger-#11 failure mode.
->   `.github/workflows/ci.yml` — unit-tests job on every push/PR (pinned env from
->   `environment.yml`, data-gated tests self-skip); validation job manual-only
->   (workflow_dispatch), probes for `source_data/` and skips with a notice when absent.
-> - **4.2 enforce TRACI CF hash** (`setup/02`) — DONE (closes ledger #4). Pins + enforces SHA256 of
->   both CF source files (base `traci_2.1.xlsx`, eutro file); hard-raises on mismatch. Also fixed a
->   latent bug: provenance logging looked up the wrong base-file cache name so it always printed
->   "not yet cached".
-> - **4.3 content/version zip precedence** (`setup/03`) — DONE (closes ledger #5). Replaced mtime
->   with per-process `(version, lastChange)` precedence (100% present in USLCI JSON); zips iterated
->   in deterministic filename order. Verified the 2 colliding UUIDs still resolve to the same copy.
-> - **4.5 unit-passthrough hard stop** (`setup/03`) — DONE (closes ledger #7). Unknown units now
->   hard-stop before the DB write (batched, reports all); opt-in `ALLOW_UNIT_PASSTHROUGH=1` to
->   permit with a warning. Current validated build hits zero unknown units, so default is safe.
-> - **4.4 per-run auditability** (`general/04`) — NOT STARTED, paused at scope decision. See handoff.
+Five hardening items, all landed and committed (`34cdef8`, `50a0ac7`, `b0eef0a`). Each was verified
+the same way: rebuild the full setup chain, re-run the harness, confirm
+`validation_full_chain_results.csv` still reproduces byte-for-byte, so the changes are
+behaviour-preserving.
 
-> **Progress — 2026-07-09 session (uncommitted at the time; landed in `50a0ac7`).** 4.4
-> IMPLEMENTED, resolving the paused scope decision toward **option B+** (the full per-*result*
-> completeness view, not just DB-level totals). Closes ledger #9 pending human end-to-end run.
-> - **`setup/03`** now persists per-process import diagnostics (bio matched/unmatched, tech
->   linked/external/unlinked/ambiguous, + `version`/`lastChange`) to `uslci_db_provenance.json`.
->   **Strictly additive** — it never touches `db_data`, so the harness must stay byte-for-byte
->   (mirrors the existing global counters into a per-process dict + one file write after the DB write).
-> - **`general/04`** emits `validation_manifest.json` alongside the results: target + scenario,
->   package versions, DB identity (activity count + `modified`, with a stale-sidecar warning), the 10
->   methods/units, solved-system size, the 10 scores, and a **per-result completeness** block that
->   crosses this result's solved supply chain (`lca.dicts.activity`) against the sidecar. Aggregated
->   background (electricity baseline) is counted but flagged as not per-exchange auditable, not
->   penalized. `--manifest` / `--no-manifest` control it.
-> - **New pure module `fedefl_bw25/run_manifest.py`** holds the completeness + assembly logic (no
->   brightway import) so it unit-tests without a built DB. **`tests/test_run_manifest.py`** (7 tests)
->   passes; full suite still green.
-> - **NOT YET VERIFIED END-TO-END** (this machine has no `source_data/`): the byte-for-byte harness
->   re-run and a real `general/04` manifest emission must be done on the data machine. Because the
->   `setup/03` change is additive-only, byte-identical is expected — but must be *shown*.
-
-> **Progress — 2026-07-13 session (data machine; uncommitted at the time, landed in `50a0ac7`).** 4.4 verification completed:
-> harness re-run → `validation_full_chain_results.csv` byte-for-byte (empty `git diff`), closing
-> ledger #9. Along the way a real UX failure surfaced: a fresh petroleum `general/04` run reads
-> ~849× the locked values because the process's reference unit is m³, not kg (the locked validation
-> is kg-basis; 849 kg/m³ is exactly the harness's `DENSITY_KG_M3` pin) — the author initially read
-> the per-m³ numbers as wrong. Fix: the functional unit ("1 m3") is now stated in `general/04`'s
-> console target block and results header, written as a `functional_unit` column in both
-> `lca_results.csv` and `lca_contributions.csv`, recorded in the manifest's `target` block, and
-> rendered in every `general/06` chart title/axis/legend (older CSVs without the column still plot).
-> Verified: 25/25 pytest, end-to-end petroleum run + chart regeneration.
-
-1. **pytest suite** wrapping the harness: cheapest first test = cement full-chain cell vs locked
-   CSV; plus pure-unit tests for `normalize()`, `_allocation_for()`, `foreground_importer`
-   validation, and `olca_library` decode self-checks. Then CI (GitHub Actions; unit tests always,
-   validation job gated on data availability).
-2. **Enforce (not just print) the TRACI CF file hash** in `setup/02` — same guard pattern as
-   `03b`'s baseline fetch. A changed upstream CF file should stop the build, not decorate a log.
-3. **Replace mtime-based duplicate-zip precedence** in `setup/03` with content hash or bundle
-   version — mtime doesn't survive copies/clones; two users with identical files can build
-   different databases.
-4. **Per-run auditability in `general/04`** (the "inspect every result" feature): emit a
-   provenance/completeness block alongside the results CSV — target UUID + bundle version, DB
-   hashes, unlinked-technosphere and unmatched-biosphere counts *for the solved system*, cutoff
-   share, package versions. VALIDATION_LOG already names the target artifact:
-   `validation_manifest.json`. Documentation twin: a "How to audit a result" guide built from
-   QC_PROTOCOL steps 5–6.
-5. **Unit passthrough → hard stop by default** in `setup/03` (opt-in flag to permit passthrough
-   with warning). An unconverted unit is a wrong number wearing a plausible one's clothes.
-
-### Phase 5 — Slow-roll release
-
-> **Progress — 2026-07-23.** PR #1 merged to `main`; `v0.1.0-beta` tagged at `6bc8e83` and published
-> as a GitHub **pre-release**, no attachments (the reference-export mirror was dropped — see Phase
-> 1.3). Verified on the merged tree before tagging: 68/68 pytest, replication gate PASS on both
-> builds (40/40 cells 2025, 60/60 cells 2026), CI green. Items 2 and 3 below are outstanding.
-
-1. ~~Tag `v0.1.0-beta`~~ **DONE 2026-07-23** — tagged and published as a pre-release.
-2. Share with 2–3 trusted peers with a specific ask: "try to break the validation replication;
-   try a study-shaped foreground CSV; tell me where you stopped trusting it."
-3. Fold feedback into VALIDATION_LOG/DEVLOG (public record of external review — more trust
-   capital). Wider release + Zenodo DOI after at least one external replication.
-
-#### Loose timeline
-
-| When | What |
-|---|---|
-| Week of Jul 6 | Phases 1 + 2 (docs, license, naming decision + rename/re-verify) |
-| Weeks of Jul 13 + 20 | Phase 3 (new bundles + openLCA sessions + loop-cut experiment); Phase 4 items 1–3 in parallel |
-| Week of Jul 27 | Phase 4 items 4–5; freeze, tag `v0.1.0-beta`, share with first peers |
-| August | Peer feedback cycle → wider release decision + Zenodo |
-
----
+1. **pytest suite + CI.** 18 tests initially, brightway-free where possible, with data-gated tests
+   for the openLCA library decode and one locked validation cell. CI has run green on every push
+   since it was wired, which also exercises the `environment.yml` build on a clean runner.
+2. **Enforce the TRACI CF hash** rather than logging it (ledger #4). A changed upstream EPA file
+   stops the build instead of decorating a log.
+3. **Replace mtime-based duplicate-zip precedence** with the process's own dataset version and
+   `lastChange` (ledger #5). mtime does not survive copies or clones, so two users with identical
+   bundles could otherwise build different databases.
+4. **Per-run auditability in `general/04`** — `validation_manifest.json`, carrying target identity,
+   database hashes, unlinked and unmatched counts for the solved system, cutoff share and package
+   versions.
+5. **Unit passthrough becomes a hard stop** by default in `setup/03`, opt-in to override (ledger #7).
+   An unconverted unit is a wrong number wearing a plausible one's clothes.
 
 ### Phase 6 — Full-database mode (opened 2026-08-03, prototype working)
 
@@ -682,113 +514,9 @@ target estimates are as written at the time; several are wrong in hindsight and 
 processes solve (zero errors, zero non-finite), and the replication gate passes on `uslci-full`
 itself, with absolute scores within 6.66e-14 of the bundle build.
 
-Two defects surfaced and were fixed, both invisible under the bundle build:
-
-- **Per-result completeness was a database-wide total.** `general/04` derived the supply chain from
-  `lca.dicts.activity` — every technosphere column, reachable or not. Fixed via
-  `run_manifest.select_supplied_keys()`. See DEVLOG.
-- **42 processes scored a silent `0.0`.** `03b` discovered providers from the bundle glob only, so a
-  full-DB build got 11 of the 17 baseline nodes it needs. Fixed by scanning the full zip too. See
-  DEVLOG.
-
-#### Candidate pieces (not scheduled)
-
-1. **Hard-stop on ambiguous links** (`setup/03`), default on with `ALLOW_AMBIGUOUS_LINKS=1` to
-   override — the `ALLOW_UNIT_PASSTHROUGH` pattern (ledger #7). An ambiguous link means the resolver
-   had candidates and declined to choose: a build defect, never a data property. Passes clean on both
-   builds today, so it can land without breaking anything.
-2. **Run-time guard in `general/04`** — refuse or warn loudly when the target's own solved chain
-   contains ambiguous links. Covers a database built with the override, or built before item 1.
-3. **Explain a zero rather than printing it bare.** When a result is 0.0 across all ten categories and
-   the target has non-zero inputs, name the cause: all its inputs are cutoffs. Measured on the current
-   full DB this fires on 10 of 1,371 — the other 84 zeros are legitimately zero (82 have no exchanges
-   at all, 2 have all-zero amounts). Not a stop; those 10 are correct answers, badly presented.
-4. ~~**Process discovery** (`--search` / `--list` by name)~~ DONE 2026-08-05, ahead of the docs
-   rewrite. Without it, step 3 of the practitioner tutorial would have read "open LCA Commons in a
-   browser and copy the UUID out of the URL". `general/04 --search`
-   now takes words in any order: the deciding case is `hdpe flake`, which appears nowhere in
-   `Recycled postconsumer high-density polyethylene, HDPE, flake; at plant` as a substring and so
-   returns nothing under a naive search. Hits in the pre-semicolon product segment rank first, which
-   is what keeps `diesel` from burying its five fuels under 219 diesel-powered transport processes.
-   Output names which build each hit is in and prints the exact command to run it. 22 tests. Took
-   about an hour, not the 1–2 days estimated.
-5. ~~**Tests for `03b`.**~~ DONE 2026-08-05 as a side effect of the extraction — its logic moved to
-   `fedefl_bw25/setup_baseline.py` and became reachable, so `tests/test_setup_baseline.py` now covers
-   provider discovery (the gap behind the 42 silent zeros) and the vintage config.
-6. **Decide whether full-DB mode is a supported feature or stays opt-in.** Today: an env var, absent
-   from the README, with the vintage forced to 2025 by the full zip.
-
-Not in scope: *under-reporting* — a non-zero result that is too low because part of its inventory was
-cut. That is endemic to LCA rather than a defect, and the per-result completeness block is the right
-instrument for it now that it reports the actual supply chain.
-
-#### Presentation & messaging defects — ALL FIXED 2026-08-05 (found by a 37-process exploratory sweep)
-
-Ran 37 processes chosen for *weirdness* rather than representativeness — the units added that day,
-dangling flow refs, unusual locations, magnitude extremes, negative results, degenerate zeros — plus
-43 chart sets. Every one solved, and the runner agreed with an independent sweep 37/37 to 1e-9. The
-defects were all in the layer the harness by construction never touches: presentation and messaging.
-None would fail a gate or a test.
-
-1. **FIXED — `impact_profile` rendered credits as burdens.** `general/06` takes `sub["score"].abs()` so the
-   log scale works, and nothing marks the sign. `Combustion of newspaper` is negative in all ten
-   categories; its chart shows ten positive bars labelled "Impact score per 1 kg". This is the
-   `isAvoidedProduct` bug's shape — a credit read as a burden — moved into the chart layer. 6 of 43
-   scenarios had ≥1 negative score; the locked tables carry 3 (steel billets). No shipped artifact is
-   currently wrong (`charts/general/` is petroleum/corn/cement), and
-   `validation/06_visualize_validation.py` plots ratios with no `abs()`, so it is unaffected.
-2. **FIXED — `general/06` silently charted an unrelated process's contributions.** With no `--contributions`
-   it falls back to the repo-root `lca_contributions.csv` and never checks it corresponds to the
-   results file. Worse, it fires *automatically*: a zero-score process makes `general/04` write no
-   contributions CSV, so the fallback engages exactly when the result is empty — and fills the
-   directory, so the failure looks like success. Three of the 37 hit this. `general/04` gained a
-   sidecar/database mismatch guard; `06` needs the equivalent.
-3. **FIXED — the zero-score warning named the wrong cause.** "all 10 TRACI scores are 0.0 — this almost
-   certainly indicates a biosphere UUID mismatch" fired on three processes whose zeros are
-   legitimate (every technosphere input is a genuine cutoff) and whose biosphere mapping is fine.
-4. **FIXED — `scenario_comparison`'s baseline was arbitrary and could be ~zero.** It plots "% of baseline"
-   against whichever scenario sorts first. With `Alfalfa hay` (GWP 0.016 kg CO2-eq/kg) as
-   denominator the y-axis reached **1e7** — fifty million percent — with no warning. `chart_units.py`
-   already guards incommensurable *units*; nothing guards an incommensurable *magnitude*. Wants an
-   explicit `--baseline`, and a refusal when the denominator is near zero.
-5. **FIXED — legend and palette were unbounded.** At 43 scenarios the legend consumed ~85% of
-   `normalized_profile`'s figure — plot squeezed to a strip, title rendered behind the legend box —
-   and ~60% of `scenario_comparison`, overlapping the tick labels. Colors cycle past the palette
-   length, so entries share swatches. Fine at the 2–4 scenarios the script was built for; degrades
-   silently past that. Wants a top-N cap with an "N others omitted" note.
-
-#### Foreground CSV unit handling — FIXED 2026-08-05
-
-The most serious defect found this session, and the only one that produced wrong
-*numbers* rather than wrong presentation. Found by probing the foreground path, which the
-2026-08-05 sweep had not touched.
-
-The `unit` column was **decorative on technosphere rows and only half-checked on biosphere rows**.
-Amounts were used verbatim against the counterpart's reference unit, so on a 2-process test
-foreground whose correct answer is 2.584981 kg CO2-eq (hand-verified against the CFs and the
-providers' own scores):
-
-| CSV row | Before | |
-|---|---|---|
-| `fishmeal, 0.2, kg` | 2.584981 | correct |
-| `fishmeal, 0.2, MJ` | 2.584981 | nonsense unit, silently ignored |
-| `fishmeal, 200, g` | **104.801** | same quantity — silent 1000× error |
-| `CO2, 1500, g` | **1501.08** | same quantity — silent 1000× error |
-
-The biosphere branch's flow-property check gave *false assurance*: it catches MJ-vs-kg but passes
-g-vs-kg, which is the likelier mistake, because both are mass. The technosphere branch — the rows
-that pull whole supply chains — had no check at all.
-
-Fix: `foreground_importer.convert_to_ref_unit()` plus a `_UNIT_TO_REF` table mirroring `setup/03`'s
-`WITHIN_FP`, applied to both branches. Same unit → untouched; same property → converted and
-reported; different property or unknown unit → hard error, per ledger #7 ("an unconverted unit is a
-wrong number wearing a plausible one's clothes"). All four cases above now return 2.584981 or refuse.
-7 new unit tests; 82 pass. The importer docstring had described `unit` as inert and now states the
-contract.
-
-**Consequence for the docs:** the "linking a foreground CSV to USLCI" tutorial below was unwritable
-before this — the honest instruction would have been "always use the provider's reference unit,
-because nothing checks."
+Two defects surfaced, both invisible under the bundle build and both recorded above:
+per-result completeness reporting database-wide totals, and 42 processes scoring a silent zero
+because baseline discovery was scoped to the bundles.
 
 #### Parameterized processes — sized 2026-08-05: a frozen capability, not a wrong number
 
@@ -839,39 +567,6 @@ today. This form was verified empirically on 2026-08-05: the two-process test fo
 `1.5·CF_CO2 + 0.02·CF_CH4 + 0.5·(subassembly) + 0.2·(fishmeal) = 2.584981`, matching the pipeline to
 4e-9. Allow USLCI parameters in and `S_i` itself becomes variable, so every combination needs a real
 solve (~10 s each) and interactivity is gone.
-
-**CSV shape — declare in the inventory, override in a params file.** Two mechanisms with different
-jobs:
-
-- **Declare** parameters in the foreground CSV, since they are process-scoped and belong with the
-  process. A new `exchange_type = parameter` row keeps the file self-contained and needs no schema
-  change; the `amount` column then accepts a formula referencing declared parameters:
-
-      Widget assembly,parameter,,,transport_km,250,km,false,,
-      Widget assembly,technosphere,,<provider>,Transport,transport_km * 0.004,t*km,false,,
-
-  Same formula language USLCI uses — pure arithmetic, `+ - * /`, no function calls — so one
-  evaluator serves both sides.
-- **Override** in a params file for sweeps, so varying a value never means editing the inventory. The
-  CSV says *what varies*; the params file (or `--sweep transport_km=100:2000:20`) says *what to try*.
-
-Rejected: a `params` column on exchange rows. It puts process-scoped data on every row of the
-process and invites rows of the same process contradicting each other.
-
-**Stages**
-
-1. **Parameter declarations + formula-valued amounts in the foreground CSV.** `ast`-based evaluator
-   (arithmetic only, topologically ordered — see the dependency note below), the `parameter` row
-   type, and manifest recording of every declared value.
-2. **Params file + `--sweep`.** Run N scenarios, accumulate with the `--append` added 2026-08-05,
-   chart with the baseline/legend guards fixed the same day. This is the deliverable that makes a
-   sweep a curve instead of a point.
-3. **Fast path.** Precompute background unit scores and evaluate combinations as arithmetic. Do this
-   when a sweep feels slow, not up front — correctness first, and stage 2 is already usable at ~10 s
-   per scenario.
-4. **PINNED — USLCI process and upstream parameters.** Overriding a shipped process parameter, and
-   propagating a change to an activity *inside* a supply chain (which means substituting it for its
-   consumers). Revisit only if a study actually needs it.
 
 **What the USLCI data looks like**, measured on v1.2026-06.0 — relevant to stage 4 and to the shared
 evaluator:
@@ -973,43 +668,6 @@ tests.
 unconditionally, so `run_lca()` printed despite documenting that it doesn't — the output leaked past
 the no-op log. It now takes `log=`, and `run.build_foreground` passes it through.
 
-#### Documentation (scoped 2026-08-05)
-
-Two methodology documents, three how-to tutorials. The split matters: the first two explain *what the
-engine does and why*, the last three are task-shaped for a practitioner with their own study.
-
-| Topic | Kind | Status |
-|---|---|---|
-| olca JSON-LD → brightway schema crosswalk | methodology | **DONE** — [`SCHEMA_CROSSWALK.md`](SCHEMA_CROSSWALK.md) |
-| Allocation handling | methodology | **DONE** — [`ALLOCATION.md`](ALLOCATION.md) |
-| Defining and changing the functional unit | how-to | **DONE** — [`HOWTO.md`](HOWTO.md) §1 |
-| Linking a foreground CSV to USLCI | how-to | **DONE** — [`HOWTO.md`](HOWTO.md) §2 |
-| Toggling foreground vs full-background calculation | how-to | **DONE with a stated gap** — [`HOWTO.md`](HOWTO.md) §3 |
-
-All five written as of 2026-08-05. Every command and figure in `HOWTO.md` was executed against a
-`uslci-full` build of v1.2026-06.0 before being written down. The remaining work on these is not
-prose but the two gaps the guides had to disclose: `chart_units.py` guards commensurable units but
-not commensurable magnitudes (§1), and `general/04` has no foreground-only mode for a USLCI process
-target (§3) — both above.
-
-- **Functional unit.** The machinery exists and is scattered: `general/04` states it in the target
-  block and writes a `functional_unit` column, `chart_units.py` refuses to compare across units, and
-  the harness re-bases to 1 kg. What's missing is the practitioner-facing account of *how to choose
-  and change it* — including the petroleum m3-vs-kg trap that produced an 849× surprise (DEVLOG,
-  2026-07-13), and the fact that a process's declared reference amount is often an arbitrary
-  quantity rather than a sensible basis.
-- **Foreground CSV → USLCI.** `fedefl_bw25/foreground_importer.py` validates the format and `general/04`
-  builds a transient `FOREGROUND_DB` that links into the USLCI background, but the README gives it
-  one example line. Needs the column contract, how a foreground row resolves to a USLCI provider,
-  what happens when it doesn't, and a worked end-to-end example.
-- **Foreground vs full background — the gap.** `--mode {direct,full_chain}` exists **only in
-  `validation/05`**. `general/04` has no equivalent, so a practitioner cannot compute
-  foreground-only impacts through the general runner. This can't be documented as a how-to until the
-  capability is exposed in `general/`; document the concept, then add the flag (or decide the
-  harness is the only place it belongs and say so).
-
----
-
 ### Under-review ledger — where Claude was over-delegated
 
 Running record of areas where AI-generated work was accepted without proportionate human review,
@@ -1039,93 +697,3 @@ Reviewed and CLOSED items (keep for the record):
 
 ---
 
-### Session handoff — 2026-07-23 (historical record; superseded by 2026-08-03 below)
-
-> **Read the newest handoff at the bottom of this file first.** The "NEXT STEP" list in this
-> section was written *before* the openLCA sessions that happened later the same day, and all of
-> its codeable items are now done. Kept verbatim as a record of what the session set out to do.
-
-**Branch:** `release-prep-phase1-2`, 8 commits ahead of `main`, pushed and in sync with origin.
-PR not yet opened — the maintainer will handle the PR. *(Merged as PR #1; branch deleted.)*
-
-**Where the project stands:** Phases 0, 1, 2, and 4 are complete and committed. Phase 3.2 (the
-petroleum residual) closed 2026-07-21 with ledgers #1 and #2. All 40 locked cells reproduce openLCA
-within 0.1%; the HDPE case validates within 0.01% on a 2026-vintage build; 41/41 pytest pass.
-
-**Environment (correct as of 2026-07-23):** `~/miniconda3/envs/fedefl-build-bw25/bin/python`. Call the
-env's Python directly — `conda run` is unreliable here. The legacy `asp-lca-bw25` env no longer
-exists; `VALIDATION_REPORT.md` Appendix A still names it as the *historical* env the original locked
-results were computed in, which is correct and should stay.
-
-**Done this session (2026-07-23) — documentation coherence pass:**
-- `validation/VALIDATION_LOG.md` — added the two missing entries (2026-07-20 waste-linking / vintage
-  selector / `Mg` fix, and 2026-07-21 `isAvoidedProduct` root cause + HDPE validation). The log had
-  ended on a since-retracted conclusion. Superseded entries (07-15, 07-17, 07-20) now carry forward
-  pointers; their text is kept verbatim per the log's append-only convention.
-- `validation/README.md` — pinned the 2026-vintage assets (HDPE bundle, 2026 baseline, HDPE openLCA
-  export, PET bundle), documented the HDPE replication path, explained why the 2025 baseline has two
-  legitimate different hashes, and corrected the stale "mode requires editing a constant" note.
-- `CLAUDE.md`, `README.md` — harness `--mode`/vintage description corrected; the debugging-arc
-  narrative now runs through to 1.000 instead of stopping at ~1.03; HDPE surfaced as a fifth case.
-- `RELEASE_PLAN.md` — Phase 4 and ledger rows marked committed with their commit refs; this handoff.
-- `charts/general/*.png` regenerated on the current engine (they were two correctness fixes stale).
-
-**NEXT STEP — Phase 3, which needs openLCA operator sessions (not codeable):**
-~~1. **Chlorine; chlor-alkali electrolysis** (`a3e150d0-…`) — the real three-way physical split; top
-   priority, tests allocation arithmetic nothing currently covers.~~
-~~2. **Hardboard; at hardboard plant** (`ca1d1dfa-…`) — 7 co-products, deepest linked upstream in USLCI.~~
-~~3. openLCA reference export for **recycled-PET flake** (`f7b7280d-…`) — bundle already on disk; a
-   second exercise of the causal *consumption* path (the target process itself is `NO_ALLOCATION`).~~
-4. **Direct-mode exports beyond petroleum** (ledger #8) — still open, re-scoped as lower-value.
-
-**Items 1–3 were all completed later the same day** (operator sessions run 2026-07-23) along with
-soybean oil. See `validation/VALIDATION_LOG.md` 2026-07-23 (later) and
-`validation_full_chain_results_2026.csv`.
-
-Struck after the 2026-07-23 census: a full-chain steel re-pull (ledger #3, closed by disclosure) and
-an additional ECONOMIC case (degenerate throughout USLCI). Check each bundle's grid vintage before
-the openLCA session — new LCA Commons pulls are 2026.
-
-**Then Phase 5:** tag `v0.1.0-beta`, open the PR, share with 2–3 peers.
-
----
-
-### Session handoff — 2026-08-03 (pick up here)
-
-**Branch:** `full-db-import-prototype`, 2 commits ahead of `main`, tracking origin.
-`release-prep-phase1-2` merged as PR #1 and was deleted; `v0.1.0-beta` is published.
-
-**Where the project stands — Phases 0–4 complete, Phase 5 tagged.** Validation now covers **two
-builds, ten process-cases, 100 category cells**:
-
-| Build | Cases | Cells | Max deviation |
-|---|---|---|---|
-| 2025 | petroleum, corn, cement, steel | 40 | 0.1% |
-| 2026 | steel, HDPE flake, PET flake, chlorine, hardboard, soy meal | 60 | 0.00077% |
-
-Physical allocation is exercised on real splits (chlorine 3-way, hardboard 7-way, soy 2-way);
-causal consumption on two cases (HDPE, PET). Economic allocation is **untestable against USLCI** —
-all 29 declaring processes have degenerate 0/1 factors (census, 2026-07-23); this is a stated scope
-limitation, not a gap to close.
-
-**Environment on the current machine:** `/opt/miniconda3/envs/asp-lca-bw25/bin/python`
-(Python 3.11.15, bw2data 4.7). Note the 2026-07-23 handoff above names
-`~/miniconda3/envs/fedefl-build-bw25` and says `asp-lca-bw25` no longer exists — that is true of
-the *data machine*, not this one. Both records are correct for their own host; check which machine
-you are on before trusting either.
-
-**On this branch (not yet in `main`):**
-- `cd6aef6` — `SCHEMA_CROSSWALK.md`, the field-by-field USLCI JSON-LD → brightway `db_data` map;
-  README tightened 16.9K→14.3K.
-- `d7718e1` — opt-in `USLCI_FULL_DB=1` in `setup/03`: import the whole database from the full zip
-  instead of per-process bundles, so `general/04` can run any of ~1,341 processes without a
-  rebuild. 1,371 activities; 2025 cases still reproduce at 1.000. Also fixes a latent brightway
-  crash (geomapping `eval()`s locations containing `(`).
-
-**Open:** direct-mode exports beyond petroleum (ledger #8, low value); the full-DB prototype's
-path to a supported feature; and the doc/narrative/technical-report work scoped 2026-08-03.
-
-**Convention note for future sessions:** `validation/VALIDATION_LOG.md` is append-only and ends
-with the newest entry — it is the authoritative record of what has actually been run. Handoff
-sections in *this* file are point-in-time and can be overtaken within the same day. Check the log
-before trusting plan prose.
