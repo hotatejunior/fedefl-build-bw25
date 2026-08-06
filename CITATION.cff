@@ -5,13 +5,16 @@ title: >-
   fedefl-build-bw25: an open USLCI · FEDEFL · TRACI 2.2 life-cycle
   assessment pipeline for brightway25
 abstract: >-
-  A fast, fully-open, programmable life-cycle assessment pipeline in
-  Python. It loads the open, EPA-aligned US data stack (USLCI background
-  processes, FEDEFL elementary flows, TRACI 2.2 impact methods) into
-  brightway25 via a custom openLCA JSON-LD parser, with the engine
-  verified against openLCA to within 5% on identical inputs across four
-  locked test cases (engine parity, not certification of study results).
+  A life-cycle assessment pipeline in Python that loads the open,
+  EPA-aligned US data stack (USLCI background processes, FEDEFL elementary
+  flows, TRACI 2.2 impact methods) into brightway25 through a custom
+  openLCA JSON-LD parser. The engine is verified against openLCA on
+  identical inputs: all 100 category x process cells across nine test cases
+  reproduce within 0.1%. This is engine parity, not certification of any
+  study's results.
 type: software
+version: 0.2.0-beta
+date-released: '2026-08-06'
 authors:
   - family-names: Watson
     given-names: Harrison
