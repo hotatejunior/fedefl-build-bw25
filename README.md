@@ -10,17 +10,23 @@ results. No ecoinvent licence, no GUI, and the engine has been checked against o
 
 ## Why this exists
 
-LCA makes you choose between open and programmable. openLCA is open but GUI-driven, so batch and
-parametric work does not fit a version-controlled pipeline; SimaPro and GaBi are scriptable but need
-expensive licences and closed data. brightway is programmable and in Python, yet there was no
-published path to load the open US stack into it, and the obvious route — `bw2io`'s `JSONLDImporter`
-— has known bugs with USLCI's `isInput` field that silently misclassify exchanges.
+USLCI, FEDEFL and TRACI 2.2 are free and open, and brightway is a programmable LCA engine in Python.
+What was missing is a reproducible path between them. The obvious route, `bw2io`'s `JSONLDImporter`,
+has known bugs with USLCI's `isInput` field that silently misclassify exchanges.
 
-This repo is that path: a custom JSON-LD parser, every biosphere flow keyed by FEDEFL UUID so linking
-never falls back to name matching, and a decoder for openLCA's pre-aggregated *library* packages, so
-a pre-solved background like the US Electricity Baseline can be injected directly.
+This repo is that path, and three pieces carry it:
 
-## Quick start
+- A custom JSON-LD parser, with full control over exchange-direction detection.
+- Every biosphere flow keyed by FEDEFL UUID, in the brightway database, the TRACI method and the
+  USLCI data alike, so linking an emission is an identity lookup rather than name matching.
+- A decoder for openLCA's pre-aggregated *library* packages, a format brightway cannot otherwise
+  read, so a pre-solved background like the US Electricity Baseline is injected directly instead of
+  being re-solved.
+
+Multi-output allocation follows whatever each USLCI process declares, down to the per-exchange causal
+case, which is the part an importer is most likely to get quietly wrong.
+
+## Quick start from the command line
 
 ```bash
 conda env create -f environment.yml && conda activate fedefl-build-bw25
@@ -43,7 +49,7 @@ You get ten TRACI categories in `lca_results.csv`, per-process contributions in
 vintage, and how much of the supply chain was cut.
 
 **New here? [`docs/TUTORIAL.md`](docs/TUTORIAL.md) walks the whole path once**, from an empty machine
-to a number you can defend, including modelling your own product and checking the arithmetic by hand.
+to your own product modelled against USLCI, with the arithmetic checked by hand.
 
 ## Scripting it
 
@@ -59,10 +65,11 @@ run = run_lca(uuid="97970125-ad36-3919-8af8-69a053c5eefa", database="uslci-full"
 run.score("Global warming")      # 0.511591  (fishmeal, per 1 kg)
 ```
 
-Nothing in the package prints or prompts, and results come back as objects rather than files, so a
-parameter sweep holds runs in memory and writes once.
+Nothing in the package prints or prompts, and results come back as objects rather than files. That
+makes the repetitive work cheap: run a list of processes into one comparison table, re-run a study
+with a single amount changed, or rebuild a database and re-check a result, all from one script.
 
-## How far it has been checked
+## Validation of pipeline results
 
 On identical inputs this pipeline reproduces the numbers openLCA computes. That is a check on the
 mechanics: the parser, allocation, provider linking, and the LCIA solve. Across nine test cases, all
@@ -104,7 +111,7 @@ trust case deliberately does not rest on who typed it.
 
 | File | Purpose |
 |------|---------|
-| [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here. Nothing to a defensible number, in one pass |
+| [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here. Getting your first results from scratch |
 | [`HOWTO.md`](docs/HOWTO.md) | Task guides: functional units, foreground CSVs, choosing the background, scripting |
 | [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every error the pipeline raises, what it means, and the fix |
 | [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split, and what USLCI actually contains |

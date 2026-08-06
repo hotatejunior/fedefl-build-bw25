@@ -1,4 +1,4 @@
-# Tutorial — from nothing to a defensible number
+# Tutorial — getting your first results from scratch
 
 One path, start to finish. You will build the databases, run a USLCI process, model your own
 product against it, and check the answer by hand.
