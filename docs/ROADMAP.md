@@ -10,19 +10,31 @@ within 0.1%, both USLCI builds import, and every pipeline step is callable from 
 
 ## Now
 
-**Documentation rewrite.** In progress. The docs grew to 43,000 words across 12 files, which is
-about eight words per line of code. Target is a 40% cut, a practitioner-first tutorial, and a
-troubleshooting guide built from the error strings the pipeline actually emits.
+**Outside review.** The repo is public as of `v0.2.0-beta`, which replaces the earlier plan of
+inviting two or three peers individually. The ask is unchanged and specific: try to break the
+replication, try a study-shaped foreground CSV, and say where you stopped trusting it. Feedback
+belongs in `validation/VALIDATION_LOG.md` as a record of external review, and no external
+replication has happened yet — that is what would justify dropping `-beta`.
 
-**Share with 2–3 trusted peers.** Outstanding since the `v0.1.0-beta` tag on 2026-07-23, and the
-reason the docs work is happening first. The ask is specific: try to break the replication, try a
-study-shaped foreground CSV, say where you stopped trusting it. Feedback goes into
-`validation/VALIDATION_LOG.md` as a public record of external review.
+**Decide how the parametric work relates to `lca_algebraic`.** Evaluated 2026-08-06 against a copy
+of this project's own background, in a throwaway environment: it reads `uslci-full` directly with no
+import step, agrees with this pipeline to 1.7e-9 relative on the tutorial's widget foreground, and
+evaluates 200 parameter values instantly where this runner needs roughly 18 minutes of solves. It
+also resolves to the same pinned `bw2data` 4.7 and `bw2calc` 2.5.0 this project uses.
+
+One hazard is worth writing down whichever way this goes: `lca_algebraic` stores a parametric
+exchange as `amount=0` with the expression in a separate `formula` field, so vanilla brightway —
+including `general/04` — reads that exchange as zero until `freezeParams()` is called. It also adds
+a `biosphere-fedefl-proxy` database to the project.
+
+Open question: document the interoperation and depend on nothing, adopt it as the parametric engine
+behind the foreground CSV, or build the CSV layer anyway for practitioners who do not write Python.
 
 ## Next — parametric foreground
 
-The priority is parameterising a foreground and sweeping ranges quickly. USLCI-side parameters stay
-pinned, and that pin is what makes the sweeps fast: with the background fixed, a foreground result is
+Whether this gets built here or delegated to `lca_algebraic` is the open question above. Either way
+the priority is parameterising a foreground and varying it quickly, and USLCI-side parameters stay
+pinned, because that pin is what makes it fast: with the background fixed, a foreground result is
 linear in its exchange amounts, so each background activity's unit score is computed once and every
 scenario after that is a dot product. Allow USLCI parameters in and each combination needs a real
 solve at roughly ten seconds each.
