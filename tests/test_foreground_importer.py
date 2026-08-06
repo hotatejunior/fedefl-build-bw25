@@ -8,7 +8,7 @@ import csv
 
 import pytest
 
-import foreground_importer as fi
+from fedefl_bw25 import foreground_importer as fi
 
 HEADER = [
     "process_name", "exchange_type", "flow_uuid", "provider_uuid",
@@ -135,3 +135,47 @@ def test_production_amount_must_be_positive(tmp_path):
     p = _write(tmp_path, rows)
     with pytest.raises(ValueError, match="amount must be > 0"):
         fi.load_foreground_csv(p, BIO_DB, USLCI_DB)
+
+
+# --- convert_to_ref_unit: the unit column is load-bearing --------------------
+# Guards the defect found 2026-08-05: amounts were used verbatim against the
+# counterpart's reference unit, so "200 g" of a kg-based provider was read as
+# 200 kg. A flow-property check alone does not catch it — g and kg are both
+# mass — which is why conversion, not just validation, is required.
+
+def test_matching_units_pass_through_untouched():
+    amt, err, note = fi.convert_to_ref_unit(0.2, "kg", "kg")
+    assert (amt, err, note) == (0.2, None, None)
+
+
+def test_subunit_is_converted_not_passed_through():
+    amt, err, note = fi.convert_to_ref_unit(200.0, "g", "kg")
+    assert err is None and amt == pytest.approx(0.2)
+    assert "converted" in note
+
+
+def test_conversion_is_case_insensitive():
+    assert fi.convert_to_ref_unit(1.0, "KG", "kg")[0] == pytest.approx(1.0)
+    assert fi.convert_to_ref_unit(1000.0, "G", "kg")[0] == pytest.approx(1.0)
+
+
+def test_cross_property_units_are_refused():
+    amt, err, note = fi.convert_to_ref_unit(0.2, "MJ", "kg")
+    assert note is None and "incompatible" in err
+
+
+def test_unknown_unit_is_refused_not_passed_through():
+    # The ledger-#7 principle: an unconverted unit is a wrong number wearing a
+    # plausible one's clothes, so refuse rather than assume 1.0.
+    amt, err, note = fi.convert_to_ref_unit(1.0, "furlong", "kg")
+    assert note is None and err is not None
+
+
+def test_volume_and_energy_convert_within_property():
+    assert fi.convert_to_ref_unit(1000.0, "l", "m3")[0] == pytest.approx(1.0)
+    assert fi.convert_to_ref_unit(1.0, "kWh", "MJ")[0] == pytest.approx(3.6)
+
+
+def test_empty_reference_unit_is_left_alone():
+    # Nothing to convert onto — must not silently scale.
+    assert fi.convert_to_ref_unit(5.0, "kg", "") == (5.0, None, None)

@@ -10,9 +10,10 @@ The point of this module is the *per-result completeness* view. The setup script
 already compute whole-database link/match counts, but only print them to stdout at
 build time. `setup/03_import_uslci.py` now persists those counts *per process* to
 `uslci_db_provenance.json`; here we cross that against THIS result's solved supply
-chain (`bw2calc`'s `lca.dicts.activity`) so a user can see how complete their own
-number is — which cutoffs, if any, fall inside the activities that actually
-contributed to it.
+chain so a user can see how complete their own number is — which cutoffs, if any,
+fall inside the activities that actually contributed to it. "Actually contributed"
+is load-bearing: the supply chain is the non-zero part of `bw2calc`'s solved supply
+vector, not every column in `lca.dicts.activity` (see `select_supplied_keys`).
 
 Everything in this module is pure (no `bw2data`/`bw2calc` import) and operates on
 plain Python data, so it unit-tests without a built brightway database. The caller
@@ -33,6 +34,75 @@ DB_PROVENANCE_FILENAME = "uslci_db_provenance.json"
 MANIFEST_FILENAME = "validation_manifest.json"
 
 
+def db_provenance_filename(db_name, default_db_name):
+    """Sidecar filename for a given USLCI build.
+
+    The bundle build keeps the historical unsuffixed name, so existing runs,
+    docs, and CI paths are unaffected. Any other build (currently the full-database
+    build) gets its own suffixed file — the two builds coexist, and a sidecar
+    describing one must never be read as if it described the other.
+    """
+    if db_name == default_db_name:
+        return DB_PROVENANCE_FILENAME
+    stem, _, ext = DB_PROVENANCE_FILENAME.rpartition(".")
+    return f"{stem}.{db_name}.{ext}"
+
+
+def describe_uslci_source(source):
+    """One-line human description of which USLCI sources produced a build.
+
+    `source` is the `uslci_source` stamp setup/03 writes onto the database:
+    `{"mode": "full_db"|"bundles", "zips": [{"name", "sha256"}, ...]}`. Deliberately
+    reports a content hash rather than a release version — the full USLCI zip has no
+    intrinsic version field, and bundle filename hashes proved unreliable as content
+    markers, so naming a release here would be a guess wearing a fact's clothes.
+
+    An unstamped build (imported before this stamp existed) reports as unknown rather
+    than being silently described as anything.
+    """
+    if not source or not source.get("zips"):
+        return "unstamped build — re-run setup/03_import_uslci.py to record its source"
+    zips = source["zips"]
+    if source.get("mode") == "full_db":
+        z = zips[0]
+        return f"{z['name']} (sha256 {z['sha256'][:12]}…)"
+    return (f"{len(zips)} bundle zip(s)"
+            + (f", release hash {', '.join(h[:12] + '…' for h in source['bundle_release_hashes'])}"
+               if source.get("bundle_release_hashes") else ""))
+
+
+def select_supplied_keys(keyed_columns, supply):
+    """Reduce a technosphere column index to what THIS result actually draws on.
+
+    `lca.dicts.activity` indexes every column of the technosphere matrix — that is,
+    every activity in the loaded databases, whether or not it is reachable from the
+    functional unit. Summing completeness over it reports database-wide totals
+    wearing a per-result audit's clothes.
+
+    The distinction was invisible while the only build was the per-target bundle
+    set (its ~391 activities were, by construction, close to the target's own
+    chain). The full-database build makes it plain: a corrugated-product result
+    draws on 383 activities out of 1,382 indexed.
+
+    Parameters
+    ----------
+    keyed_columns : iterable of (key, column_index)
+        From `lca.dicts.activity.items()`.
+    supply : sequence of float
+        The solved supply vector (`lca.supply_array`), indexed by column.
+
+    Returns
+    -------
+    list
+        The keys with non-zero supply, in column order. The test is exact
+        inequality, not a tolerance: an unreachable column solves to exactly 0.0,
+        while a real contributor is kept however small it is — and however
+        negative, since an avoided-product credit supplies a negative amount.
+    """
+    return [key for key, col in sorted(keyed_columns, key=lambda kc: kc[1])
+            if supply[col] != 0]
+
+
 def summarize_supply_chain_completeness(solved_keys, provenance_processes,
                                         uslci_db, external_dbs):
     """Cross this result's solved supply chain against per-process import diagnostics.
@@ -40,8 +110,10 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
     Parameters
     ----------
     solved_keys : iterable of (db_name, code)
-        Every activity in the solved technosphere for this result (i.e. its supply
-        chain), including the target activity itself. From `lca.dicts.activity`.
+        Every activity this result actually draws on (its supply chain), including
+        the target activity itself. From `lca.dicts.activity` reduced to non-zero
+        supply by `select_supplied_keys` — passing the unreduced index would make
+        every count below a whole-database total.
     provenance_processes : dict
         `{proc_uuid: {"bio_unmatched": int, "tech_unlinked": int,
         "tech_ambiguous": int, ...}}` — the "processes" block of
@@ -109,7 +181,7 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
 
 def _completeness_notes(missing_prov, external_keys,
                         bio_unmatched, tech_unlinked, tech_ambiguous):
-    """Human-readable caveats, honest about what the counts do and don't attest."""
+    """Human-readable caveats stating what the counts do and don't attest."""
     notes = []
     if missing_prov:
         notes.append(

@@ -1,7 +1,7 @@
 # Validation package — replicating the openLCA comparison
 
 This directory contains everything needed to replicate the headline claim in
-[`VALIDATION_REPORT.md`](../VALIDATION_REPORT.md): **all 100 category × process cells reproduce
+[`VALIDATION_REPORT.md`](../docs/VALIDATION_REPORT.md): **all 100 category × process cells reproduce
 openLCA within 0.1% on identical inputs** — every cell rounds to a ratio of 1.000.
 
 The cells span **nine processes across two builds**, because a build injects exactly one

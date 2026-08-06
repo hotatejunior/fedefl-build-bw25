@@ -9,7 +9,7 @@ The case that motivated the guard: petroleum is reported per 1 m3 while corn and
 cement are per 1 kg, so an unguarded comparison put petroleum at 100% on all ten
 TRACI categories purely from the ~849 kg/m3 density difference.
 """
-import chart_units as cu
+from fedefl_bw25 import chart_units as cu
 
 PETROLEUM = "Petroleum refining; at refinery"
 CORN = "Corn; whole plant; at field"

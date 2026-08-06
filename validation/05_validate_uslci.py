@@ -32,8 +32,7 @@ import bw2data as bd
 import bw2calc as bc
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE.parent))
-from config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_DB_NAME, METHOD_ROOT, \
+from fedefl_bw25.config import PROJECT_NAME, BIOSPHERE_DB, USLCI_DB as USLCI_DB_NAME, METHOD_ROOT, \
     REPO_ROOT
 
 TEMP_DB_NAME  = "_direct_validation_temp"

@@ -41,10 +41,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
 
-import chart_units
+from fedefl_bw25 import chart_units
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import REPO_ROOT
+from fedefl_bw25.config import REPO_ROOT
 
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
@@ -57,6 +56,12 @@ OUTPUT_DIR        = REPO_ROOT / "charts"                  # CLI paths resolve ag
 OUTPUT_FORMAT     = "png"   # "png" or "svg"
 DPI               = 300
 TOP_N_PROCESSES   = 7       # contribution chart: show top N, lump rest as "Other"
+# scenario_comparison guards. The legend and the "Set2" palette both stop being
+# readable past a handful of series; and because every bar is a percentage OF the
+# baseline, a near-zero baseline turns the chart into a picture of the
+# denominator. Both were found rendering 43 scenarios at once (2026-08-05).
+MAX_COMPARISON_SCENARIOS = 8
+BASELINE_RATIO_LIMIT     = 1000   # refuse if any scenario exceeds baseline by this
 
 # Short display labels for TRACI 2.2 categories.
 # Keys must match the `method` column in lca_results.csv exactly.
@@ -206,23 +211,44 @@ def plot_impact_profile(df: pd.DataFrame) -> None:
     sub["label"] = sub["method"].map(_short)
     fu_map = _fu_map(df)
 
+    # A log axis cannot show negatives, so magnitudes are plotted — but the sign
+    # must survive. A negative score is a CREDIT (avoided-product recovery), and
+    # drawing it as an ordinary bar states the opposite of the result: processes
+    # like 'Combustion of newspaper' are negative in all ten categories. Negative
+    # bars are drawn in a distinct colour, hatched, labelled with a leading minus,
+    # and called out in the axis label.
+    neg = sub["score"] < 0
+    n_neg = int(neg.sum())
     palette = sns.color_palette("Blues_d", len(sub))
+    colors = ["#b1503f" if bad else palette[::-1][i] for i, bad in enumerate(neg)]
     fig, ax = plt.subplots(figsize=(9, 5))
-    bars = ax.barh(sub["label"], sub["score"].abs(), color=palette[::-1], edgecolor="none")
+    bars = ax.barh(sub["label"], sub["score"].abs(), color=colors, edgecolor="none")
+    for bar, bad in zip(bars, neg):
+        if bad:
+            bar.set_hatch("//")
+            bar.set_edgecolor("white")
     ax.set_xscale("log")
     fu = fu_map.get(scenarios[0])
-    ax.set_xlabel(f"Impact score per {fu} (log scale, native units)" if fu
-                  else "Impact score (log scale, native units)")
+    _base = (f"Impact score per {fu} (log scale, native units)" if fu
+             else "Impact score (log scale, native units)")
+    if n_neg:
+        _base += f" — {n_neg} negative score(s) shown as magnitude, hatched"
+    ax.set_xlabel(_base)
     ax.set_title(f"LCIA impact profile — {_scen_label(scenarios[0], fu_map)}",
                  fontsize=11, pad=10)
     ax.invert_yaxis()
 
     for bar, (_, row) in zip(bars, sub.iterrows()):
+        # A leading minus on the unit label is the unmissable part: someone
+        # reading a single bar sees "-kg CO2 eq" and knows it is a credit even
+        # if they skipped the axis note.
+        lbl = f"−{row['unit']}" if row["score"] < 0 else row["unit"]
         ax.text(
             bar.get_width() * 1.08,
             bar.get_y() + bar.get_height() / 2,
-            row["unit"],
-            va="center", fontsize=7, color="#666",
+            lbl,
+            va="center", fontsize=7,
+            color="#b1503f" if row["score"] < 0 else "#666",
         )
 
     ax.tick_params(axis="y", labelsize=9)
@@ -256,10 +282,46 @@ def plot_scenario_comparison(df: pd.DataFrame) -> None:
               "baseline's functional unit, so no meaningful comparison remains.")
         return
 
+    # Cap the series count. Past a handful the legend eats the axes — at 43
+    # scenarios it consumed ~85% of the figure and rendered the title behind
+    # itself — and the palette cycles, so entries start sharing a colour and the
+    # legend cannot disambiguate even where it fits.
+    if len(scenarios) > MAX_COMPARISON_SCENARIOS:
+        kept = scenarios[:MAX_COMPARISON_SCENARIOS]
+        if partition["baseline"] not in kept:
+            kept = [partition["baseline"]] + kept[:MAX_COMPARISON_SCENARIOS - 1]
+        print(f"  NOTE: scenario_comparison shows {len(kept)} of {len(scenarios)} "
+              f"comparable scenarios ({len(scenarios) - len(kept)} omitted — the "
+              f"legend and colour palette cannot separate more). Pass a results CSV "
+              f"with fewer scenarios to choose which.")
+        scenarios = kept
+
     df = _sort_cats(df[df["scenario"].isin(scenarios)].copy(), "method")
     df["label"] = df["method"].map(_short)
     baseline = partition["baseline"]
     baseline_vals = df[df["scenario"] == baseline].set_index("method")["score"]
+
+    # The baseline is the denominator of every number on this chart, so a
+    # near-zero one makes the percentages meaningless rather than merely large:
+    # an alphabetically-chosen baseline of 0.016 kg CO2-eq once put the y-axis at
+    # 1e7 — fifty million percent — with nothing saying so. chart_units guards
+    # incommensurable UNITS; this guards an incommensurable MAGNITUDE.
+    _others = df[df["scenario"] != baseline]
+    _ratios = []
+    for _m, _ref in baseline_vals.items():
+        if not _ref:
+            continue
+        _peak = _others[_others["method"] == _m]["score"].abs().max()
+        if _peak and np.isfinite(_peak):
+            _ratios.append(abs(_peak / _ref))
+    if _ratios and max(_ratios) > BASELINE_RATIO_LIMIT:
+        print(f"  Skipping scenario_comparison: baseline "
+              f"'{_scen_label(baseline, fu_map)}' is {max(_ratios):.3g}x smaller than "
+              f"the largest scenario in at least one category, so '% of baseline' "
+              f"would be dominated by the choice of denominator rather than by any "
+              f"difference in impact. Re-run with a baseline of comparable magnitude "
+              f"(the first scenario in the results CSV is the baseline).")
+        return
 
     def _pct(row):
         ref = baseline_vals.get(row["method"])
@@ -487,12 +549,15 @@ def plot_monte_carlo_distributions(df: pd.DataFrame) -> None:
 # =============================================================================
 def main() -> None:
     ran_any = False
+    results_scenarios = None
 
     # --- LCA results (04 output) ---
     results_path = Path(RESULTS_CSV)
     if results_path.exists():
         print(f"\nLoading: {results_path}")
         results_df = pd.read_csv(results_path)
+        if "scenario" in results_df.columns:
+            results_scenarios = set(results_df["scenario"].unique())
         required = {"scenario", "method", "score", "unit"}
         missing = required - set(results_df.columns)
         if missing:
@@ -512,8 +577,24 @@ def main() -> None:
         contrib_df = pd.read_csv(contrib_path)
         required = {"scenario", "method", "process_name", "contribution_score"}
         missing = required - set(contrib_df.columns)
+        # Refuse a contributions file that describes different scenarios than the
+        # results file. CONTRIBUTIONS_CSV defaults to a fixed repo-root path, so
+        # omitting --contributions used to silently pair whatever ran last with
+        # the current results — and it fired automatically, because a zero-score
+        # run writes no contributions file at all. The charts landed in the right
+        # directory under the wrong process's name and looked like success.
+        _contrib_scen = (set(contrib_df["scenario"].unique())
+                         if "scenario" in contrib_df.columns else set())
+        _shared = _contrib_scen & (results_scenarios or set())
         if missing:
             print(f"  WARNING: contributions CSV missing columns {missing} — skipping contribution chart.")
+        elif results_scenarios is not None and not _shared:
+            print(f"  WARNING: '{contrib_path.name}' describes "
+                  f"{sorted(_contrib_scen)[:2]}{'…' if len(_contrib_scen) > 2 else ''} "
+                  f"but the results CSV describes "
+                  f"{sorted(results_scenarios)[:2]}{'…' if len(results_scenarios) > 2 else ''} "
+                  f"— no scenario in common, so this is a different run. Skipping the "
+                  f"contribution charts; pass --contributions to name the matching file.")
         else:
             plot_contribution_analysis(contrib_df)
             plot_foreground_background(contrib_df)

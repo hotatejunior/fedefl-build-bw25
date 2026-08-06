@@ -2,11 +2,17 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# Generated outputs — re-created by running the pipeline
-lca_results.csv
-lca_contributions.csv
+# Generated outputs — re-created by running the pipeline. The globs cover
+# per-target names (lca_results_fishmeal.csv etc.) from general/04 --output;
+# they cannot catch the locked validation tables, which are validation_*.
+lca_results*.csv
+lca_contributions*.csv
+# Exploratory batch runs (general/04 sweeps + their charts) — regenerable,
+# not evidence. The locked validation artifacts live in validation/.
+batch_runs/
 validation_manifest.json
 uslci_db_provenance.json
+uslci_db_provenance.*.json
 
 # External data assets — assembled locally, not tracked (see README "Getting started")
 source_data/
@@ -18,3 +24,10 @@ validation/*.xlsx
 
 # Partial harness runs (subset of cases — not a locked artifact)
 validation/validation_*_partial.csv
+
+# Editable-install metadata
+*.egg-info/
+
+# Agent working notes — kept locally, not published (see docs/ for the public docs)
+CLAUDE.md
+.claude/

@@ -34,8 +34,7 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
-from config import REPO_ROOT
+from fedefl_bw25.config import REPO_ROOT
 
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
