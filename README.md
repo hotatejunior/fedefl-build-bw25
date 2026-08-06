@@ -14,7 +14,8 @@ USLCI, FEDEFL and TRACI 2.2 are free and open, and brightway is a programmable L
 What was missing is a reproducible path between them. The obvious route, `bw2io`'s `JSONLDImporter`,
 has known bugs with USLCI's `isInput` field that silently misclassify exchanges.
 
-This repo is that path, and three pieces carry it:
+This repo provides a clear path to results from USLCI within a brightway pipeline, with three key
+features:
 
 - A custom JSON-LD parser, with full control over exchange-direction detection.
 - Every biosphere flow keyed by FEDEFL UUID, in the brightway database, the TRACI method and the
@@ -24,7 +25,8 @@ This repo is that path, and three pieces carry it:
   being re-solved.
 
 Multi-output allocation follows whatever each USLCI process declares, down to the per-exchange causal
-case, which is the part an importer is most likely to get quietly wrong.
+case, which was a pain point in this project's development and may present the same issues for
+similarly styled importers.
 
 ## Quick start from the command line
 
