@@ -51,7 +51,7 @@ You get ten TRACI categories in `lca_results.csv`, per-process contributions in
 vintage, and how much of the supply chain was cut.
 
 **New here? [`docs/TUTORIAL.md`](docs/TUTORIAL.md) walks the whole path once**, from an empty machine
-to your own product modelled against USLCI, with the arithmetic checked by hand.
+to your own product modelled against USLCI, with a spot-check of the result.
 
 ## Scripting it
 

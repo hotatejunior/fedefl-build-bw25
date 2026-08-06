@@ -1,7 +1,7 @@
 # Tutorial — getting your first results from scratch
 
-One path, start to finish. You will build the databases, run a USLCI process, model your own
-product against it, and check the answer by hand.
+One path, start to finish. You will build the databases, run a USLCI process, and model your own
+product against it.
 
 **Before you start:** conda or mamba, a terminal, and one file you download by hand (31 MB). You do
 not need openLCA, an ecoinvent licence, or a LCA Commons account. The build itself takes about two and a
@@ -133,13 +133,7 @@ A foreground inventory is a CSV, one row per exchange. Here is a two-stage produ
 that draws USLCI fertilizer and emits CO₂ directly, and an assembly that consumes the subassembly
 plus USLCI fishmeal.
 
-Foreground-to-foreground links are made by UUID, and a process's UUID is derived from its name:
-
-```bash
-python -c "from fedefl_bw25.foreground_importer import fg_uuid; print(fg_uuid('Widget subassembly'))"
-```
-
-Save this as `my_inventory.csv`, pasting that UUID into the marked cell:
+Save this as `my_inventory.csv`. You are writing the file yourself; nothing generates it for you.
 
 ```csv
 process_name,exchange_type,flow_uuid,provider_uuid,flow_name,amount,unit,is_ref,location,comment
@@ -147,7 +141,7 @@ Widget subassembly,production,,,Widget subassembly,1,kg,true,US,ref product
 Widget subassembly,technosphere,,dacaeae9-aeed-3366-912d-6a31de09eef9,Nitrogen fertilizer,0.4,kg,false,US,USLCI link
 Widget subassembly,biosphere,4fa5e7ef-83a7-3ad6-ad4a-e0b3de171609,,Carbon dioxide,0.25,kg,false,US,direct
 Widget assembly,production,,,Widget assembly,1,kg,true,US,ref product
-Widget assembly,technosphere,,<uuid5 of "Widget subassembly">,Widget subassembly,0.5,kg,false,US,foreground link
+Widget assembly,technosphere,,b70fc7f2-d532-5cce-8334-b3eb0c62504c,Widget subassembly,0.5,kg,false,US,foreground link
 Widget assembly,technosphere,,97970125-ad36-3919-8af8-69a053c5eefa,Fishmeal,0.2,kg,false,US,USLCI link
 Widget assembly,biosphere,4fa5e7ef-83a7-3ad6-ad4a-e0b3de171609,,Carbon dioxide,1.5,kg,false,US,direct
 Widget assembly,biosphere,be7b7ec1-c39a-376b-a50f-682256b29299,,Methane,0.02,kg,false,US,direct
@@ -157,6 +151,20 @@ Three row types. `production` declares what the process makes and sets its funct
 process, flagged `is_ref=true`. `technosphere` consumes something else, named by `provider_uuid` —
 a USLCI process found with `--search`, or another of your own. `biosphere` is a direct emission,
 named by its FEDEFL flow UUID.
+
+One cell needs explaining. Where the assembly consumes the subassembly, `provider_uuid` holds
+`b70fc7f2-d532-5cce-8334-b3eb0c62504c` rather than the words "Widget subassembly". Every technosphere
+row points at its provider by UUID, and a process you invented has no UUID until one is derived from
+its name. That derivation is deterministic, so you can compute it for your own process names before
+the file exists:
+
+```bash
+python -c "from fedefl_bw25.foreground_importer import fg_uuid; print(fg_uuid('Widget subassembly'))"
+b70fc7f2-d532-5cce-8334-b3eb0c62504c
+```
+
+Because the UUID comes from the name, the spelling is load-bearing. Change `Widget subassembly` in
+the `process_name` column and the link breaks, with `provider_uuid … not found` naming the row.
 
 Run it, naming which process is the functional unit:
 
@@ -173,10 +181,9 @@ The `unit` column is load-bearing. Write `200` and `g` instead of `0.2` and `kg`
 same answer, with the conversion reported. Write a unit from a different physical quantity and the
 run stops rather than guessing.
 
-## 7. Check it by hand
+## 7. Manually spot-checking results
 
-Do this once, on your own inventory. It is a quick way to confirm you linked what you think you
-linked.
+Worth doing once on your own inventory, as a quick check that you linked what you think you linked.
 
 The assembly's score is its own emissions, characterized, plus its inputs' scores:
 
