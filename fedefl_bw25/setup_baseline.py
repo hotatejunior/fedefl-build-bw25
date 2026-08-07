@@ -79,8 +79,11 @@ BUNDLE_GLOB = "????????-????-????-????-????????????_*.zip"
 #                   (byte-identical members, different zip), so it is NOT hash-
 #                   checked; only what WE download is verified.
 #   fetch_target -- where an auto-download lands.
-#   url / sha256 -- canonical release artifact on the Federal LCA Commons GitHub
-#                   and its whole-file hash (checked on download only).
+#   url / sha256 -- canonical release artifact and its whole-file hash (checked on
+#                   download only). The host differs per vintage: 2025-06 is a file
+#                   in the uslci-content GitHub repo, 2026-06 is served by the LCA
+#                   Collaboration Server web service. Do not infer one from the
+#                   other -- take each from the upstream release-downloads table.
 #   grid_uuid    -- that release's US-average grid process. Same name every
 #                   release, different UUID -- which is what makes it the vintage
 #                   marker bundles are auto-classified by (see vintage_detect).
@@ -97,8 +100,13 @@ def _vintages(bundle_dir: Path) -> dict:
         "2026": {
             "hand_placed":  bundle_dir / "U.S._electricity_baseline_v1.2026-06.0.zip",
             "fetch_target": bundle_dir / "U.S._electricity_baseline_v1.2026-06.0.zip",
-            "url": "https://raw.githubusercontent.com/FLCAC-admin/uslci-content/dev/"
-                   "downloads/U.S._electricity_baseline_v1.2026-06.0.zip",
+            # NOT on GitHub: from 1.2026-06.0 the eLCI library is served by the LCA
+            # Collaboration Server web service, not the uslci-content downloads/
+            # folder (which still carries 2025-06 and older). The by-analogy GitHub
+            # path 404s -- see the upstream release table, docs/release_info/
+            # release-downloads.md, for which host holds which vintage.
+            "url": "https://www.lcacommons.gov/lca-collaboration/ws/public/"
+                   "libraries/U.S._electricity_baseline_v1.2026-06.0",
             "sha256": "fb545416220e6b3739496661f623081f6fd96de4b1c6508dd6353d88c2b33143",
             "grid_uuid": "75d4be66-12a7-30b3-bc57-fa724c941b0e",
         },
