@@ -11,9 +11,11 @@ import zipfile
 
 import pytest
 
-from fedefl_bw25.setup_uslci import (ExternalProviders, ProviderResolver,
+from fedefl_bw25.setup_uslci import (BuildTally, ExternalProviders, ProviderResolver,
                                      UnitNormalizer, _parse_version, _proc_precedence,
-                                     activity_location, build_jobs, discover_sources,
+                                     activity_location, build_jobs,
+                                     check_background_links, check_jsonld_layout,
+                                     check_uuid_collisions, discover_sources,
                                      index_reference_flows, load_sources,
                                      source_identity)
 
@@ -238,8 +240,9 @@ def test_a_sole_producer_resolves_without_any_hint():
 
 
 def test_an_external_provider_resolves_to_the_baseline_database():
-    ext = ExternalProviders(uuids={"GRID"}, flow_to_process={"elec": {"GRID"}},
-                            names={"GRID": "US average grid"}, vintage="2026")
+    ext = ExternalProviders.single("electricity-baseline", uuids={"GRID"},
+                                   flow_to_process={"elec": {"GRID"}},
+                                   names={"GRID": "US average grid"}, vintage="2026")
     r = _resolver(external=ext)
     assert r.resolve({"defaultProvider": {"@id": "GRID"}}, "elec") == \
         ("electricity-baseline", "GRID", False)
@@ -248,11 +251,44 @@ def test_an_external_provider_resolves_to_the_baseline_database():
 def test_a_stale_hint_uuid_still_resolves_by_the_provider_name():
     # The grid node keeps its name but changes UUID between baseline vintages, so a
     # bundle's hardcoded hint UUID can miss while the name still identifies it.
-    ext = ExternalProviders(uuids={"NEW"}, flow_to_process={"elec": {"NEW", "OTHER"}},
-                            names={"NEW": "US average grid", "OTHER": "Texas grid"})
+    ext = ExternalProviders.single("electricity-baseline", uuids={"NEW"},
+                                   flow_to_process={"elec": {"NEW", "OTHER"}},
+                                   names={"NEW": "US average grid", "OTHER": "Texas grid"})
     r = _resolver(external=ext)
     exc = {"defaultProvider": {"@id": "RETIRED-UUID", "name": "US average grid"}}
     assert r.resolve(exc, "elec") == ("electricity-baseline", "NEW", False)
+
+
+# -----------------------------------------------------------------------------
+# Multi-background resolution — a custom JSON-LD import on a USLCI background
+# -----------------------------------------------------------------------------
+def _two_backgrounds():
+    """A USLCI build and the electricity baseline, in precedence order."""
+    return ExternalProviders(
+        databases=["uslci-full", "electricity-baseline"],
+        db_of={"CRUDE": "uslci-full", "GRID": "electricity-baseline"},
+        names={"CRUDE": "Crude oil, at extraction", "GRID": "US average grid"},
+        flow_to_process={"elec": {("electricity-baseline", "GRID")}},
+    )
+
+
+def test_a_hint_resolves_to_whichever_background_holds_it():
+    # The whole point of the custom-import path: an author's defaultProvider naming
+    # a USLCI process must land in the USLCI database, not the only background the
+    # resolver used to know about.
+    r = _resolver(external=_two_backgrounds())
+    assert r.resolve({"defaultProvider": {"@id": "CRUDE"}}, "crude") == \
+        ("uslci-full", "CRUDE", False)
+    assert r.resolve({"defaultProvider": {"@id": "GRID"}}, "elec") == \
+        ("electricity-baseline", "GRID", False)
+
+
+def test_the_local_dataset_takes_precedence_over_a_background():
+    # Documents the shadowing that check_uuid_collisions exists to refuse: with the
+    # same UUID on both sides the local copy wins, silently.
+    r = _resolver(all_processes={"CRUDE": {}}, external=_two_backgrounds())
+    assert r.resolve({"defaultProvider": {"@id": "CRUDE"}}, "crude") == \
+        ("uslci-subset", "CRUDE", False)
 
 
 def test_several_candidates_and_no_usable_hint_is_left_unlinked():
@@ -296,3 +332,163 @@ def test_causal_coproducts_get_their_own_job_after_the_reference_ones():
     jobs = build_jobs({"A": {}, "B": {}}, plan)
     assert jobs[:2] == [("A", None), ("B", None)]
     assert jobs[2:] == [("A", "co1"), ("A", "co2")]   # sorted -> deterministic
+
+
+# -----------------------------------------------------------------------------
+# Custom JSON-LD guards
+# -----------------------------------------------------------------------------
+# The custom-import path trades USLCI's tolerance for cutoffs for a hard contract:
+# every background link names its provider, and no process reuses a background's
+# UUID. Both failures are silent without these — a cut link lowers every result,
+# and a reused UUID shadows the process it was meant to reference.
+
+def _zip_with(tmp_path, names):
+    path = tmp_path / "src.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        for n in names:
+            z.writestr(n, "{}")
+    return path
+
+
+def test_a_zip_missing_processes_names_the_two_directories(tmp_path):
+    with pytest.raises(RuntimeError, match="processes/"):
+        check_jsonld_layout(_zip_with(tmp_path, ["data/x.json"]))
+
+
+def test_a_zip_nested_one_level_too_deep_says_how_to_rezip(tmp_path):
+    # The likeliest authoring mistake: zipping the folder instead of its contents.
+    path = _zip_with(tmp_path, ["my_study/processes/a.json", "my_study/flows/b.json"])
+    with pytest.raises(RuntimeError, match="one level too deep"):
+        check_jsonld_layout(path)
+
+
+def test_a_correctly_shaped_zip_passes(tmp_path):
+    check_jsonld_layout(_zip_with(tmp_path, ["processes/a.json", "flows/b.json"]))
+
+
+def test_an_unhinted_link_stops_the_build_and_says_which_exchange():
+    tally = BuildTally(tech_unhinted=1, unhinted_examples=["widget: 'steel' has no defaultProvider"])
+    with pytest.raises(RuntimeError, match="no defaultProvider"):
+        check_background_links(tally, "my-study", enforce=True)
+
+
+def test_a_dangling_hint_is_reported_as_a_different_problem():
+    tally = BuildTally(tech_dangling=1, dangling_examples=["widget: names provider 'GONE'"])
+    with pytest.raises(RuntimeError, match="no background database"):
+        check_background_links(tally, "my-study", enforce=True)
+
+
+def test_the_uslci_path_reports_its_cutoffs_without_stopping():
+    # A bundle build cuts its chain by construction; enforcing here would break it.
+    tally = BuildTally(tech_unhinted=700, tech_dangling=70)
+    check_background_links(tally, "uslci-subset", enforce=False)
+
+
+def test_the_override_lets_an_exploratory_import_through():
+    tally = BuildTally(tech_unhinted=1, unhinted_examples=["x"])
+    check_background_links(tally, "my-study", enforce=False)
+
+
+def test_a_uuid_shared_with_a_background_stops_a_custom_build():
+    ext = ExternalProviders.single("uslci-full", uuids={"SHARED"})
+    with pytest.raises(RuntimeError, match="shadow"):
+        check_uuid_collisions({"SHARED": {"name": "my copy"}}, ext, "my-study",
+                              enforce=True)
+
+
+def test_the_same_collision_is_only_noted_on_the_uslci_path():
+    # Shadowing an upstream process is the bundle build's intended precedence.
+    ext = ExternalProviders.single("electricity-baseline", uuids={"SHARED"})
+    said = []
+    check_uuid_collisions({"SHARED": {"name": "bundle copy"}}, ext, "uslci-subset",
+                          enforce=False, log=said.append)
+    assert any("precedence" in s for s in said)
+
+
+def test_backgrounds_disagreeing_on_vintage_is_refused():
+    # Two grids in one build would make the vintage stamp a coin flip.
+    from fedefl_bw25.setup_uslci import load_external_providers
+    import fedefl_bw25.setup_uslci as su
+
+    class _FakeDatabases(dict):
+        def __init__(self, meta):
+            super().__init__(meta)
+
+    fake_meta = {"a": {"electricity_vintage": "2025"}, "b": {"electricity_vintage": "2026"}}
+
+    class _FakeBd:
+        databases = fake_meta
+        @staticmethod
+        def Database(name):
+            return []
+
+    original = su.bd
+    su.bd = _FakeBd
+    try:
+        with pytest.raises(RuntimeError, match="disagree on the electricity baseline"):
+            load_external_providers(["a", "b"])
+    finally:
+        su.bd = original
+
+
+# -----------------------------------------------------------------------------
+# Study targets in a multi-process dataset
+# -----------------------------------------------------------------------------
+# A 50-process expansion arrives as 50 equally-plausible UUIDs. The roots — what
+# nothing else in the dataset consumes — are the shortlist a study picks from.
+
+def _act(code, consumes=(), db="my-study"):
+    exchanges = [{"input": (db, code), "amount": 1.0, "type": "production"}]
+    exchanges += [{"input": (db, c), "amount": 1.0, "type": "technosphere"}
+                  for c in consumes]
+    return (db, code), {"name": f"proc {code}", "exchanges": exchanges}
+
+
+def test_a_chain_has_one_root():
+    from fedefl_bw25.setup_uslci import find_roots
+    db_data = dict([_act("raw"), _act("mid", ["raw"]), _act("product", ["mid"])])
+    assert find_roots(db_data, "my-study") == ["product"]
+
+
+def test_every_industrys_end_product_is_a_root():
+    from fedefl_bw25.setup_uslci import find_roots
+    db_data = dict([_act("a_raw"), _act("a_end", ["a_raw"]),
+                    _act("b_raw"), _act("b_end", ["b_raw"])])
+    assert find_roots(db_data, "my-study") == ["a_end", "b_end"]
+
+
+def test_a_link_into_the_background_does_not_make_it_a_root():
+    # Consuming USLCI says nothing about whether THIS dataset consumes you.
+    from fedefl_bw25.setup_uslci import find_roots
+    key, act = _act("product")
+    act["exchanges"].append({"input": ("uslci-full", "17664c37"), "amount": 1.0,
+                             "type": "technosphere"})
+    db_data = {key: act}
+    assert find_roots(db_data, "my-study") == ["product"]
+
+
+def test_a_production_exchange_does_not_consume_its_own_process():
+    # Production exchanges point at the activity itself; counting them would make
+    # every process "consumed" and the root list empty.
+    from fedefl_bw25.setup_uslci import find_roots
+    db_data = dict([_act("solo")])
+    assert find_roots(db_data, "my-study") == ["solo"]
+
+
+def test_the_build_result_refuses_to_guess_a_single_target():
+    from fedefl_bw25.setup_uslci import UslciBuild
+    build = UslciBuild(database="my-study", full_db=False, activity_count=2,
+                       process_count=2, totals={}, source={}, electricity_vintage=None,
+                       provenance_path="", processes={"a": "A", "b": "B"},
+                       roots=["a", "b"])
+    with pytest.raises(RuntimeError, match="no single target"):
+        _ = build.target
+    assert build.named() == {"a": "A", "b": "B"}
+
+
+def test_a_single_process_build_has_a_target():
+    from fedefl_bw25.setup_uslci import UslciBuild
+    build = UslciBuild(database="my-study", full_db=False, activity_count=1,
+                       process_count=1, totals={}, source={}, electricity_vintage=None,
+                       provenance_path="", processes={"only": "Only"}, roots=["only"])
+    assert build.target == "only"

@@ -91,14 +91,24 @@ def describe_build(database=None):
     """
     database = database or USLCI_DB
     meta = bd.databases[database] if database in bd.databases else {}
+    source = meta.get("uslci_source") or {}
+    if database == USLCI_FULL_DB:
+        composition = "whole USLCI database"
+    elif database == USLCI_DB:
+        composition = ("per-process bundles: the bundle targets PLUS all upstream "
+                       "processes those bundles shipped")
+    else:
+        # A custom JSON-LD build. Its composition is not a USLCI shape at all, so
+        # describing it as one would be a guess; say what it is and let the
+        # background list carry the rest.
+        composition = "custom olca-schema JSON-LD import"
     return {
         "database": database,
         "activity_count": meta.get("number"),
         "electricity_vintage": meta.get("electricity_vintage") or "unstamped",
-        "composition": ("whole USLCI database" if database == USLCI_FULL_DB else
-                        "per-process bundles: the bundle targets PLUS all upstream "
-                        "processes those bundles shipped"),
-        "source": run_manifest.describe_uslci_source(meta.get("uslci_source") or {}),
+        "composition": composition,
+        "background": list(meta.get("background_databases") or []),
+        "source": run_manifest.describe_uslci_source(source),
         "other_builds": {n: bd.databases[n].get("number")
                          for n in (USLCI_DB, USLCI_FULL_DB)
                          if n != database and n in bd.databases},
@@ -125,11 +135,44 @@ def open_project(project=PROJECT_NAME):
 def _require_database(database):
     if database in bd.databases:
         return
-    hint = ("Run 'USLCI_FULL_DB=1 python setup/03_import_uslci.py' to build it."
-            if database == USLCI_FULL_DB else "Run setup/03_import_uslci.py first.")
+    if database == USLCI_FULL_DB:
+        hint = "Run 'python setup/03_import_uslci.py --full-db' to build it."
+    elif database == USLCI_DB:
+        hint = "Run setup/03_import_uslci.py first."
+    else:
+        # Not a USLCI build name, so USLCI advice would misdirect: the likely cause
+        # is a custom import that hasn't been run, or a typo in its name.
+        hint = (f"That is not a USLCI build name. If it is a custom JSON-LD import, "
+                f"build it with 'python setup/03c_import_jsonld.py <zip> "
+                f"--database {database}'.")
     raise RuntimeError(
-        f"'{database}' not found. {hint}\n  USLCI builds present: "
-        f"{[n for n in (USLCI_DB, USLCI_FULL_DB) if n in bd.databases] or 'none'}")
+        f"'{database}' not found. {hint}\n  Databases in this project: "
+        f"{sorted(n for n in bd.databases) or 'none'}")
+
+
+def _check_background_freshness(database):
+    """Refuse to solve a database whose background has been rebuilt under it.
+
+    A rebuild renumbers brightway's internal ids, so a dependent database's links
+    point into rows that no longer line up. bw2calc's own symptom is
+    "Technosphere matrix is not square", which names neither the stale database nor
+    the remedy; this names both. Builds predating the stamp are left alone rather
+    than being refused on absent evidence.
+    """
+    stamps = bd.databases[database].get("background_stamps")
+    if not stamps:
+        return
+    stale = [name for name, seen in stamps.items()
+             if name in bd.databases and str(bd.databases[name].get("modified")) != seen]
+    if not stale:
+        return
+    raise RuntimeError(
+        f"'{database}' was built against a different revision of "
+        f"{', '.join(repr(s) for s in stale)}, which has been rebuilt since.\n"
+        f"  Its links now point into a background that has been renumbered, so any "
+        f"result would be wrong or fail to solve at all.\n"
+        f"  Re-import it:  python setup/03c_import_jsonld.py <your.zip> "
+        f"--database {database}")
 
 
 # =============================================================================
@@ -387,6 +430,7 @@ def run_lca(*, uuid=None, foreground=None, target_process=None, database=None,
     notes = []
     methods = open_project(project)
     _require_database(database)
+    _check_background_freshness(database)
     build = describe_build(database)
 
     if smoke_test:
@@ -495,47 +539,67 @@ def _assemble_manifest(*, lca, methods, method_units, results, target, database,
         except Exception:
             solved_keys.append(("unknown", str(k)))
 
-    prov_filename = run_manifest.db_provenance_filename(database, USLCI_DB)
-    prov_path = Path(REPO_ROOT) / prov_filename
-    provenance_processes = {}
-    prov_source = {"available": False, "path": str(prov_path)}
-    if prov_path.exists():
+    # Which databases this result's links point into, as recorded at build time.
+    # A custom JSON-LD database sits on a USLCI background, so its supply chain
+    # spans two exchange-by-exchange-imported databases with a sidecar each; only
+    # the pre-solved ones are aggregated. Reading this off the build rather than
+    # assuming the electricity baseline is the sole external database is what keeps
+    # a fully-linked custom result from being reported as all cutoffs.
+    backgrounds = list(bd.databases[database].get("background_databases")
+                       or [ELECTRICITY_BASELINE_DB])
+    aggregated = [b for b in backgrounds if b == ELECTRICITY_BASELINE_DB]
+    auditable = [database] + [b for b in backgrounds if b != ELECTRICITY_BASELINE_DB]
+
+    provenance_by_db, prov_sources = {}, {}
+    for db_name in auditable:
+        prov_filename = run_manifest.db_provenance_filename(db_name, USLCI_DB)
+        prov_path = Path(REPO_ROOT) / prov_filename
+        prov_sources[db_name] = {"available": False, "path": str(prov_path)}
+        if not prov_path.exists():
+            notes.append(f"NOTE: {prov_filename} not found at repo root — the completeness "
+                         f"section will be limited for '{db_name}'. Re-run the import that "
+                         f"built it to generate the sidecar.")
+            continue
         try:
             doc = json.loads(prov_path.read_text(encoding="utf-8"))
-            sidecar_db = doc.get("database")
-            if sidecar_db is not None and sidecar_db != database:
-                # The filename already separates the builds, so this only fires if a
-                # sidecar was renamed or hand-edited. Reading one build's diagnostics
-                # against another would silently misreport completeness.
-                notes.append(f"WARNING: {prov_filename} describes database '{sidecar_db}' "
-                             f"but this run targets '{database}' — ignoring it; "
-                             f"completeness will be limited.")
-                prov_source["mismatched_database"] = sidecar_db
-            else:
-                provenance_processes = doc.get("processes", {})
-                sidecar_count = doc.get("db_activity_count")
-                live_count = bd.databases[database].get("number")
-                prov_source = {"available": True, "path": str(prov_path),
-                               "database": sidecar_db, "generated": doc.get("generated"),
-                               "db_activity_count": sidecar_count,
-                               "live_db_activity_count": live_count,
-                               "matches_live_db": sidecar_count == live_count}
-                if sidecar_count != live_count:
-                    notes.append(f"WARNING: {prov_filename} records {sidecar_count} activities "
-                                 f"but '{database}' currently has {live_count} — the sidecar "
-                                 f"looks stale, so completeness may be inaccurate. Re-run "
-                                 f"setup/03_import_uslci.py.")
         except (ValueError, OSError) as e:
             notes.append(f"WARNING: could not read {prov_path}: {e} — completeness limited.")
-    else:
-        notes.append(f"NOTE: {prov_filename} not found at repo root — completeness section "
-                     f"will be limited. Re-run setup/03_import_uslci.py to generate it.")
+            continue
+        sidecar_db = doc.get("database")
+        if sidecar_db is not None and sidecar_db != db_name:
+            # The filename already separates the builds, so this only fires if a
+            # sidecar was renamed or hand-edited. Reading one build's diagnostics
+            # against another would silently misreport completeness.
+            notes.append(f"WARNING: {prov_filename} describes database '{sidecar_db}' "
+                         f"but this run needs '{db_name}' — ignoring it; "
+                         f"completeness will be limited.")
+            prov_sources[db_name]["mismatched_database"] = sidecar_db
+            continue
+        provenance_by_db[db_name] = doc.get("processes", {})
+        sidecar_count = doc.get("db_activity_count")
+        live_count = bd.databases[db_name].get("number")
+        prov_sources[db_name] = {"available": True, "path": str(prov_path),
+                                 "database": sidecar_db, "generated": doc.get("generated"),
+                                 "db_activity_count": sidecar_count,
+                                 "live_db_activity_count": live_count,
+                                 "matches_live_db": sidecar_count == live_count}
+        if sidecar_count != live_count:
+            notes.append(f"WARNING: {prov_filename} records {sidecar_count} activities "
+                         f"but '{db_name}' currently has {live_count} — the sidecar "
+                         f"looks stale, so completeness may be inaccurate. Re-run "
+                         f"the import that built it.")
+
+    # Single-database runs keep the flat shape schema /2 readers expect; only a
+    # multi-background build needs the per-database map.
+    prov_source = (prov_sources[database] if len(prov_sources) == 1
+                   else {"by_database": prov_sources})
 
     completeness = run_manifest.summarize_supply_chain_completeness(
-        solved_keys, provenance_processes, database, [ELECTRICITY_BASELINE_DB])
+        solved_keys, provenance_by_db, auditable, aggregated)
 
     dbs = {}
-    for name in (BIOSPHERE_DB, database, ELECTRICITY_BASELINE_DB, FOREGROUND_DB):
+    for name in dict.fromkeys([BIOSPHERE_DB, database, *backgrounds,
+                               ELECTRICITY_BASELINE_DB, FOREGROUND_DB]):
         if name not in bd.databases:
             continue
         meta = bd.databases[name]

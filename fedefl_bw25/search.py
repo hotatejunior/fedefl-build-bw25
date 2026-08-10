@@ -27,7 +27,8 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass
 
-from fedefl_bw25.config import PROJECT_NAME, USLCI_DB, USLCI_FULL_DB
+from fedefl_bw25.config import (NON_TARGET_DBS, PROJECT_NAME, USLCI_DB,
+                                USLCI_FULL_DB)
 
 # Marks the dedicated activity built for one causal co-product (see docs/ALLOCATION.md).
 COPRODUCT_MARKER = "__co__"
@@ -144,17 +145,31 @@ def suggest(query: str, entries, n=5, cutoff=0.6):
 
 
 def load_processes(database=None, project=PROJECT_NAME):
-    """Every activity in the built USLCI databases, as `Process` records.
+    """Every activity in the project's process databases, as `Process` records.
 
-    Defaults to searching every USLCI build present, not just one. A process
-    missing from the bundle build but present in the full one is a routine
-    situation, and the search result is the natural place to learn it — each row
-    names the database it is in, which is the `--database` to run it against.
+    Defaults to EVERY database holding runnable processes — both USLCI builds and
+    any custom JSON-LD import — not a fixed list of two. A process missing from the
+    bundle build but present in the full one is a routine situation, and the search
+    result is the natural place to learn it; each row names the database it is in,
+    which is the `--database` to run it against. The same applies to a custom
+    build: search is how you find a UUID, so a database it cannot see is a database
+    you cannot discover anything in.
+
+    `NON_TARGET_DBS` (biosphere, the aggregated baseline, the transient foreground)
+    is skipped — 332k elementary flows would bury every real hit — but naming one
+    explicitly as `database` still searches it.
     """
     import bw2data as bd
 
     bd.projects.set_current(project)
-    wanted = [database] if database else [USLCI_DB, USLCI_FULL_DB]
+    if database:
+        wanted = [database]
+    else:
+        # USLCI builds first so their rows sort ahead of custom ones, then
+        # everything else alphabetically for a stable order.
+        known = [n for n in (USLCI_DB, USLCI_FULL_DB) if n in bd.databases]
+        wanted = known + sorted(n for n in bd.databases
+                                if n not in known and n not in NON_TARGET_DBS)
     processes = []
     for db_name in wanted:
         if db_name not in bd.databases:
@@ -167,7 +182,7 @@ def load_processes(database=None, project=PROJECT_NAME):
         ]
     if not processes:
         raise RuntimeError(
-            f"No USLCI database found in project '{project}'. "
+            f"No process database found in project '{project}'. "
             f"Run setup/03_import_uslci.py first."
         )
     return merge_by_code(processes)

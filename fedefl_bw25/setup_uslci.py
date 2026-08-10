@@ -75,6 +75,40 @@ class UslciBuild:
     electricity_vintage: str | None
     provenance_path: str
     notes: list = field(default_factory=list)
+    # Activity code -> name, for every activity written. A scripted custom import
+    # otherwise has no way to name what it just built: the caller wrote the JSON, so
+    # it knows the UUIDs, but a script that GENERATED the JSON would have to parse
+    # its own output back to find them. `run_lca(uuid=...)` takes these directly.
+    processes: dict = field(default_factory=dict)
+    # Codes nothing else in this database consumes — see `find_roots`. For a
+    # multi-process dataset this is the study-target shortlist; iterating it is how
+    # a script runs "every product in my expansion" without hand-listing UUIDs.
+    roots: list = field(default_factory=list)
+
+    @property
+    def target(self) -> str:
+        """The sole activity's code — for the common one-process foreground.
+
+        Raises when there is more than one, because picking silently would decide
+        which product a study is about. `.roots` is the shortlist to pick from when
+        it does.
+        """
+        if len(self.processes) != 1:
+            raise RuntimeError(
+                f"'{self.database}' has {len(self.processes)} activities, so there is no "
+                f"single target.\n"
+                f"  {len(self.roots)} of them are consumed by nothing else — iterate "
+                f"`build.roots` to run them all, or pick one from `build.processes`.\n"
+                f"  Roots: " + ", ".join(f"{c} ({self.processes[c][:40]})"
+                                         for c in self.roots[:5])
+                + (f" … +{len(self.roots) - 5} more" if len(self.roots) > 5 else ""))
+        return next(iter(self.processes))
+
+    def named(self, codes=None) -> dict:
+        """`{code: name}` for `codes`, defaulting to the roots. The shape a study
+        loop wants: `for code, label in build.named().items():`."""
+        codes = self.roots if codes is None else codes
+        return {c: self.processes[c] for c in codes}
 
 
 WITHIN_FP = {
@@ -325,19 +359,22 @@ def discover_sources(*, bundle_dir, full_db, conv_meta, db_name, log=_NOOP) -> l
     return zip_files
 
 
-def source_identity(zip_files, full_db) -> dict:
+def source_identity(zip_files, full_db, mode=None) -> dict:
     """Content identity of the sources this build was made from.
 
     Stamped onto the database after the write. Bundle filenames additionally carry
     the USLCI release hash as their `_<hash>` suffix; it is recorded as-is, never
     translated into a version name, because the same suffix was observed on bundles
     whose process versions disagree.
+
+    `mode` overrides the USLCI full-db/bundles labelling for a custom import, whose
+    zip is neither.
     """
     identity = {
-        "mode": "full_db" if full_db else "bundles",
+        "mode": mode or ("full_db" if full_db else "bundles"),
         "zips": [{"name": z.name, "sha256": file_sha256(z)} for z in zip_files],
     }
-    if not full_db:
+    if mode is None and not full_db:
         hashes = sorted({z.stem.rsplit("_", 1)[-1] for z in zip_files
                          if "_" in z.stem and len(z.stem.rsplit("_", 1)[-1]) == 40})
         if hashes:
@@ -459,37 +496,96 @@ def index_reference_flows(all_processes) -> dict:
 
 @dataclass
 class ExternalProviders:
-    """Aggregated background activities injected by setup/03b, if any.
+    """Already-built brightway databases this import resolves links against.
 
-    Not electricity-specific: any bundle exchange whose named provider lives
-    outside the bundle resolves against this if a matching injected database is
-    present. `vintage` is the electricity-baseline vintage 03b stamped (e.g.
-    "2025"), copied onto the USLCI database so the validation harness can assert a
-    case is diffed against the matching-vintage grid. None if 03b predates the stamp.
+    Two callers, one mechanism. The USLCI path passes the single aggregated
+    background setup/03b injects, which is what this class was built for — its
+    docstring always said "not electricity-specific", and this is that promise
+    collected. A custom JSON-LD import passes a whole USLCI build as well, so an
+    author's `defaultProvider` hint naming a USLCI process resolves the same way a
+    bundle exchange naming a grid mix always has.
+
+    `databases` is ORDERED and the first one declaring a UUID wins, so a caller can
+    put a project-specific override ahead of `uslci-full`. `vintage` is the
+    electricity-baseline vintage 03b stamped (e.g. "2025"), copied onto the built
+    database so the validation harness can assert a case is diffed against the
+    matching-vintage grid. None if 03b predates the stamp.
     """
-    uuids: set = field(default_factory=set)
-    flow_to_process: dict = field(default_factory=dict)
+    databases: list = field(default_factory=list)
+    db_of: dict = field(default_factory=dict)          # proc uuid -> which database
+    flow_to_process: dict = field(default_factory=dict)  # flow uuid -> {(db, proc), ...}
     names: dict = field(default_factory=dict)
     vintage: str | None = None
 
+    @property
+    def uuids(self):
+        """Every external process UUID, regardless of which database holds it."""
+        return self.db_of.keys()
 
-def load_external_providers(log=_NOOP) -> ExternalProviders:
+    @classmethod
+    def single(cls, database, *, uuids=(), flow_to_process=None, names=None,
+               vintage=None):
+        """One background database — the shape the USLCI path has always had.
+
+        Spares the single-database callers (and the tests) from spelling out the
+        `(db, proc)` pairs that only matter once there is more than one.
+        """
+        return cls(
+            databases=[database],
+            db_of={u: database for u in uuids},
+            flow_to_process={f: {(database, p) for p in procs}
+                             for f, procs in (flow_to_process or {}).items()},
+            names=dict(names or {}),
+            vintage=vintage,
+        )
+
+
+def load_external_providers(databases=None, log=_NOOP) -> ExternalProviders:
+    """Index the built databases whose activities can supply this import.
+
+    `databases` defaults to the electricity baseline alone, which is the USLCI
+    path unchanged. Names absent from the project are skipped rather than
+    refused — the baseline has always been optional, and a caller naming a USLCI
+    build that isn't built yet gets a clearer error from the link guard, which can
+    say which exchanges actually needed it.
+    """
+    databases = list(databases) if databases is not None else [EXTERNAL_PROVIDER_DB]
     external = ExternalProviders()
-    if EXTERNAL_PROVIDER_DB not in bd.databases:
-        return external
+    vintages = {}
 
-    external.vintage = bd.databases[EXTERNAL_PROVIDER_DB].get("electricity_vintage")
-    for act in bd.Database(EXTERNAL_PROVIDER_DB):
-        external.uuids.add(act["code"])
-        external.names[act["code"]] = act["name"]
-        ref_flow_uuid = act.get("reference_product_flow_uuid")
-        if ref_flow_uuid:
-            external.flow_to_process.setdefault(ref_flow_uuid, set()).add(act["code"])
-    log(f"Loaded {len(external.uuids)} external provider process(es) "
-        f"({len(external.flow_to_process)} distinct reference flow(s)) "
-        f"from '{EXTERNAL_PROVIDER_DB}'"
-        + (f" [electricity_vintage = {external.vintage}]."
-           if external.vintage else "."))
+    for db_name in databases:
+        if db_name not in bd.databases:
+            continue
+        external.databases.append(db_name)
+        vintage = bd.databases[db_name].get("electricity_vintage")
+        if vintage is not None:
+            vintages[db_name] = vintage
+        for act in bd.Database(db_name):
+            code = act["code"]
+            if code in external.db_of:
+                continue          # an earlier database in the list already claimed it
+            external.db_of[code] = db_name
+            external.names[code] = act["name"]
+            ref_flow_uuid = act.get("reference_product_flow_uuid")
+            if ref_flow_uuid:
+                external.flow_to_process.setdefault(ref_flow_uuid, set()).add((db_name, code))
+        log(f"Loaded {sum(1 for d in external.db_of.values() if d == db_name)} "
+            f"external provider process(es) from '{db_name}'"
+            + (f" [electricity_vintage = {vintage}]." if vintage else "."))
+
+    # A build is single-grid by design: the vintage stamp is what lets the harness
+    # assert a case was diffed against the same grid its openLCA reference used.
+    # Two backgrounds disagreeing means the answer would silently be neither.
+    distinct = set(vintages.values())
+    if len(distinct) > 1:
+        raise RuntimeError(
+            f"Backgrounds disagree on the electricity baseline vintage: "
+            + ", ".join(f"'{db}' = {v}" for db, v in sorted(vintages.items())) + ".\n"
+            f"  A build stands on ONE grid vintage. Rebuild the odd one out against "
+            f"the vintage you want (setup/03b_import_electricity_baseline.py), or drop "
+            f"it from the background list."
+        )
+    external.vintage = next(iter(distinct), None)
     return external
 
 
@@ -505,12 +601,11 @@ class ProviderResolver:
     def candidates(self, flow_uuid) -> set:
         """Every (database, process UUID) that declares this flow as its reference."""
         return ({(self.db_name, u) for u in self.flow_to_process.get(flow_uuid, set())} |
-                {(EXTERNAL_PROVIDER_DB, u)
-                 for u in self.external.flow_to_process.get(flow_uuid, set())})
+                set(self.external.flow_to_process.get(flow_uuid, set())))
 
     def _candidate_name(self, db_name, proc_uuid):
         """Name of a resolution candidate, for hint-name disambiguation."""
-        if db_name == EXTERNAL_PROVIDER_DB:
+        if db_name in self.external.databases:
             return self.external.names.get(proc_uuid)
         return (self.all_processes.get(proc_uuid) or {}).get("name")
 
@@ -529,8 +624,8 @@ class ProviderResolver:
         hinted_uuid = provider.get("@id")
         if hinted_uuid in self.all_processes:
             return self.db_name, hinted_uuid, False
-        if hinted_uuid in self.external.uuids:
-            return EXTERNAL_PROVIDER_DB, hinted_uuid, False
+        if hinted_uuid in self.external.db_of:
+            return self.external.db_of[hinted_uuid], hinted_uuid, False
 
         candidates = self.candidates(flow_uuid)
         if len(candidates) == 1:
@@ -651,11 +746,15 @@ class BuildTally:
     tech_external: int = 0
     tech_unlinked: int = 0
     tech_ambiguous: int = 0
+    tech_unhinted: int = 0              # unresolved AND carried no defaultProvider
+    tech_dangling: int = 0              # unresolved despite a defaultProvider hint
     causal_fallback: int = 0            # causal exchanges that fell back to the scalar
     causal_coproduct_links: int = 0     # links redirected to a causal co-product activity
     waste_treatment_links: int = 0      # non-reference WASTE_FLOW outputs sent to treatment
     avoided_product_links: int = 0      # exchanges flagged isAvoidedProduct — credited
     ambiguous_examples: list = field(default_factory=list)
+    unhinted_examples: list = field(default_factory=list)
+    dangling_examples: list = field(default_factory=list)
     causal_coproduct_examples: list = field(default_factory=list)
     waste_treatment_examples: list = field(default_factory=list)
     avoided_product_examples: list = field(default_factory=list)
@@ -681,6 +780,7 @@ class BuildContext:
     resolver: ProviderResolver
     plan: AllocationPlan
     external_names: dict
+    external_dbs: list = field(default_factory=list)
 
 
 def _new_pdiag() -> dict:
@@ -770,6 +870,25 @@ def _technosphere_exchange(ctx, tally, pdiag, *, proc, proc_uuid, exc, flow_ref,
     if not target_proc:
         tally.tech_unlinked += 1
         pdiag["tech_unlinked"] += 1
+        # WHY it didn't resolve is the whole diagnosis, and the two causes need
+        # different fixes. No hint at all means the author never named a provider,
+        # so nothing could have been found; a hint that matched nothing means the
+        # provider was named but is absent from every background database (a typo,
+        # or a background that wasn't built). Counted separately so the guard can
+        # tell an author which of the two they are looking at.
+        if not (exc.get("defaultProvider") or {}).get("@id"):
+            tally.tech_unhinted += 1
+            if len(tally.unhinted_examples) < MAX_EXAMPLES:
+                tally.unhinted_examples.append(
+                    f"{proc.get('name', proc_uuid)}: '{flow_ref.get('name', flow_uuid)}' "
+                    f"(flow {flow_uuid}) has no defaultProvider")
+        else:
+            tally.tech_dangling += 1
+            if len(tally.dangling_examples) < MAX_EXAMPLES:
+                tally.dangling_examples.append(
+                    f"{proc.get('name', proc_uuid)}: '{flow_ref.get('name', flow_uuid)}' "
+                    f"names provider {(exc.get('defaultProvider') or {}).get('@id')!r}, "
+                    f"which is in no background database")
         return None
 
     co_key = ctx.plan.coproduct_key.get((target_proc, flow_uuid))
@@ -799,7 +918,7 @@ def _technosphere_exchange(ctx, tally, pdiag, *, proc, proc_uuid, exc, flow_ref,
 
     tally.tech_linked += 1
     pdiag["tech_linked"] += 1
-    if target_db == EXTERNAL_PROVIDER_DB:
+    if target_db in ctx.external_dbs:
         tally.tech_external += 1
         pdiag["tech_external"] += 1
     if not is_input:  # a waste-treatment output link
@@ -946,6 +1065,27 @@ def build_activity(ctx, tally, proc_uuid, co_flow):
     return key, activity, pdiag
 
 
+def find_roots(db_data, db_name) -> list:
+    """Activity codes nothing else in this database consumes.
+
+    In a dataset of any size most processes are intermediates that exist to be
+    drawn on; the ones at the top of the local graph are the study targets. A
+    50-process expansion otherwise arrives as 50 equally-plausible UUIDs with
+    nothing to say which of them a study is actually about.
+
+    A heuristic, not a declaration — olca-schema has no "this is a final product"
+    field. An intermediate nobody happens to consume yet shows up here too, which
+    is the right failure direction: it surfaces a process the author may have meant
+    to link.
+    """
+    consumed = {
+        exc["input"][1]
+        for act in db_data.values() for exc in act["exchanges"]
+        if exc["type"] == "technosphere" and exc["input"][0] == db_name
+    }
+    return sorted(code for _db, code in db_data if code not in consumed)
+
+
 def build_activities(ctx):
     """Every build job -> (db_data, per-process provenance, tally).
 
@@ -998,6 +1138,76 @@ def check_consumed_causal_columns(plan, tally, db_name) -> None:
         )
 
 
+def check_uuid_collisions(all_processes, external, db_name, enforce, log=_NOOP) -> None:
+    """A process UUID that also exists in a background database.
+
+    `ProviderResolver.resolve` checks in-dataset processes BEFORE backgrounds, so a
+    reused UUID silently shadows the background process it was probably meant to
+    reference — the author writes a `defaultProvider` pointing at USLCI and links to
+    their own copy instead, with no diagnostic anywhere.
+
+    Fatal for a custom import, where a collision can only be a mistake. Reported but
+    not fatal on the USLCI path: shadowing is the intended precedence there (a bundle
+    ships its own copy of an upstream process), and making it fatal would be a
+    behavioural change to the validated build.
+    """
+    collisions = sorted(set(all_processes) & set(external.db_of))
+    if not collisions:
+        return
+    detail = "\n".join(
+        f"    {u}  '{(all_processes.get(u) or {}).get('name', '?')}'  "
+        f"— also in '{external.db_of[u]}'" for u in collisions[:MAX_EXAMPLES]
+    ) + (f"\n    (+{len(collisions) - MAX_EXAMPLES} more)"
+         if len(collisions) > MAX_EXAMPLES else "")
+    if not enforce:
+        log(f"\n  NOTE: {len(collisions)} process UUID(s) exist both here and in a "
+            f"background database; the local copy takes precedence.\n{detail}")
+        return
+    raise RuntimeError(
+        f"{len(collisions)} process UUID(s) in this dataset also exist in a background "
+        f"database — build STOPPED before writing '{db_name}'.\n"
+        f"  The local copy would shadow the background process, so any exchange naming "
+        f"that UUID as its provider would silently link here instead of to the "
+        f"background. Give your own processes fresh UUIDs.\n"
+        f"  Colliding (UUID, name, background):\n" + detail
+    )
+
+
+def check_background_links(tally, db_name, enforce) -> None:
+    """Hard-stop when a technosphere exchange resolved to no provider at all.
+
+    A cut background link is a silently LOW result — the burden simply isn't there,
+    and nothing downstream distinguishes "this input contributes little" from "this
+    input contributes nothing because it never linked". The manifest reports cutoffs
+    after the fact; this refuses to build one in the first place.
+
+    Only enforced for custom imports, where every background link is supposed to name
+    its provider. The USLCI bundle path cuts its chain by construction — a bundle
+    ships some upstream processes and not others — so there the same counts are
+    reported and not raised on.
+    """
+    if not enforce or not (tally.tech_unhinted or tally.tech_dangling):
+        return
+    lines = [
+        f"{tally.tech_unhinted + tally.tech_dangling} technosphere exchange(s) did not "
+        f"resolve to a provider — build STOPPED before writing '{db_name}'.",
+        f"  Every background link must name its provider, or its burden is silently "
+        f"missing from every result this database produces.",
+    ]
+    if tally.tech_unhinted:
+        lines.append(f"\n  {tally.tech_unhinted} exchange(s) carry NO defaultProvider. "
+                     f"Set one to the background process UUID that supplies the flow:")
+        lines += [f"    {ex}" for ex in tally.unhinted_examples]
+    if tally.tech_dangling:
+        lines.append(f"\n  {tally.tech_dangling} exchange(s) name a provider that is in no "
+                     f"background database. Check the UUID, or build/add the background "
+                     f"that holds it:")
+        lines += [f"    {ex}" for ex in tally.dangling_examples]
+    lines.append("\n  Set ALLOW_UNHINTED_LINKS=1 (or pass --allow-unhinted-links) to import "
+                 "anyway with these exchanges cut. Exploratory use only.")
+    raise RuntimeError("\n".join(lines))
+
+
 def check_unknown_units(normalize, all_flows, db_name, allow_passthrough) -> None:
     """Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
     means silently wrong exchange amounts; refuse to build a database that contains
@@ -1043,14 +1253,18 @@ def _pkg_versions(names) -> dict:
 
 
 def write_db_provenance(*, db_name, project, activity_count, proc_provenance, tally,
-                        source) -> tuple:
+                        source, background=()) -> tuple:
     """Persist per-process import diagnostics. Returns (path, document)."""
+    background = list(background)
     document = {
-        "schema":               "uslci-db-provenance/1",
+        "schema":               "uslci-db-provenance/2",   # /2 adds background_databases
         "generated":            datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "project":              project,
         "database":             db_name,
         "db_activity_count":    activity_count,
+        "background_databases": background,
+        # Retained at its historical name and single-valued shape so a reader written
+        # against schema /1 keeps working; `background_databases` is the one to read.
         "external_provider_db": EXTERNAL_PROVIDER_DB,
         "uslci_source":         source,
         "packages":             _pkg_versions(["bw2data", "bw2io", "bw2calc",
@@ -1066,6 +1280,42 @@ def write_db_provenance(*, db_name, project, activity_count, proc_provenance, ta
 # =============================================================================
 # REPORTING
 # =============================================================================
+# How many activities the closing summary lists in full before switching to a
+# count. A 50-process expansion printed one stanza each is 100 lines of scroll
+# that buries the diagnostics above it; the full list belongs in --search, which
+# can filter.
+MAX_LISTED = 12
+
+
+def report_contents(log, *, db_name, db_data, roots) -> None:
+    """What got built, led by the processes a study would actually target.
+
+    Small builds list in full, because for a handful of processes the list IS the
+    summary. Past that the listing becomes scroll, so it gives the roots — the
+    processes nothing else consumes — and points at search for the rest.
+    """
+    if len(db_data) <= MAX_LISTED:
+        log(f"\nProcesses in '{db_name}':")
+        for (_db, code), act in sorted(db_data.items(), key=lambda kv: kv[1]["name"]):
+            n_bio  = sum(1 for e in act["exchanges"] if e["type"] == "biosphere")
+            n_tech = sum(1 for e in act["exchanges"] if e["type"] == "technosphere")
+            log(f"  {act['name'][:70]}")
+            log(f"    {code}")
+            log(f"    {n_bio} biosphere, {n_tech} technosphere exchanges")
+        return
+
+    by_code = {code: act for (_db, code), act in db_data.items()}
+    log(f"\n'{db_name}' holds {len(db_data)} activities. "
+        f"{len(roots)} are consumed by nothing else in it — the likely study targets:")
+    for code in roots[:MAX_LISTED]:
+        log(f"  {code}  {by_code[code]['name'][:60]}")
+    if len(roots) > MAX_LISTED:
+        log(f"  ... {len(roots) - MAX_LISTED} more")
+    log(f"\n  The other {len(db_data) - len(roots)} are intermediates something here draws on.")
+    log(f"  List or filter them all:  python general/04_run_lca.py --search \"\" "
+        f"--database {db_name} --limit 0")
+
+
 def report_build(log, *, db_name, tally, plan, normalize, all_flows,
                  allow_unit_passthrough) -> None:
     """The console summary. Notes first, then each diagnostic that has anything to say."""
@@ -1077,9 +1327,19 @@ def report_build(log, *, db_name, tally, plan, normalize, all_flows,
         log("  in the downloaded zips. Add more process exports to extend coverage.")
     if tally.tech_ambiguous:
         log(f"\n  WARNING: {tally.tech_ambiguous} technosphere exchange(s) had an unresolvable "
-            f"hinted provider AND multiple candidate providers in '{EXTERNAL_PROVIDER_DB}' -- "
-            f"left unlinked rather than guessed. Examples:")
+            f"hinted provider AND multiple candidate providers -- left unlinked rather "
+            f"than guessed. Examples:")
         for ex in tally.ambiguous_examples[:MAX_EXAMPLES]:
+            log(f"    {ex}")
+    if tally.tech_unhinted:
+        log(f"\n  Note: {tally.tech_unhinted} unlinked exchange(s) carried no defaultProvider, "
+            f"so no provider could be looked up. Examples:")
+        for ex in tally.unhinted_examples[:MAX_EXAMPLES]:
+            log(f"    {ex}")
+    if tally.tech_dangling:
+        log(f"\n  Note: {tally.tech_dangling} unlinked exchange(s) named a provider that is in "
+            f"no background database. Examples:")
+        for ex in tally.dangling_examples[:MAX_EXAMPLES]:
             log(f"    {ex}")
     if plan.n_multi:
         log(f"\n  Allocation: {plan.n_multi} multi-output process(es) "
@@ -1138,6 +1398,9 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
     any of its processes without a rebuild. The two are SEPARATE brightway databases
     and coexist; see the USLCI_FULL_DB note in config.py for why the harness must
     stay pinned to the bundle build.
+
+    A preset over `_import_jsonld`: USLCI's own source discovery, its single
+    aggregated background, and its cut-chain-by-design link policy.
     """
     db_name = USLCI_FULL_DB_NAME if full_db else USLCI_BUNDLE_DB_NAME
 
@@ -1150,7 +1413,6 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
         )
 
     flow_conv = load_conversion_table(bundle_dir, log=log)
-    normalize = UnitNormalizer(flow_conv)
 
     bd.projects.set_current(project)
     if not bd.projects.twofive:
@@ -1164,14 +1426,178 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
                                  db_name=db_name, log=log)
     log(f"Found {len(zip_files)} process zip(s).")
 
-    source = source_identity(zip_files, full_db)
+    return _import_jsonld(
+        zip_files=zip_files, db_name=db_name, flow_conv=flow_conv,
+        source=source_identity(zip_files, full_db),
+        background=[EXTERNAL_PROVIDER_DB], full_db=full_db,
+        allow_unit_passthrough=allow_unit_passthrough,
+        # The bundle build cuts its supply chain by construction, and shadowing an
+        # upstream process is its intended precedence. Both are reported, neither
+        # is fatal — making either fatal here would change the validated build.
+        enforce_background_links=False, enforce_uuid_collisions=False,
+        overwrite=overwrite, confirm=confirm, project=project, log=log,
+    )
+
+
+def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=False,
+                  allow_unhinted_links=False, overwrite=False, confirm=None,
+                  project=PROJECT_NAME, log=_NOOP):
+    """Import your own olca-schema JSON-LD zip into `db_name`. Returns a `UslciBuild`.
+
+        from fedefl_bw25.setup_uslci import import_jsonld
+        build = import_jsonld("source_data/my_study.zip", db_name="my-study",
+                              background=["uslci-full", "electricity-baseline"],
+                              overwrite=True)
+
+    The zip needs exactly two directories the parser reads — `processes/` and
+    `flows/`, both of JSON files. Everything else an openLCA export carries
+    (`openlca.json`, `flow_properties/`, `unit_groups/`, `categories/`, …) is
+    ignored, so a generated dataset only has to produce the two.
+
+    `background` is an ORDERED list of already-built brightway databases that
+    technosphere links resolve against — normally a USLCI build plus the
+    electricity baseline. Every link into one must name it via the exchange's
+    `defaultProvider`; an exchange that resolves to nothing stops the build rather
+    than becoming a silent cutoff (see `check_background_links`).
+
+    Allocation, causal co-products, avoided products and waste-treatment linking all
+    come from the same parser USLCI goes through, so a JSON foreground gets them
+    without any of it being reimplemented here.
+    """
+    source_path = Path(source)
+    if not source_path.exists():
+        raise RuntimeError(
+            f"JSON-LD source not found: {source_path}\n"
+            f"  Give the path to an olca-schema zip, e.g. "
+            f"{REPO_ROOT / 'source_data' / 'my_study.zip'}."
+        )
+    if source_path.is_dir():
+        raise RuntimeError(
+            f"JSON-LD source must be a zip, not a directory: {source_path}\n"
+            f"  Zip it first:  cd {source_path} && zip -r ../{source_path.name}.zip "
+            f"processes flows"
+        )
+    check_jsonld_layout(source_path)
+
+    bd.projects.set_current(project)
+    if not bd.projects.twofive:
+        bd.projects.migrate_project_25()
+    if BIOSPHERE_DB not in bd.databases:
+        raise RuntimeError("Run setup/01_setup_biosphere_fedefl.py first.")
+
+    background = list(background)
+    missing = [b for b in background if b not in bd.databases]
+    if missing:
+        raise RuntimeError(
+            f"Background database(s) not built: {', '.join(missing)}.\n"
+            f"  Built databases in project '{project}': "
+            f"{sorted(n for n in bd.databases) or 'none'}\n"
+            f"  Build the USLCI background with "
+            f"'python setup/03_import_uslci.py --full-db'."
+        )
+
+    # The committed conversion table covers USLCI's flows; a dataset that defines
+    # its own gets them parsed out of its zip and merged in. Without this a custom
+    # flow carrying more than one flow property would skip cross-property
+    # conversion silently — ledger #7 wearing a new hat.
+    flow_conv = load_conversion_table(DEFAULT_BUNDLE_DIR, log=log)
+    flow_conv, added = supplement_conversions(flow_conv, source_path)
+    if added:
+        log(f"Conversion table: {added} flow(s) added from {source_path.name}.")
+
+    return _import_jsonld(
+        zip_files=[source_path], db_name=db_name, flow_conv=flow_conv,
+        source=source_identity([source_path], full_db=False, mode="custom_jsonld"),
+        background=background, full_db=False,
+        allow_unit_passthrough=allow_unit_passthrough,
+        enforce_background_links=not allow_unhinted_links,
+        enforce_uuid_collisions=True,
+        overwrite=overwrite, confirm=confirm, project=project, log=log,
+    )
+
+
+def check_jsonld_layout(zip_path) -> None:
+    """The two-directory authoring contract, checked before anything is parsed.
+
+    A zip with no `processes/` is the single most likely authoring mistake — an
+    openLCA export zipped one level too deep, so every entry is under
+    `my_study/processes/`. Saying that up front beats "0 unique processes" and an
+    empty database.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            names = z.namelist()
+    except zipfile.BadZipFile:
+        raise RuntimeError(f"{zip_path} is not a readable zip file.")
+
+    if any(n.startswith("processes/") and n.endswith(".json") for n in names):
+        return
+
+    nested = sorted({n.split("processes/")[0] for n in names if "/processes/" in n})
+    if nested:
+        raise RuntimeError(
+            f"{zip_path.name} has no top-level 'processes/' directory, but does contain "
+            f"'{nested[0]}processes/'.\n"
+            f"  The zip is one level too deep — its entries must start at 'processes/' "
+            f"and 'flows/', not at a wrapping folder.\n"
+            f"  Re-zip from INSIDE that folder:  cd {nested[0].rstrip('/')} && "
+            f"zip -r ../{zip_path.stem}.zip processes flows"
+        )
+    raise RuntimeError(
+        f"{zip_path.name} contains no 'processes/*.json' entries.\n"
+        f"  An olca-schema source needs two directories at its top level:\n"
+        f"    processes/*.json   one file per process\n"
+        f"    flows/*.json       one file per flow the processes reference\n"
+        f"  Found instead: {', '.join(sorted({n.split('/')[0] for n in names})[:8]) or '(empty zip)'}"
+    )
+
+
+def supplement_conversions(flow_conv, zip_path) -> tuple:
+    """Add the source's own flows to the conversion table where it has no entry.
+
+    Same precedence rule `setup_conversions.build_table` uses for bundle zips: the
+    committed USLCI table wins, and a flow it has never heard of is added rather
+    than left to fall through to within-property conversion only.
+    """
+    from fedefl_bw25.setup_conversions import parse_flow
+
+    added = 0
+    merged = dict(flow_conv)
+    with zipfile.ZipFile(zip_path) as z:
+        for name in z.namelist():
+            if not (name.startswith("flows/") and name.endswith(".json")):
+                continue
+            entry = parse_flow(json.loads(z.read(name)))
+            if not entry:
+                continue
+            uid = entry.pop("uuid")
+            if uid not in merged:
+                merged[uid] = entry
+                added += 1
+    return merged, added
+
+
+def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db,
+                   allow_unit_passthrough, enforce_background_links,
+                   enforce_uuid_collisions, overwrite, confirm, project, log):
+    """Parse olca-schema JSON-LD into a brightway database. The shared core.
+
+    Both entry points land here. Everything USLCI-specific — which zips, which
+    database name, which link policy — is decided by the caller and arrives as an
+    argument, so the two paths differ only in those arguments and not in any of the
+    parsing, allocation or linking below.
+    """
+    normalize = UnitNormalizer(flow_conv)
+
     log(f"  Source identity: {source['mode']}, {len(source['zips'])} zip(s)")
 
     all_processes, all_flows, _resolved = load_sources(zip_files, log=log)
     log()
 
     flow_to_process = index_reference_flows(all_processes)
-    external = load_external_providers(log=log)
+    external = load_external_providers(background, log=log)
+    check_uuid_collisions(all_processes, external, db_name,
+                          enforce_uuid_collisions, log=log)
 
     plan = plan_allocation(all_processes, db_name, normalize, flow_conv)
 
@@ -1190,10 +1616,13 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
         normalize=normalize,
         resolver=ProviderResolver(db_name, all_processes, flow_to_process, external),
         plan=plan, external_names=external.names,
+        external_dbs=list(external.databases),
     )
     db_data, proc_provenance, tally = build_activities(ctx)
+    roots = find_roots(db_data, db_name)
 
     check_consumed_causal_columns(plan, tally, db_name)
+    check_background_links(tally, db_name, enforce_background_links)
     check_unknown_units(normalize, all_flows, db_name, allow_unit_passthrough)
 
     bd.Database(db_name).write(db_data)
@@ -1218,28 +1647,42 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
     # is the real identity -- it says exactly which bytes produced this database
     # even when it cannot say what upstream calls them.
     bd.databases[db_name]["uslci_source"] = source
+
+    # WHICH databases this build's links point into. Read back by the run-time
+    # manifest to tell a real background apart from a cutoff: without it the
+    # completeness summary assumes the electricity baseline is the only external
+    # database there is, and counts every link into a USLCI background as a cutoff —
+    # reporting `fully_linked: false` on a result that is fully linked.
+    bd.databases[db_name]["background_databases"] = list(external.databases)
+    # WHICH REVISION of each background this build's links were resolved against.
+    # Rebuilding a background renumbers brightway's internal ids, which leaves a
+    # dependent database pointing at rows that no longer line up — bw2calc then
+    # fails with "Technosphere matrix is not square", naming neither the database
+    # that went stale nor the fix. Comparing this stamp at run time turns that into
+    # a sentence that says re-import.
+    bd.databases[db_name]["background_stamps"] = {
+        name: str(bd.databases[name].get("modified")) for name in external.databases
+    }
     bd.databases.flush()
 
+    linked_via = ", ".join(external.databases) or "none configured"
     log(f"Database '{db_name}' written — {len(db_data)} processes"
         + (f" [electricity_vintage = {external.vintage}]." if external.vintage else "."))
     log(f"  Biosphere exchanges: {tally.bio_matched} matched, {tally.bio_unmatched} unmatched")
     log(f"  Technosphere exchanges: {tally.tech_linked} linked "
-        f"({tally.tech_external} via '{EXTERNAL_PROVIDER_DB}'), {tally.tech_unlinked} unlinked")
+        f"({tally.tech_external} into background [{linked_via}]), "
+        f"{tally.tech_unlinked} unlinked")
 
     prov_path, _document = write_db_provenance(
         db_name=db_name, project=project, activity_count=len(db_data),
-        proc_provenance=proc_provenance, tally=tally, source=source)
+        proc_provenance=proc_provenance, tally=tally, source=source,
+        background=external.databases)
     log(f"  Provenance sidecar: {prov_path} ({len(proc_provenance)} processes)")
 
     report_build(log, db_name=db_name, tally=tally, plan=plan, normalize=normalize,
                  all_flows=all_flows, allow_unit_passthrough=allow_unit_passthrough)
 
-    log(f"\nProcesses in '{db_name}':")
-    for act in bd.Database(db_name):
-        n_bio  = sum(1 for e in act.exchanges() if e["type"] == "biosphere")
-        n_tech = sum(1 for e in act.exchanges() if e["type"] == "technosphere")
-        log(f"  {act['name'][:70]}")
-        log(f"    {n_bio} biosphere, {n_tech} technosphere exchanges")
+    report_contents(log, db_name=db_name, db_data=db_data, roots=roots)
 
     return UslciBuild(
         database=db_name,
@@ -1251,4 +1694,6 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
         electricity_vintage=external.vintage,
         provenance_path=str(prov_path),
         notes=[],
+        processes={code: info["name"] for code, info in proc_provenance.items()},
+        roots=roots,
     )

@@ -96,11 +96,14 @@ parser.add_argument("--append",            action="store_true", dest="append_res
                          "overwriting it, accumulating scenarios for general/06's "
                          "scenario-comparison chart. Re-running the same scenario "
                          "label replaces its rows rather than duplicating them.")
-parser.add_argument("--database",          default=None, choices=[USLCI_DB, USLCI_FULL_DB],
-                    help=f"Which USLCI build to run against (default: {USLCI_DB}, the "
+parser.add_argument("--database",          default=None,
+                    help=f"Which build to run against (default: {USLCI_DB}, the "
                          f"per-process bundle set the locked validation cases were computed "
                          f"against). '{USLCI_FULL_DB}' is the whole-database build from "
-                         f"USLCI_FULL_DB=1 setup/03_import_uslci.py.")
+                         f"'setup/03_import_uslci.py --full-db'. Any custom JSON-LD database "
+                         f"built by setup/03c_import_jsonld.py is also accepted — the name is "
+                         f"checked against the project rather than a fixed list, so a new "
+                         f"import needs no change here.")
 args = parser.parse_args()
 
 # --search answers "what is this process called?", which is the question a
@@ -152,6 +155,8 @@ print(f"  USLCI build      : '{build['database']}'  ({build['activity_count']} a
       f"   [set by {db_source}]")
 print(f"  Composition      : {build['composition']}")
 print(f"  Built from       : {build['source']}")
+if build["background"]:
+    print(f"  Background       : {', '.join(build['background'])}")
 print(f"  Electricity grid : {build['electricity_vintage']} baseline")
 for other, count in build["other_builds"].items():
     print(f"  Also built       : '{other}' ({count} activities) — switch with --database")

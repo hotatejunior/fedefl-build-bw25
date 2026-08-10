@@ -19,8 +19,11 @@ PROV = {
 }
 
 
-def _summ(solved_keys, prov=PROV, external=(ELEC,)):
-    return rm.summarize_supply_chain_completeness(solved_keys, prov, USLCI, external)
+def _summ(solved_keys, prov=PROV, external=(ELEC,), auditable=(USLCI,)):
+    """One auditable database, the single-background shape. Multi-background cases
+    call the function directly so the per-database keying stays visible."""
+    return rm.summarize_supply_chain_completeness(
+        solved_keys, {USLCI: prov}, auditable, external)
 
 
 # --- describe_uslci_source: which USLCI produced a build ---------------------
@@ -124,6 +127,58 @@ def test_missing_provenance_breaks_full_linkage_and_is_reported():
     # Its (unknown) cutoffs are NOT silently counted as zero-clean.
     assert s["uslci_processes_with_provenance"] == 1
     assert any("stale" in n or "no entry" in n for n in s["notes"])
+
+
+# --- multiple auditable databases: a custom build on a USLCI background ------
+# The defect these guard: completeness used to take ONE auditable database and
+# treat the electricity baseline as the only external one. A custom JSON-LD build
+# standing on uslci-full then had every USLCI activity fall through to "other",
+# reporting fully_linked on a result whose background cutoffs were never counted —
+# or, with the background named external, describing a real joint solve as a
+# pre-solved column. Both are false statements in an audit artifact.
+
+CUSTOM = "my-study"
+CUSTOM_PROV = {
+    "fg": {"name": "my widget", "bio_unmatched": 0, "tech_unlinked": 0, "tech_ambiguous": 0},
+}
+
+
+def _summ_two(solved_keys, custom_prov=CUSTOM_PROV, uslci_prov=PROV):
+    return rm.summarize_supply_chain_completeness(
+        solved_keys, {CUSTOM: custom_prov, USLCI: uslci_prov},
+        [CUSTOM, USLCI], [ELEC])
+
+
+def test_a_uslci_background_is_audited_not_bucketed_as_other():
+    s = _summ_two([(CUSTOM, "fg"), (USLCI, "A")])
+    assert s["other_activity_count"] == 0
+    assert s["uslci_activity_count"] == 2
+    assert s["auditable_databases"] == [CUSTOM, USLCI]
+    assert s["fully_linked"] is True
+
+
+def test_a_cutoff_in_the_uslci_background_is_counted_against_a_custom_result():
+    # The failure this exists to prevent: a leaky background process contributing
+    # to a custom result, reported as fully linked because nobody read its sidecar.
+    s = _summ_two([(CUSTOM, "fg"), (USLCI, "B")])
+    assert s["fully_linked"] is False
+    assert s["tech_unlinked_in_supply_chain"] == 1
+    assert s["bio_unmatched_in_supply_chain"] == 2
+
+
+def test_the_background_is_not_described_as_aggregated():
+    # uslci-full is a real joint solve; only the electricity baseline is pre-solved.
+    s = _summ_two([(CUSTOM, "fg"), (USLCI, "A")])
+    assert s["uses_aggregated_background"] is False
+    s2 = _summ_two([(CUSTOM, "fg"), (USLCI, "A"), (ELEC, "grid-mix")])
+    assert s2["uses_aggregated_background"] is True
+    assert s2["external_background_activity_count"] == 1
+
+
+def test_a_stale_custom_sidecar_is_reported_per_database():
+    s = _summ_two([(CUSTOM, "missing-from-sidecar"), (USLCI, "A")])
+    assert s["fully_linked"] is False
+    assert s["missing_provenance_uuids"] == ["missing-from-sidecar"]
 
 
 def test_foreground_activity_bucketed_as_other():

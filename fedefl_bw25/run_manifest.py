@@ -103,8 +103,8 @@ def select_supplied_keys(keyed_columns, supply):
             if supply[col] != 0]
 
 
-def summarize_supply_chain_completeness(solved_keys, provenance_processes,
-                                        uslci_db, external_dbs):
+def summarize_supply_chain_completeness(solved_keys, provenance_by_db,
+                                        auditable_dbs, external_dbs):
     """Cross this result's solved supply chain against per-process import diagnostics.
 
     Parameters
@@ -114,12 +114,16 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
         the target activity itself. From `lca.dicts.activity` reduced to non-zero
         supply by `select_supplied_keys` — passing the unreduced index would make
         every count below a whole-database total.
-    provenance_processes : dict
-        `{proc_uuid: {"bio_unmatched": int, "tech_unlinked": int,
-        "tech_ambiguous": int, ...}}` — the "processes" block of
-        `uslci_db_provenance.json`.
-    uslci_db : str
-        USLCI database name; keys whose db == this are auditable USLCI processes.
+    provenance_by_db : dict
+        `{db_name: {proc_uuid: {"bio_unmatched": int, "tech_unlinked": int,
+        "tech_ambiguous": int, ...}}}` — the "processes" block of each auditable
+        database's provenance sidecar, keyed by the database it describes.
+    auditable_dbs : iterable of str
+        Databases imported exchange-by-exchange, so their cutoffs are countable.
+        More than one once a custom JSON-LD database sits on a USLCI background:
+        both are real joint-solved databases with their own sidecars, and calling
+        the background "aggregated" to avoid reading two files would understate the
+        audit by describing a joint solve as a pre-solved column.
     external_dbs : iterable of str
         Database names treated as aggregated (pre-solved) background — e.g. the
         electricity baseline. Their internal completeness is not per-exchange
@@ -128,22 +132,24 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
     Returns
     -------
     dict
-        Per-result completeness. The cutoff counts are summed ONLY over USLCI
+        Per-result completeness. The cutoff counts are summed ONLY over auditable
         activities present in this supply chain, so they describe THIS result — not
         the whole database.
     """
-    external = set(external_dbs)
+    external  = set(external_dbs)
+    auditable = [d for d in auditable_dbs]
+    auditable_set = set(auditable)
     solved_keys = list(solved_keys)
-    uslci_keys    = [k for k in solved_keys if k[0] == uslci_db]
+    uslci_keys    = [k for k in solved_keys if k[0] in auditable_set]
     external_keys = [k for k in solved_keys if k[0] in external]
     other_keys    = [k for k in solved_keys
-                     if k[0] != uslci_db and k[0] not in external]
+                     if k[0] not in auditable_set and k[0] not in external]
 
     bio_unmatched = tech_unlinked = tech_ambiguous = 0
     with_prov = 0
     missing_prov = []
-    for _db, code in uslci_keys:
-        p = provenance_processes.get(code)
+    for db, code in uslci_keys:
+        p = (provenance_by_db.get(db) or {}).get(code)
         if p is None:
             missing_prov.append(code)
             continue
@@ -152,10 +158,10 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
         tech_unlinked  += int(p.get("tech_unlinked", 0) or 0)
         tech_ambiguous += int(p.get("tech_ambiguous", 0) or 0)
 
-    # "Fully linked" describes only the auditable (USLCI) part: no unaccounted
-    # activities and no cutoffs among them. Use of aggregated background is a
-    # separate, expected caveat (reported via uses_aggregated_background), NOT a
-    # failure — folding it in here would flag every electricity-touching result.
+    # "Fully linked" describes only the auditable part: no unaccounted activities
+    # and no cutoffs among them. Use of aggregated background is a separate,
+    # expected caveat (reported via uses_aggregated_background), NOT a failure —
+    # folding it in here would flag every electricity-touching result.
     fully_linked = (not missing_prov
                     and bio_unmatched == 0
                     and tech_unlinked == 0
@@ -163,6 +169,7 @@ def summarize_supply_chain_completeness(solved_keys, provenance_processes,
 
     return {
         "supply_chain_activity_count": len(solved_keys),
+        "auditable_databases": auditable,
         "uslci_activity_count": len(uslci_keys),
         "external_background_activity_count": len(external_keys),
         "other_activity_count": len(other_keys),

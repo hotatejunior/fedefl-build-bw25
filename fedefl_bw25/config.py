@@ -44,4 +44,14 @@ USLCI_DB = "uslci-subset"
 # either. Switching modes must never silently repoint the harness.
 USLCI_FULL_DB = "uslci-full"
 ELECTRICITY_BASELINE_DB = "electricity-baseline"
+# The transient database `run.run_lca` writes a foreground CSV into and drops after.
+# Here rather than in run.py so `search` can exclude it without importing run.py,
+# which pulls in bw2calc — slow, and noisy on ARM.
+FOREGROUND_DB = "foreground"
 METHOD_ROOT = ("TRACI", "2.2")
+
+# Databases that hold something other than runnable unit processes: elementary
+# flows, pre-solved background columns, and the transient foreground. Search skips
+# these by default so a bare --search sees study targets and nothing else; naming
+# one explicitly with --database still works.
+NON_TARGET_DBS = frozenset({BIOSPHERE_DB, ELECTRICITY_BASELINE_DB, FOREGROUND_DB})
