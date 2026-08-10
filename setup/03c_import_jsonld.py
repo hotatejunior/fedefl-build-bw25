@@ -89,6 +89,12 @@ def main():
                          "cutting them, instead of hard-stopping. Exploratory use "
                          "only — a cut background link silently lowers every result. "
                          "Also settable as ALLOW_UNHINTED_LINKS=1.")
+    ap.add_argument("--allow-unevaluated-formulas", action="store_true",
+                    default=_env_flag("ALLOW_UNEVALUATED_FORMULAS"),
+                    help="import parameterized exchanges that have a formula but no "
+                         "evaluated amount, as zero. They contribute nothing, so the "
+                         "process scores as if the input were absent. Also settable as "
+                         "ALLOW_UNEVALUATED_FORMULAS=1.")
     ap.add_argument("--allow-unit-passthrough", action="store_true",
                     default=_env_flag("ALLOW_UNIT_PASSTHROUGH"),
                     help="permit unrecognized unit strings to pass through WITHOUT "
@@ -127,6 +133,7 @@ def main():
             args.source, db_name=args.database, background=background,
             allow_unit_passthrough=args.allow_unit_passthrough,
             allow_unhinted_links=args.allow_unhinted_links,
+            allow_unevaluated_formulas=args.allow_unevaluated_formulas,
             overwrite=args.yes, confirm=None if args.yes else confirm, log=print,
         )
     except UslciExists:

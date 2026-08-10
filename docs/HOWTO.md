@@ -248,6 +248,28 @@ Find the UUID with `--search`, exactly as for a CSV foreground (§2). An exchang
 no provider **stops the build** rather than becoming a cutoff — a cut background link is a silently
 low result, and the message names the exchange.
 
+### Every exchange needs a flowType and a direction
+
+`flowType` (`PRODUCT_FLOW`, `WASTE_FLOW` or `ELEMENTARY_FLOW`) is read off the exchange's own `flow`
+reference, falling back to the flow's file in `flows/`. If neither has it, the exchange cannot be
+classified and the import stops. Inputs also need `isInput: true` — without it a product input reads
+as a co-product *output*, which both drops the link and turns a single-output process into a
+multi-output one, putting every other exchange through an allocation factor you never asked for.
+
+### Parameters are not evaluated
+
+This pipeline has no parameter engine. The number that reaches the matrix is the literal `amount`,
+which openLCA writes as the last value it evaluated the formula to; `amountFormula` is recorded as a
+note and otherwise ignored. Two consequences:
+
+- Changing a parameter upstream is **not** reflected here without re-exporting.
+- An exchange with a formula but no evaluated `amount` contributes exactly nothing. That stops the
+  import, because in the JSON it looks like a fully specified model. Evaluate the parameters in
+  openLCA and re-export, or write the numeric `amount` yourself.
+
+USLCI itself ships 725 formula-bearing exchanges in the bundle build and reproduces openLCA to
+within 0.1%, because its exports carry both the formula and the evaluated amount.
+
 ### Running it
 
 ```bash
@@ -309,6 +331,9 @@ target is just another functional unit against it.
 | Message | Cause |
 |---|---|
 | `no top-level 'processes/' directory` | The zip wraps a folder. Re-zip from inside it. |
+| `N exchange(s) could not be classified` | No resolvable `flowType`. Put it on the exchange's `flow` reference or on the flow's file in `flows/`. |
+| `product OUTPUTS that name a defaultProvider` | Missing `isInput: true`. Left alone it drops the link *and* makes the process multi-output, so allocation scales everything else down. |
+| `parameterized exchange(s) have a formula but no evaluated amount` | Parameters were never evaluated. Re-export from openLCA after evaluating, or write a numeric `amount`. |
 | `N exchange(s) carry NO defaultProvider` | A background link doesn't name its provider. Set it, or `--allow-unhinted-links` to cut them (exploratory only). |
 | `names a provider that is in no background database` | The UUID is wrong, or that background isn't built. |
 | `process UUID(s) … also exist in a background database` | Your process reuses a USLCI UUID and would shadow it. Give yours a fresh UUID. |

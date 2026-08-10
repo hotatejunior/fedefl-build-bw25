@@ -748,6 +748,10 @@ class BuildTally:
     tech_ambiguous: int = 0
     tech_unhinted: int = 0              # unresolved AND carried no defaultProvider
     tech_dangling: int = 0              # unresolved despite a defaultProvider hint
+    exc_untyped: int = 0                # no resolvable flowType — would be dropped
+    exc_provider_on_output: int = 0     # co-product output naming a provider
+    exc_formula: int = 0                # amount carries a formula, not just a number
+    exc_formula_zero: int = 0           # ...and the evaluated amount is 0/absent
     causal_fallback: int = 0            # causal exchanges that fell back to the scalar
     causal_coproduct_links: int = 0     # links redirected to a causal co-product activity
     waste_treatment_links: int = 0      # non-reference WASTE_FLOW outputs sent to treatment
@@ -755,6 +759,9 @@ class BuildTally:
     ambiguous_examples: list = field(default_factory=list)
     unhinted_examples: list = field(default_factory=list)
     dangling_examples: list = field(default_factory=list)
+    untyped_examples: list = field(default_factory=list)
+    provider_on_output_examples: list = field(default_factory=list)
+    formula_examples: list = field(default_factory=list)
     causal_coproduct_examples: list = field(default_factory=list)
     waste_treatment_examples: list = field(default_factory=list)
     avoided_product_examples: list = field(default_factory=list)
@@ -930,6 +937,54 @@ def _technosphere_exchange(ctx, tally, pdiag, *, proc, proc_uuid, exc, flow_ref,
     return exchange
 
 
+# olca-schema keys that hold a parameter expression for an exchange amount.
+# v1 exports use `amountFormula`; `formula` is accepted for tolerance.
+FORMULA_KEYS = ("amountFormula", "formula")
+
+
+def resolve_flow_type(flow_ref, flow_uuid, all_flows) -> str:
+    """The exchange's flowType, from the exchange or from the flow it names.
+
+    openLCA inlines `flowType` on every exchange's flow reference — checked across
+    a 400-process USLCI sample, 16,581 exchanges, zero omissions — so the USLCI path
+    never reaches the fallback. Hand-written and generated JSON routinely omits it,
+    because the flow's own file already says what type it is and the duplication
+    looks redundant.
+
+    Reading it off `flows/*.json` when the reference doesn't carry it costs nothing
+    (the file is already parsed) and turns the single most likely authoring mistake
+    from a silent drop into a non-event.
+    """
+    return (flow_ref.get("flowType")
+            or (all_flows.get(flow_uuid) or {}).get("flowType")
+            or "")
+
+
+def note_formula(exc, tally, proc, proc_uuid, flow_ref, flow_uuid, amount) -> None:
+    """Record an exchange whose amount is a parameter expression.
+
+    brightway has no parameter engine here: the number that lands in the matrix is
+    the literal `amount`, which openLCA writes as the last value it evaluated the
+    formula to. That is correct as a snapshot and silently wrong as a model — change
+    a parameter in openLCA and this import will not follow.
+
+    When `amount` is absent or zero alongside a formula there is no snapshot at all,
+    and the exchange contributes exactly nothing. USLCI itself has a handful of these
+    (11 in a 400-process sample), so it is a note there and fatal only for a custom
+    import, where it means the author's parameters never got evaluated.
+    """
+    formula = next((exc[k] for k in FORMULA_KEYS if k in exc), None)
+    if formula is None:
+        return
+    tally.exc_formula += 1
+    if not amount:
+        tally.exc_formula_zero += 1
+        if len(tally.formula_examples) < MAX_EXAMPLES:
+            tally.formula_examples.append(
+                f"{proc.get('name', proc_uuid)}: '{flow_ref.get('name', flow_uuid)}' "
+                f"= {formula!r} with amount {amount!r}")
+
+
 def build_activity(ctx, tally, proc_uuid, co_flow):
     """One brightway activity. Returns (key, activity_dict, per-process diagnostics).
 
@@ -960,7 +1015,7 @@ def build_activity(ctx, tally, proc_uuid, co_flow):
     for exc in proc.get("exchanges", []):
         flow_ref  = exc.get("flow", {})
         flow_uuid = flow_ref.get("@id")
-        flow_type = flow_ref.get("flowType", "")
+        flow_type = resolve_flow_type(flow_ref, flow_uuid, ctx.all_flows)
         is_input  = exc.get("isInput", False)
         # Production exchange: the quantitative reference for a normal job, the
         # co-product's own output exchange for a causal co-product job (there
@@ -981,6 +1036,7 @@ def build_activity(ctx, tally, proc_uuid, co_flow):
         amount    = exc.get("amount", 0.0)
         unit      = exc.get("unit", {}).get("name", "")
         fp_uuid   = exc.get("flowProperty", {}).get("@id", "")
+        note_formula(exc, tally, proc, proc_uuid, flow_ref, flow_uuid, amount)
 
         if is_ref:
             # Production exchange: never scaled by allocation factor. Usually
@@ -1041,6 +1097,39 @@ def build_activity(ctx, tally, proc_uuid, co_flow):
                 amount=amount, unit=unit, fp_uuid=fp_uuid)
             if exchange is not None:
                 exchanges.append(exchange)
+
+        elif not is_input and flow_type == "PRODUCT_FLOW":
+            # A non-reference product output: a co-product. Deliberately not linked
+            # — allocation has already re-based the reference activity, and any
+            # consumer of this flow is redirected at ITS link site by the co-product
+            # multiplier or the causal co-product activity. Named explicitly so the
+            # else below means "we could not classify this", not "anything left".
+            #
+            # Unless it names a provider. A co-product you MAKE has nobody supplying
+            # it; a defaultProvider means the author meant it to be consumed and
+            # omitted isInput. Left alone that inverts the exchange's direction AND
+            # silently turns a single-output process into a multi-output one, which
+            # puts every remaining exchange through an allocation factor nobody
+            # asked for. Zero such exchanges exist across all 1,425 USLCI processes,
+            # so treating it as a mistake costs the validated path nothing.
+            if (exc.get("defaultProvider") or {}).get("@id"):
+                tally.exc_provider_on_output += 1
+                if len(tally.provider_on_output_examples) < MAX_EXAMPLES:
+                    tally.provider_on_output_examples.append(
+                        f"{proc.get('name', proc_uuid)}: "
+                        f"'{flow_ref.get('name', flow_uuid)}' is an OUTPUT naming "
+                        f"provider {(exc.get('defaultProvider') or {}).get('@id')}")
+
+        else:
+            # No branch claimed this exchange, which previously meant it vanished
+            # without a trace: the database built, reported success, and the
+            # activity carried only its production exchange. The cause is almost
+            # always a flowType that is neither on the exchange nor on the flow.
+            tally.exc_untyped += 1
+            if len(tally.untyped_examples) < MAX_EXAMPLES:
+                tally.untyped_examples.append(
+                    f"{proc.get('name', proc_uuid)}: '{flow_ref.get('name', flow_uuid)}' "
+                    f"(flow {flow_uuid}) has flowType {flow_type!r}, isInput={is_input}")
 
     if not any(e["type"] == "production" for e in exchanges):
         raise RuntimeError(
@@ -1208,6 +1297,90 @@ def check_background_links(tally, db_name, enforce) -> None:
     raise RuntimeError("\n".join(lines))
 
 
+def check_untyped_exchanges(tally, db_name, enforce) -> None:
+    """Hard-stop on exchanges no branch could classify.
+
+    An unclassifiable exchange is dropped, and a dropped exchange is invisible: the
+    build succeeds, the counts look plausible because they only count what WAS
+    matched, and the activity quietly carries nothing but its production exchange.
+    That is the worst shape a defect can take here, so it stops the build.
+
+    Enforced for custom imports. Reported on the USLCI path, where a real export has
+    never produced one (0 in a 400-process sample) — so this cannot fire there in
+    practice, and hard-stopping a validated build on a condition it cannot reach
+    would be a behavioural change bought for nothing.
+    """
+    if not tally.exc_untyped:
+        return
+    detail = "\n".join(f"    {ex}" for ex in tally.untyped_examples)
+    if not enforce:
+        return
+    raise RuntimeError(
+        f"{tally.exc_untyped} exchange(s) could not be classified — build STOPPED "
+        f"before writing '{db_name}'.\n"
+        f"  Each would have been DROPPED silently, leaving its process with only a "
+        f"production exchange and a result of zero.\n"
+        f"  Every exchange needs a flowType of PRODUCT_FLOW, WASTE_FLOW or "
+        f"ELEMENTARY_FLOW — on the exchange's own `flow` reference, or on the flow's "
+        f"file in flows/. Inputs also need isInput: true.\n"
+        f"  Affected:\n{detail}"
+    )
+
+
+def check_provider_on_output(tally, db_name, enforce) -> None:
+    """Hard-stop on a co-product output that names a supplier.
+
+    Almost always a missing `isInput: true`. The damage is doubled: the exchange is
+    not linked (so its burden is absent), and its presence makes the process
+    multi-output, so allocation scales every OTHER exchange down by a factor the
+    author never intended. A single forgotten flag can halve a result.
+    """
+    if not (enforce and tally.exc_provider_on_output):
+        return
+    raise RuntimeError(
+        f"{tally.exc_provider_on_output} exchange(s) are product OUTPUTS that name a "
+        f"defaultProvider — build STOPPED before writing '{db_name}'.\n"
+        f"  A co-product you produce has no provider; naming one means this was meant "
+        f"to be an INPUT and `isInput: true` is missing.\n"
+        f"  Left as-is it would be dropped AND would make the process multi-output, "
+        f"putting every other exchange through an allocation factor you did not ask "
+        f"for.\n"
+        f"  Affected:\n"
+        + "\n".join(f"    {ex}" for ex in tally.provider_on_output_examples)
+    )
+
+
+def check_formula_exchanges(tally, db_name, enforce) -> None:
+    """Hard-stop when a parameterized exchange has no evaluated amount.
+
+    brightway has no parameter engine in this pipeline: the matrix takes the literal
+    `amount`, which openLCA writes as the last value it evaluated the formula to.
+    With `amount` absent or zero there is no such value, so the exchange contributes
+    exactly nothing while looking, in the JSON, like a fully specified model.
+
+    Enforced for custom imports only. USLCI ships a handful (11 in a 400-process
+    sample) and the validated build reproduces openLCA to 0.1% with them, so they
+    are a documented capability gap there, not a build defect.
+    """
+    if not (enforce and tally.exc_formula_zero):
+        return
+    raise RuntimeError(
+        f"{tally.exc_formula_zero} parameterized exchange(s) have a formula but no "
+        f"evaluated amount — build STOPPED before writing '{db_name}'.\n"
+        f"  This pipeline does not evaluate parameters: the number that reaches the "
+        f"matrix is the literal `amount` field, which openLCA fills in with the last "
+        f"value it computed. With it absent or zero the exchange contributes nothing, "
+        f"and the process scores as if the input were not there.\n"
+        f"  Fix in openLCA by evaluating the parameters and re-exporting (the export "
+        f"then carries both `amount` and `amountFormula`), or write the numeric "
+        f"`amount` yourself.\n"
+        f"  Affected:\n"
+        + "\n".join(f"    {ex}" for ex in tally.formula_examples)
+        + f"\n  Set ALLOW_UNEVALUATED_FORMULAS=1 (or pass --allow-unevaluated-formulas) "
+          f"to import them as zero anyway."
+    )
+
+
 def check_unknown_units(normalize, all_flows, db_name, allow_passthrough) -> None:
     """Hard-stop on unrecognized units BEFORE writing (ledger #7). An unconverted unit
     means silently wrong exchange amounts; refuse to build a database that contains
@@ -1331,6 +1504,26 @@ def report_build(log, *, db_name, tally, plan, normalize, all_flows,
             f"than guessed. Examples:")
         for ex in tally.ambiguous_examples[:MAX_EXAMPLES]:
             log(f"    {ex}")
+    if tally.exc_untyped:
+        log(f"\n  WARNING: {tally.exc_untyped} exchange(s) could not be classified and were "
+            f"DROPPED — their flowType is neither on the exchange nor on the flow. Examples:")
+        for ex in tally.untyped_examples[:MAX_EXAMPLES]:
+            log(f"    {ex}")
+    if tally.exc_provider_on_output:
+        log(f"\n  WARNING: {tally.exc_provider_on_output} product OUTPUT(s) name a "
+            f"defaultProvider — likely a missing isInput. Examples:")
+        for ex in tally.provider_on_output_examples[:MAX_EXAMPLES]:
+            log(f"    {ex}")
+    if tally.exc_formula:
+        log(f"\n  Note: {tally.exc_formula} exchange(s) carry a parameter formula. This "
+            f"pipeline does not evaluate parameters — the literal `amount` openLCA last "
+            f"computed is what reaches the matrix, so changing a parameter upstream will "
+            f"not be reflected here without a re-export.")
+        if tally.exc_formula_zero:
+            log(f"    Of those, {tally.exc_formula_zero} have NO evaluated amount and "
+                f"therefore contribute nothing:")
+            for ex in tally.formula_examples[:MAX_EXAMPLES]:
+                log(f"      {ex}")
     if tally.tech_unhinted:
         log(f"\n  Note: {tally.tech_unhinted} unlinked exchange(s) carried no defaultProvider, "
             f"so no provider could be looked up. Examples:")
@@ -1435,13 +1628,17 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
         # upstream process is its intended precedence. Both are reported, neither
         # is fatal — making either fatal here would change the validated build.
         enforce_background_links=False, enforce_uuid_collisions=False,
+        # A real USLCI export has never produced an unclassifiable exchange, and its
+        # handful of unevaluated formulas are reproduced to 0.1% by the locked gate.
+        # Both are reported here rather than raised on.
+        enforce_exchange_shape=False, allow_unevaluated_formulas=True,
         overwrite=overwrite, confirm=confirm, project=project, log=log,
     )
 
 
 def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=False,
-                  allow_unhinted_links=False, overwrite=False, confirm=None,
-                  project=PROJECT_NAME, log=_NOOP):
+                  allow_unhinted_links=False, allow_unevaluated_formulas=False,
+                  overwrite=False, confirm=None, project=PROJECT_NAME, log=_NOOP):
     """Import your own olca-schema JSON-LD zip into `db_name`. Returns a `UslciBuild`.
 
         from fedefl_bw25.setup_uslci import import_jsonld
@@ -1511,7 +1708,8 @@ def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=Fals
         background=background, full_db=False,
         allow_unit_passthrough=allow_unit_passthrough,
         enforce_background_links=not allow_unhinted_links,
-        enforce_uuid_collisions=True,
+        enforce_uuid_collisions=True, enforce_exchange_shape=True,
+        allow_unevaluated_formulas=allow_unevaluated_formulas,
         overwrite=overwrite, confirm=confirm, project=project, log=log,
     )
 
@@ -1579,7 +1777,8 @@ def supplement_conversions(flow_conv, zip_path) -> tuple:
 
 def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db,
                    allow_unit_passthrough, enforce_background_links,
-                   enforce_uuid_collisions, overwrite, confirm, project, log):
+                   enforce_uuid_collisions, enforce_exchange_shape=False,
+                   allow_unevaluated_formulas=False, overwrite, confirm, project, log):
     """Parse olca-schema JSON-LD into a brightway database. The shared core.
 
     Both entry points land here. Everything USLCI-specific — which zips, which
@@ -1622,6 +1821,12 @@ def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db
     roots = find_roots(db_data, db_name)
 
     check_consumed_causal_columns(plan, tally, db_name)
+    # Untyped first: a dropped exchange is the most invisible failure of the three,
+    # and its message explains a database that would otherwise look fine.
+    check_untyped_exchanges(tally, db_name, enforce_exchange_shape)
+    check_provider_on_output(tally, db_name, enforce_exchange_shape)
+    check_formula_exchanges(tally, db_name,
+                            enforce_exchange_shape and not allow_unevaluated_formulas)
     check_background_links(tally, db_name, enforce_background_links)
     check_unknown_units(normalize, all_flows, db_name, allow_unit_passthrough)
 

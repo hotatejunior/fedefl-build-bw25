@@ -492,3 +492,81 @@ def test_a_single_process_build_has_a_target():
                        process_count=1, totals={}, source={}, electricity_vintage=None,
                        provenance_path="", processes={"only": "Only"}, roots=["only"])
     assert build.target == "only"
+
+
+# -----------------------------------------------------------------------------
+# Exchange shape — the silent-drop failures
+# -----------------------------------------------------------------------------
+# A dropped exchange is the worst shape a defect can take here: the build reports
+# success, the counts look plausible because they only count what matched, and the
+# activity carries nothing but its production exchange. All three of these shipped
+# as silent drops and are now refused.
+
+def test_flow_type_falls_back_to_the_flows_file():
+    # The likeliest authoring mistake: the flow's own file says what type it is, so
+    # repeating it on every exchange looks redundant and gets left out.
+    from fedefl_bw25.setup_uslci import resolve_flow_type
+    all_flows = {"f1": {"flowType": "ELEMENTARY_FLOW"}}
+    assert resolve_flow_type({"@id": "f1"}, "f1", all_flows) == "ELEMENTARY_FLOW"
+
+
+def test_the_exchanges_own_flow_type_wins():
+    from fedefl_bw25.setup_uslci import resolve_flow_type
+    all_flows = {"f1": {"flowType": "ELEMENTARY_FLOW"}}
+    assert resolve_flow_type({"@id": "f1", "flowType": "PRODUCT_FLOW"},
+                             "f1", all_flows) == "PRODUCT_FLOW"
+
+
+def test_an_unknown_flow_type_resolves_to_empty_not_a_guess():
+    from fedefl_bw25.setup_uslci import resolve_flow_type
+    assert resolve_flow_type({"@id": "f1"}, "f1", {}) == ""
+
+
+def test_unclassifiable_exchanges_stop_a_custom_build():
+    from fedefl_bw25.setup_uslci import check_untyped_exchanges
+    tally = BuildTally(exc_untyped=2, untyped_examples=["widget: 'steel' flowType ''"])
+    with pytest.raises(RuntimeError, match="could not be classified"):
+        check_untyped_exchanges(tally, "my-study", enforce=True)
+
+
+def test_the_uslci_path_does_not_stop_on_them():
+    from fedefl_bw25.setup_uslci import check_untyped_exchanges
+    check_untyped_exchanges(BuildTally(exc_untyped=2), "uslci-subset", enforce=False)
+
+
+def test_a_formula_without_an_evaluated_amount_stops_a_custom_build():
+    # brightway takes the literal amount; with none there the exchange is a no-op
+    # that looks, in the JSON, like a fully specified model.
+    from fedefl_bw25.setup_uslci import check_formula_exchanges
+    tally = BuildTally(exc_formula=3, exc_formula_zero=2,
+                       formula_examples=["widget: 'steel' = 'x*2' with amount 0.0"])
+    with pytest.raises(RuntimeError, match="no evaluated amount"):
+        check_formula_exchanges(tally, "my-study", enforce=True)
+
+
+def test_a_formula_with_an_evaluated_amount_is_fine():
+    # USLCI ships 725 of these in the bundle build and reproduces openLCA to 0.1%.
+    from fedefl_bw25.setup_uslci import check_formula_exchanges
+    check_formula_exchanges(BuildTally(exc_formula=725, exc_formula_zero=0),
+                            "uslci-subset", enforce=True)
+
+
+def test_a_provider_on_a_product_output_stops_a_custom_build():
+    # Missing isInput. Doubly damaging: the link is dropped AND the process becomes
+    # multi-output, so allocation scales every other exchange down.
+    from fedefl_bw25.setup_uslci import check_provider_on_output
+    tally = BuildTally(exc_provider_on_output=1,
+                       provider_on_output_examples=["widget: 'steel' is an OUTPUT"])
+    with pytest.raises(RuntimeError, match="no provider"):
+        check_provider_on_output(tally, "my-study", enforce=True)
+
+
+def test_note_formula_only_flags_the_ones_with_no_amount():
+    from fedefl_bw25.setup_uslci import note_formula
+    tally = BuildTally()
+    note_formula({"amountFormula": "a*2", "amount": 4.0}, tally, {}, "p", {}, "f", 4.0)
+    assert (tally.exc_formula, tally.exc_formula_zero) == (1, 0)
+    note_formula({"amountFormula": "a*2"}, tally, {}, "p", {}, "f", 0.0)
+    assert (tally.exc_formula, tally.exc_formula_zero) == (2, 1)
+    note_formula({"amount": 1.0}, tally, {}, "p", {}, "f", 1.0)
+    assert tally.exc_formula == 2          # no formula -> not counted
