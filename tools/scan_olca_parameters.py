@@ -39,7 +39,9 @@ Usage
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 import re
 import sys
 import zipfile
@@ -571,22 +573,111 @@ def report(r, show_names=False):
     return "\n".join(L)
 
 
+def clean_path(raw):
+    """A pasted path, made usable.
+
+    Terminal paste adds artifacts that are not the operator's mistake: drag-and-drop
+    wraps the path in quotes and backslash-escapes spaces, "Copy as Pathname" can
+    bring trailing whitespace, and a quoted `~` never reaches the shell's expansion.
+
+    Repairs are tried in order and the FIRST candidate that exists wins, so a real
+    filename that genuinely contains a quote or a backslash is never mangled by a
+    repair it did not need.
+    """
+    candidates = []
+    p = raw.strip()
+    candidates.append(p)
+    for q in ('"', "'"):
+        if len(p) >= 2 and p.startswith(q) and p.endswith(q):
+            p = p[1:-1].strip()
+    candidates.append(p)
+    candidates.append(os.path.expanduser(p))
+    candidates.append(os.path.expanduser(p.replace("\\ ", " ")))
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return candidates[0]
+
+
+def self_test():
+    """Scan a synthetic package built in memory. Proves the tool runs.
+
+    Exists so that "the scanner is broken" and "my path is wrong" are separable
+    without a round trip -- the whole point of a script someone runs on a machine
+    where they cannot ask for help.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("parameters/g.json", json.dumps({
+            "@type": "Parameter", "name": "rate", "value": 0.5,
+            "isInputParameter": True, "parameterScope": "GLOBAL_SCOPE"}))
+        z.writestr("processes/p.json", json.dumps({
+            "@type": "Process", "@id": "p", "name": "demo",
+            "parameters": [{"name": "loss", "formula": "rate * 2",
+                            "isInputParameter": False}],
+            "exchanges": [
+                {"flow": {"@id": "f1", "flowType": "PRODUCT_FLOW"},
+                 "unit": {"name": "kg"}, "isInput": False,
+                 "isQuantitativeReference": True, "amount": 1.0},
+                {"flow": {"@id": "f2", "flowType": "PRODUCT_FLOW"},
+                 "unit": {"name": "kg"}, "isInput": True, "amount": 1.05,
+                 "amountFormula": "loss * if(rate > 0; 1; 2)"}]}))
+    buf.seek(0)
+    r = scan(buf)
+    r["zip"] = "(built-in self test)"
+    print(report(r, show_names=True))
+    ok = (r["processes"] == 1 and r["global_parameters"] == 1
+          and r["formulas_total"] == 2 and "if" in r["functions"]
+          and ";" in r["separators"] and ">" in r["operators"])
+    print("\nself-test: " + ("PASS — the tool works; any failure is the path."
+                             if ok else "FAIL — report this output."))
+    return 0 if ok else 1
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("zip", help="path to an olca-schema JSON-LD zip")
+    ap.add_argument("zip", nargs="?", help="path to an olca-schema JSON-LD zip")
     ap.add_argument("--show-names", action="store_true",
                     help="print parameter names instead of redacting them")
     ap.add_argument("--json", action="store_true",
                     help="emit the raw survey as JSON instead of the report")
+    ap.add_argument("--self-test", action="store_true",
+                    help="scan a built-in synthetic package to prove the tool runs")
     args = ap.parse_args()
 
+    if args.self_test:
+        raise SystemExit(self_test())
+    if not args.zip:
+        ap.error("a zip path is required (or pass --self-test)")
+
+    path = clean_path(args.zip)
+    if os.path.isdir(path):
+        raise SystemExit(
+            f"That is a directory, not a zip: {path}\n"
+            f"  Point this at the .zip file itself. If the package is already "
+            f"unpacked, re-zip it from INSIDE the folder holding 'processes':\n"
+            f"      cd {path} && zip -r ../survey_me.zip processes flows parameters")
+
     try:
-        r = scan(args.zip)
-    except FileNotFoundError:
-        raise SystemExit(f"No such file: {args.zip}")
+        r = scan(path)
+    except (FileNotFoundError, NotADirectoryError):
+        # NotADirectoryError (errno 20) is the same user mistake as errno 2: it
+        # just means the dead path component happens to exist as a file. Both are
+        # overwhelmingly "the script name and the zip path were pasted together",
+        # which is invisible on a long line, so say so rather than only naming it.
+        hint = ""
+        if ".py" in args.zip:
+            hint = ("\n  The path contains '.py', so the script name and the zip "
+                    "path look pasted together. They need a space between them:\n"
+                    "      python3 tools/scan_olca_parameters.py <space> /path/to/study.zip")
+        raise SystemExit(f"Cannot open: {path}{hint}")
+    except IsADirectoryError:
+        raise SystemExit(f"That is a directory, not a zip: {path}")
     except zipfile.BadZipFile:
-        raise SystemExit(f"Not a readable zip file: {args.zip}")
+        raise SystemExit(f"Not a readable zip file: {path}")
+    except PermissionError:
+        raise SystemExit(f"No permission to read: {path}")
 
     if args.json:
         printable = {k: (dict(v) if isinstance(v, Counter) else v)
