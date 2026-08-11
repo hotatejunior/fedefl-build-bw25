@@ -310,8 +310,9 @@ def scan(zip_path):
         "processes": 0,
         "exchanges": 0,
         "exchange_formulas": 0,
-        "exchange_formula_with_amount": 0,
-        "exchange_formula_zero_or_absent": 0,
+        "exchange_formula_amount_nonzero": 0,
+        "exchange_formula_amount_zero": 0,
+        "exchange_formula_amount_missing": 0,
         "formula_locations": {},
         "operators": Counter(),
         "word_operators": Counter(),
@@ -410,10 +411,18 @@ def scan(zip_path):
                 if formula is None:
                     continue
                 r["exchange_formulas"] += 1
-                if e.get("amount"):
-                    r["exchange_formula_with_amount"] += 1
+                # Three buckets, not two. An explicit `amount: 0` and a missing
+                # `amount` are the same falsy value but different mistakes: the
+                # first is a modeller writing zero (or a tool storing a parametric
+                # exchange as zero), the second is nothing having evaluated it at
+                # all. Anything that later decides whether to stop a build needs
+                # them apart, so don't merge them here either.
+                if "amount" not in e:
+                    r["exchange_formula_amount_missing"] += 1
+                elif not e.get("amount"):
+                    r["exchange_formula_amount_zero"] += 1
                 else:
-                    r["exchange_formula_zero_or_absent"] += 1
+                    r["exchange_formula_amount_nonzero"] += 1
 
             # Every formula in the document, wherever it lives.
             found = []
@@ -521,8 +530,9 @@ def report(r, show_names=False):
         f"   (longest {r['max_formula_len']} chars)")
     add(f"    core-arithmetic only : {r['formulas_core_only']} / {r['formulas_total']}")
     add(f"    on exchanges     : {r['exchange_formulas']}")
-    add(f"      with a non-zero amount    : {r['exchange_formula_with_amount']}")
-    add(f"      amount 0 / absent         : {r['exchange_formula_zero_or_absent']}")
+    add(f"      with a non-zero amount    : {r['exchange_formula_amount_nonzero']}")
+    add(f"      amount explicitly 0       : {r['exchange_formula_amount_zero']}")
+    add(f"      no amount field at all    : {r['exchange_formula_amount_missing']}")
     if r["formula_locations"]:
         add("    locations        :")
         for path, count in sorted(r["formula_locations"].items(),
