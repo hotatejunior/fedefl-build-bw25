@@ -963,15 +963,22 @@ def resolve_flow_type(flow_ref, flow_uuid, all_flows) -> str:
 def note_formula(exc, tally, proc, proc_uuid, flow_ref, flow_uuid, amount) -> None:
     """Record an exchange whose amount is a parameter expression.
 
-    brightway has no parameter engine here: the number that lands in the matrix is
-    the literal `amount`, which openLCA writes as the last value it evaluated the
-    formula to. That is correct as a snapshot and silently wrong as a model — change
-    a parameter in openLCA and this import will not follow.
+    There is no parameter engine in this pipeline: the number that lands in the
+    matrix is the literal `amount` field. A formula ALONGSIDE a numeric amount is
+    fine — the amount is the evaluated value and the formula is provenance — but it
+    is a snapshot, so re-parameterising upstream needs a re-export to land here.
 
-    When `amount` is absent or zero alongside a formula there is no snapshot at all,
-    and the exchange contributes exactly nothing. USLCI itself has a handful of these
-    (11 in a 400-process sample), so it is a note there and fatal only for a custom
-    import, where it means the author's parameters never got evaluated.
+    A formula with no numeric amount is the failure. The exchange contributes
+    exactly nothing while looking, in the JSON, like a fully specified model. Two
+    shapes reach it, reported separately because they suggest different mistakes:
+
+      absent   — the writer emitted only the expression, so nothing ever evaluated it
+      zero     — `amount: 0` with the expression beside it, which is precisely how
+                 lca_algebraic stores a parametric exchange (see docs/ROADMAP.md);
+                 vanilla brightway reads that as zero until freezeParams() runs
+
+    Fatal for a custom import; a note on the USLCI path, which ships 11 in a
+    400-process sample and reproduces openLCA to 0.1% regardless.
     """
     formula = next((exc[k] for k in FORMULA_KEYS if k in exc), None)
     if formula is None:
@@ -980,9 +987,11 @@ def note_formula(exc, tally, proc, proc_uuid, flow_ref, flow_uuid, amount) -> No
     if not amount:
         tally.exc_formula_zero += 1
         if len(tally.formula_examples) < MAX_EXAMPLES:
+            state = "no `amount` field at all" if "amount" not in exc \
+                    else f"`amount` explicitly {amount!r}"
             tally.formula_examples.append(
                 f"{proc.get('name', proc_uuid)}: '{flow_ref.get('name', flow_uuid)}' "
-                f"= {formula!r} with amount {amount!r}")
+                f"= {formula!r} — {state}")
 
 
 def build_activity(ctx, tally, proc_uuid, co_flow):
@@ -1366,18 +1375,22 @@ def check_formula_exchanges(tally, db_name, enforce) -> None:
         return
     raise RuntimeError(
         f"{tally.exc_formula_zero} parameterized exchange(s) have a formula but no "
-        f"evaluated amount — build STOPPED before writing '{db_name}'.\n"
+        f"numeric amount — build STOPPED before writing '{db_name}'.\n"
         f"  This pipeline does not evaluate parameters: the number that reaches the "
-        f"matrix is the literal `amount` field, which openLCA fills in with the last "
-        f"value it computed. With it absent or zero the exchange contributes nothing, "
-        f"and the process scores as if the input were not there.\n"
-        f"  Fix in openLCA by evaluating the parameters and re-exporting (the export "
-        f"then carries both `amount` and `amountFormula`), or write the numeric "
-        f"`amount` yourself.\n"
+        f"matrix is the literal `amount` field. Without one the exchange contributes "
+        f"nothing, and the process scores as if the input were not there.\n"
+        f"  Write the evaluated value into `amount`. Keeping the formula beside it is "
+        f"fine — it round-trips to openLCA and is recorded as provenance:\n"
+        f"      \"amountFormula\": \"hdpe_per_crate * 1.0\",\n"
+        f"      \"amount\": 1.05\n"
+        f"  If you generate this JSON, compute the value where the parameters already "
+        f"live and emit both. openLCA does the same on export, so a file that has been "
+        f"through it already carries the amount — but nothing here requires openLCA.\n"
         f"  Affected:\n"
         + "\n".join(f"    {ex}" for ex in tally.formula_examples)
         + f"\n  Set ALLOW_UNEVALUATED_FORMULAS=1 (or pass --allow-unevaluated-formulas) "
-          f"to import them as zero anyway."
+          f"to import them as zero anyway — every affected exchange then contributes "
+          f"nothing to any result."
     )
 
 
@@ -1516,11 +1529,11 @@ def report_build(log, *, db_name, tally, plan, normalize, all_flows,
             log(f"    {ex}")
     if tally.exc_formula:
         log(f"\n  Note: {tally.exc_formula} exchange(s) carry a parameter formula. This "
-            f"pipeline does not evaluate parameters — the literal `amount` openLCA last "
-            f"computed is what reaches the matrix, so changing a parameter upstream will "
-            f"not be reflected here without a re-export.")
+            f"pipeline does not evaluate parameters — the literal `amount` is what reaches "
+            f"the matrix, and the formula is carried as provenance only. The amounts are a "
+            f"snapshot, so re-parameterising upstream needs a re-export to land here.")
         if tally.exc_formula_zero:
-            log(f"    Of those, {tally.exc_formula_zero} have NO evaluated amount and "
+            log(f"    Of those, {tally.exc_formula_zero} carry NO numeric amount and "
                 f"therefore contribute nothing:")
             for ex in tally.formula_examples[:MAX_EXAMPLES]:
                 log(f"      {ex}")

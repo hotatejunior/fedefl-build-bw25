@@ -258,14 +258,27 @@ multi-output one, putting every other exchange through an allocation factor you 
 
 ### Parameters are not evaluated
 
-This pipeline has no parameter engine. The number that reaches the matrix is the literal `amount`,
-which openLCA writes as the last value it evaluated the formula to; `amountFormula` is recorded as a
-note and otherwise ignored. Two consequences:
+This pipeline has no parameter engine. The number that reaches the matrix is the literal `amount`;
+`amountFormula` is carried as provenance and otherwise ignored.
 
-- Changing a parameter upstream is **not** reflected here without re-exporting.
-- An exchange with a formula but no evaluated `amount` contributes exactly nothing. That stops the
-  import, because in the JSON it looks like a fully specified model. Evaluate the parameters in
-  openLCA and re-export, or write the numeric `amount` yourself.
+**You do not need openLCA.** A formula alongside a numeric amount imports fine — write both:
+
+```json
+"amountFormula": "hdpe_per_crate * 1.0",
+"amount": 1.05
+```
+
+If you generate the JSON, compute the value where the parameters already live and emit both. openLCA
+happens to do the same on export, which is why a file that has been through it already works.
+
+What stops the import is a formula with **no** numeric amount — either no `amount` key, or
+`amount: 0` beside an expression, which is exactly how `lca_algebraic` stores a parametric exchange.
+Such an exchange contributes nothing while looking, in the JSON, like a fully specified model.
+`--allow-unevaluated-formulas` imports them as zero if that is genuinely what you want.
+
+The remaining limitation is real: amounts are a **snapshot**. Re-parameterising upstream needs a
+re-export to land here — so a sweep varies the numbers in the generator and re-imports, which is
+what `examples/jsonld_study.py --sweep` does.
 
 USLCI itself ships 725 formula-bearing exchanges in the bundle build and reproduces openLCA to
 within 0.1%, because its exports carry both the formula and the evaluated amount.

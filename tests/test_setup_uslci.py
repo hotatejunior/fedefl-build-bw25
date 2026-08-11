@@ -540,7 +540,7 @@ def test_a_formula_without_an_evaluated_amount_stops_a_custom_build():
     from fedefl_bw25.setup_uslci import check_formula_exchanges
     tally = BuildTally(exc_formula=3, exc_formula_zero=2,
                        formula_examples=["widget: 'steel' = 'x*2' with amount 0.0"])
-    with pytest.raises(RuntimeError, match="no evaluated amount"):
+    with pytest.raises(RuntimeError, match="no numeric amount"):
         check_formula_exchanges(tally, "my-study", enforce=True)
 
 
