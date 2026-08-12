@@ -90,6 +90,9 @@ def verify(zip_path, tolerance=DEFAULT_TOLERANCE):
         "exch_no_amount_values": [],  # what they evaluate to now
         "exch_zero_amount": 0,      # stored amount is 0: checked, reported apart
         "exch_zero_disagreed": [],  # ...and we computed something else
+        "ref_formulas": 0,          # REFERENCE exchanges carrying a formula
+        "ref_changed": 0,           # ...where evaluating moves the functional unit
+        "ref_examples": [],
         "refused": Counter(),       # construct -> count
         "refused_examples": {},
         "scope_errors": [],
@@ -144,6 +147,15 @@ def verify(zip_path, tolerance=DEFAULT_TOLERANCE):
                 if formula is None:
                     continue
                 r["exch_formulas"] += 1
+                is_ref = bool(exc_dict.get("isQuantitativeReference"))
+                if is_ref:
+                    # A formula on the REFERENCE exchange is a different kind of
+                    # problem from a formula anywhere else: evaluating it changes
+                    # the process's own production amount, which is the basis every
+                    # result is normalized to. The scanner never flagged these --
+                    # it only checked product outputs of MULTI-output processes --
+                    # so a single-output process can carry one unnoticed.
+                    r["ref_formulas"] += 1
 
                 try:
                     computed = float(eval_ast(parse(formula), scope.values))
@@ -168,6 +180,10 @@ def verify(zip_path, tolerance=DEFAULT_TOLERANCE):
                     continue
 
                 declared = float(declared)
+                if is_ref and rel_error(computed, declared) > tolerance:
+                    r["ref_changed"] += 1
+                    if len(r["ref_examples"]) < 15:
+                        r["ref_examples"].append((label, declared, computed))
                 r["exch_checked"] += 1
                 if declared == 0:
                     r["exch_zero_amount"] += 1
@@ -260,6 +276,18 @@ def render(r, show_names=False):
                 f"stored 0 -> evaluates to {computed!r}")
     add(f"    no `amount` field: {r['exch_no_amount']}  "
         f"(nothing to compare; these are what evaluation ADDS)")
+    if r["ref_formulas"]:
+        add("")
+        add(f"  !! REFERENCE exchanges carrying a formula: {r['ref_formulas']}")
+        add(f"     Evaluating one changes the process's own production amount — the "
+            f"basis every")
+        add(f"     result is normalized to. {r['ref_changed']} of them evaluate to "
+            f"something OTHER")
+        add(f"     than the stored amount, so those functional units MOVED:")
+        for label, declared, computed in r["ref_examples"][:10]:
+            factor = (computed / declared) if declared else float("inf")
+            add(f"       {redact(label, show_names)}: {declared!r} -> {computed!r} "
+                f"({factor:.4g}x — results scale by 1/{factor:.4g})")
     for label, formula, declared, computed in r["exch_no_amount_values"][:10]:
         add(f"        {redact(label, show_names)}: "
             f"stored {declared!r} -> evaluates to {computed!r}")
