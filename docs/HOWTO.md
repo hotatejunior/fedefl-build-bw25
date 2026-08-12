@@ -332,6 +332,41 @@ here.
 `tools/scan_olca_parameters.py` is the lighter-weight companion: it surveys which parts of the
 dialect a dataset uses without evaluating anything.
 
+### Foreground-only runs
+
+To score your own processes with the USLCI supply chain excluded, import with no background and
+allow the resulting unresolved links to be cut:
+
+```python
+build = import_jsonld("my_study.zip", db_name="my-study",
+                      background=[], allow_unhinted_links=True,
+                      evaluate_formulas=True, overwrite=True)
+```
+
+Or `python examples/run_custom_jsonld.py my_study.zip my-study --foreground-only`.
+
+Both flags are needed. With no background every exchange naming an external provider resolves to
+nothing, and without `allow_unhinted_links` that is a hard stop rather than a cutoff.
+
+**Links between your own processes still resolve.** Only exchanges pointing outside the dataset are
+cut, so an internal chain — a component process feeding an assembly process — still propagates
+normally. In a two-process test the full result was 2817 kg CO₂ eq and the foreground-only result
+1030, of which 30 was the assembly's own direct emission and 1000 came through the internal
+component link.
+
+Two things to be clear about before using the number:
+
+- **It is not a comparable LCA result.** It is a screening or hotspot figure. Every background input
+  contributes zero, so it is lower than the truth by however much the supply chain matters — 63% of
+  the total in that test.
+- **The typo guard is gone.** In a normal build an exchange naming a provider UUID that exists
+  nowhere is a hard stop. Here it is indistinguishable from an intentional cut, so a mistyped
+  *internal* provider is silently dropped. Build once with the background linked first; that run
+  will catch the typo.
+
+A foreground-only build stays identifiable afterwards: its provenance sidecar and every run manifest
+record `background: []`, so a screening number cannot later be mistaken for a full result.
+
 ### Running it
 
 ```bash
