@@ -39,10 +39,19 @@ linear in its exchange amounts, so each background activity's unit score is comp
 scenario after that is a dot product. Allow USLCI parameters in and each combination needs a real
 solve at roughly ten seconds each.
 
-1. Parameter declarations and formula-valued amounts in the foreground CSV. An `ast` evaluator
-   restricted to arithmetic, a `parameter` exchange type, and every declared value recorded in the
-   manifest.
-2. A params file plus `--sweep`, so varying a value never means editing the inventory.
+1. Parameter declarations and formula-valued amounts in the foreground CSV. A `parameter` exchange
+   type, and every declared value recorded in the manifest.
+
+   **The evaluator itself is done** (2026-08-12, `fedefl_bw25.olca_formula` +
+   `olca_parameters`, reached from JSON-LD import via `--evaluate-formulas`). Not the `ast`
+   evaluator this item originally assumed: openLCA spells division `div`, equality `=`, and
+   exponentiation `^`, so `ast` cannot parse the first two and silently misreads the third as XOR.
+   It is a hand-written parser over a subset fixed by measurement rather than guesswork —
+   arithmetic, `=`/`!=`, and `if()` — which `tools/scan_olca_parameters.py` showed covers a real
+   103-process study completely. Anything outside it hard-stops. The CSV layer still needs to reach
+   it; the expression language and the scope resolution do not need rebuilding.
+2. A params file plus `--sweep`, so varying a value never means editing the inventory. `olca_formula`
+   already separates parsing from evaluation so a sweep parses once.
 3. Precompute background unit scores and evaluate combinations as arithmetic. Do this when a sweep
    feels slow, not before.
 

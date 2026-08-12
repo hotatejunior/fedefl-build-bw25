@@ -256,10 +256,13 @@ classified and the import stops. Inputs also need `isInput: true` — without it
 as a co-product *output*, which both drops the link and turns a single-output process into a
 multi-output one, putting every other exchange through an allocation factor you never asked for.
 
-### Parameters are not evaluated
+### Parameters
 
-This pipeline has no parameter engine. The number that reaches the matrix is the literal `amount`;
-`amountFormula` is carried as provenance and otherwise ignored.
+By default the number that reaches the matrix is the literal `amount`; `amountFormula` is carried as
+provenance and otherwise ignored. `--evaluate-formulas` switches that around and computes each
+amount from its formula.
+
+#### Default: amounts are read, not computed
 
 **You do not need openLCA.** A formula alongside a numeric amount imports fine — write both:
 
@@ -276,12 +279,58 @@ What stops the import is a formula with **no** numeric amount — either no `amo
 Such an exchange contributes nothing while looking, in the JSON, like a fully specified model.
 `--allow-unevaluated-formulas` imports them as zero if that is genuinely what you want.
 
-The remaining limitation is real: amounts are a **snapshot**. Re-parameterising upstream needs a
-re-export to land here — so a sweep varies the numbers in the generator and re-imports, which is
-what `examples/jsonld_study.py --sweep` does.
+The limitation is that amounts are a **snapshot**: re-parameterising upstream needs a re-export to
+land here, so a sweep varies the numbers in the generator and re-imports, which is what
+`examples/jsonld_study.py --sweep` does.
 
 USLCI itself ships 725 formula-bearing exchanges in the bundle build and reproduces openLCA to
 within 0.1%, because its exports carry both the formula and the evaluated amount.
+
+#### `--evaluate-formulas`: amounts are computed
+
+```bash
+python setup/03c_import_jsonld.py source_data/my_study.zip --database my-study --evaluate-formulas
+```
+
+This reads `parameters/` as well, resolves each process's scope (globals, then process-local, then
+the dependent chain in dependency order), and computes every formula-valued amount. The dataset no
+longer has to go back through openLCA for a parameter change to reach a result, and an exchange with
+no stored amount stops being a silent zero.
+
+Evaluation happens **before** allocation is planned, because allocation factors are derived from
+exchange amounts — computing them afterwards would leave the factors built from unevaluated numbers
+and the inventory from evaluated ones.
+
+The supported subset is deliberately narrow, and everything outside it is a **hard stop** rather than
+a fallback to the stored amount — mixing evaluated and unevaluated numbers in one database is the one
+outcome with no way to tell afterwards which is which:
+
+| Supported | Refused |
+|---|---|
+| `+ - * / ^`, unary `-`, parentheses | `div`, `mod` |
+| `=`, `!=` (also `==`, `<>`) | `<`, `>`, `<=`, `>=`, `&&`, `\|\|` |
+| `if(cond; then; else)` | every other openLCA function |
+| `pi`, `e` | |
+
+Note `^` is exponentiation, as in openLCA — not Python's XOR. That difference is why the dialect gets
+its own parser instead of being handed to Python's `ast`, which would return 1 for `2^3` without
+raising.
+
+Check a dataset before switching evaluation on:
+
+```bash
+python tools/verify_olca_formulas.py source_data/my_study.zip
+```
+
+It re-derives every value openLCA already computed — dependent parameters against their stored
+`value`, exchanges against their stored `amount` — and reports any disagreement, any construct it
+had to refuse, and any scope that would not resolve. Names and formula text are redacted unless you
+pass `--show-names`. The build itself repeats the same comparison and warns if the stored amount and
+the computed one diverge, since that means either a stale export or a formula being read differently
+here.
+
+`tools/scan_olca_parameters.py` is the lighter-weight companion: it surveys which parts of the
+dialect a dataset uses without evaluating anything.
 
 ### Running it
 
@@ -346,7 +395,10 @@ target is just another functional unit against it.
 | `no top-level 'processes/' directory` | The zip wraps a folder. Re-zip from inside it. |
 | `N exchange(s) could not be classified` | No resolvable `flowType`. Put it on the exchange's `flow` reference or on the flow's file in `flows/`. |
 | `product OUTPUTS that name a defaultProvider` | Missing `isInput: true`. Left alone it drops the link *and* makes the process multi-output, so allocation scales everything else down. |
-| `parameterized exchange(s) have a formula but no evaluated amount` | Parameters were never evaluated. Re-export from openLCA after evaluating, or write a numeric `amount`. |
+| `parameterized exchange(s) have a formula but no evaluated amount` | Parameters were never evaluated. Use `--evaluate-formulas`, re-export from openLCA after evaluating, or write a numeric `amount`. |
+| `is outside the supported subset` | `--evaluate-formulas` met a construct it does not implement. Run `tools/verify_olca_formulas.py` to see the full list for the dataset. |
+| `form a dependency cycle` | Dependent parameters reference each other in a loop, so none can be computed. |
+| `input parameter … has no 'value'` | An input parameter carries neither a value nor a formula. Usually a truncated export. |
 | `N exchange(s) carry NO defaultProvider` | A background link doesn't name its provider. Set it, or `--allow-unhinted-links` to cut them (exploratory only). |
 | `names a provider that is in no background database` | The UUID is wrong, or that background isn't built. |
 | `process UUID(s) … also exist in a background database` | Your process reuses a USLCI UUID and would shadow it. Give yours a fresh UUID. |

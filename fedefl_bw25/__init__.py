@@ -20,10 +20,16 @@ stdin. Results are returned rather than written, so a sweep can hold many runs i
 memory and write once.
 
 Modules divide by what they touch. `allocation`, `chart_units`, `run_manifest`,
-`vintage_detect`, `olca_library`, `foreground_importer` and `setup_conversions`
-are brightway-free: they operate on plain data supplied by the caller, which is
-why they unit-test without a built database. `run`, `setup_biosphere`,
-`setup_traci`, `setup_baseline` and `setup_uslci` drive brightway.
+`vintage_detect`, `olca_library`, `olca_formula`, `olca_parameters`,
+`foreground_importer` and `setup_conversions` are brightway-free: they operate on
+plain data supplied by the caller, which is why they unit-test without a built
+database. `run`, `setup_biosphere`, `setup_traci`, `setup_baseline` and
+`setup_uslci` drive brightway.
+
+`olca_formula` and `olca_parameters` are stdlib-only on purpose, so the tools that
+survey and verify a dataset (`tools/scan_olca_parameters.py`,
+`tools/verify_olca_formulas.py`) run from a bare checkout on whatever machine
+holds the zip, with no environment to build first.
 
 Submodules are not imported eagerly — `config` in particular is imported by every
 script and should stay free of optional dependencies.
@@ -34,7 +40,9 @@ __all__ = [
     "chart_units",
     "config",
     "foreground_importer",
+    "olca_formula",
     "olca_library",
+    "olca_parameters",
     "run",
     "run_manifest",
     "setup_baseline",

@@ -95,6 +95,14 @@ def main():
                          "evaluated amount, as zero. They contribute nothing, so the "
                          "process scores as if the input were absent. Also settable as "
                          "ALLOW_UNEVALUATED_FORMULAS=1.")
+    ap.add_argument("--evaluate-formulas", action="store_true",
+                    default=_env_flag("EVALUATE_FORMULAS"),
+                    help="compute each exchange amount from its amountFormula and the "
+                         "dataset's parameters, instead of trusting the amount openLCA "
+                         "last wrote. Reads parameters/ as well. A formula outside the "
+                         "supported subset hard-stops rather than falling back — check "
+                         "a dataset first with tools/verify_olca_formulas.py. Also "
+                         "settable as EVALUATE_FORMULAS=1.")
     ap.add_argument("--allow-unit-passthrough", action="store_true",
                     default=_env_flag("ALLOW_UNIT_PASSTHROUGH"),
                     help="permit unrecognized unit strings to pass through WITHOUT "
@@ -134,6 +142,7 @@ def main():
             allow_unit_passthrough=args.allow_unit_passthrough,
             allow_unhinted_links=args.allow_unhinted_links,
             allow_unevaluated_formulas=args.allow_unevaluated_formulas,
+            evaluate_formulas=args.evaluate_formulas,
             overwrite=args.yes, confirm=None if args.yes else confirm, log=print,
         )
     except UslciExists:

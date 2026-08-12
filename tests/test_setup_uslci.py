@@ -570,3 +570,126 @@ def test_note_formula_only_flags_the_ones_with_no_amount():
     assert (tally.exc_formula, tally.exc_formula_zero) == (2, 1)
     note_formula({"amount": 1.0}, tally, {}, "p", {}, "f", 1.0)
     assert tally.exc_formula == 2          # no formula -> not counted
+
+
+# =============================================================================
+# PARAMETER EVALUATION
+# =============================================================================
+# The pre-pass rewrites formula-valued amounts in the parsed process dicts before
+# allocation is planned. Ordering is the thing worth pinning: allocation factors
+# come from exchange amounts, so evaluating afterwards would leave the factors
+# computed from unevaluated numbers and the inventory from evaluated ones.
+
+def _param_proc(uuid="P1", name="widget line", **kw):
+    proc = {
+        "@id": uuid, "@type": "Process", "name": name,
+        "parameters": [
+            {"name": "base", "isInputParameter": True, "value": 10.0},
+            {"name": "toggle", "isInputParameter": True, "value": 0.0},
+            {"name": "net", "isInputParameter": False, "formula": "base * 2",
+             "value": 20.0},
+        ],
+        "exchanges": [
+            {"internalId": 1, "isQuantitativeReference": True, "isInput": False,
+             "flow": {"@id": "f_p", "flowType": "PRODUCT_FLOW"},
+             "unit": {"name": "kg"}, "amount": 1.0},
+            {"internalId": 2, "isInput": True,
+             "flow": {"@id": "f_s", "flowType": "PRODUCT_FLOW"},
+             "unit": {"name": "kg"},
+             "amountFormula": "net * 0.5", "amount": 10.0},
+            {"internalId": 3, "isInput": True,
+             "flow": {"@id": "f_o", "flowType": "PRODUCT_FLOW"},
+             "unit": {"name": "kg"},
+             "amountFormula": "if(toggle = 1; net; 0)", "amount": 0.0},
+        ],
+    }
+    proc.update(kw)
+    return proc
+
+
+def test_evaluation_rewrites_amounts_in_place_before_allocation_sees_them():
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    ev = apply_parameter_evaluation(procs, [])
+    amounts = [e["amount"] for e in procs["P1"]["exchanges"]]
+    assert amounts == [1.0, 10.0, 0.0]
+    assert ev.evaluated == 2                 # the reference exchange has no formula
+    assert ev.agreed == 2
+
+
+def test_an_evaluated_zero_is_a_result_not_a_missing_amount():
+    """A binary toggle in the off position evaluates to 0. That is the computed
+    answer, and must not be confused with 'nothing ever evaluated this'."""
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    apply_parameter_evaluation(procs, [])
+    assert procs["P1"]["exchanges"][2]["amount"] == 0.0
+
+    procs2 = {"P1": _param_proc()}
+    procs2["P1"]["parameters"][1]["value"] = 1.0          # toggle on
+    apply_parameter_evaluation(procs2, [])
+    assert procs2["P1"]["exchanges"][2]["amount"] == 20.0
+
+
+def test_a_stale_stored_amount_is_reported_but_not_fatal():
+    """Re-deriving a stale export is the point of evaluating, so this warns. A
+    divergence can equally mean the formula is read differently here, which is why
+    it is surfaced rather than absorbed."""
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    procs["P1"]["exchanges"][1]["amount"] = 999.0
+    ev = apply_parameter_evaluation(procs, [])
+    assert procs["P1"]["exchanges"][1]["amount"] == 10.0   # the formula wins
+    assert ev.diverged_n == 1
+    assert ev.diverged[0][0] == "widget line"
+
+
+def test_an_exchange_with_no_stored_amount_is_counted_as_added():
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    del procs["P1"]["exchanges"][1]["amount"]
+    ev = apply_parameter_evaluation(procs, [])
+    assert ev.no_stored == 1
+    assert procs["P1"]["exchanges"][1]["amount"] == 10.0
+
+
+def test_a_formula_outside_the_subset_stops_the_build_naming_the_process():
+    """With evaluation requested there is no safe fallback: using the stored amount
+    for the ones that fail would mix evaluated and unevaluated numbers in one
+    database, and nothing downstream could tell which was which."""
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    procs["P1"]["exchanges"][1]["amountFormula"] = "sqrt(net)"
+    with pytest.raises(RuntimeError, match="widget line"):
+        apply_parameter_evaluation(procs, [])
+
+
+def test_global_parameters_reach_process_formulas():
+    from fedefl_bw25.setup_uslci import apply_parameter_evaluation
+    procs = {"P1": _param_proc()}
+    procs["P1"]["exchanges"][1]["amountFormula"] = "net * grid"
+    globals_ = [{"name": "grid", "isInputParameter": True, "value": 0.25,
+                 "parameterScope": "GLOBAL_SCOPE", "formula": None}]
+    apply_parameter_evaluation(procs, globals_)
+    assert procs["P1"]["exchanges"][1]["amount"] == 5.0
+
+
+def test_load_global_parameters_reads_the_parameters_directory(tmp_path):
+    from fedefl_bw25.setup_uslci import load_global_parameters
+    path = tmp_path / "study.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("processes/p.json", json.dumps(_param_proc()))
+        z.writestr("parameters/g.json", json.dumps(
+            {"@type": "Parameter", "name": "grid", "parameterScope": "GLOBAL_SCOPE",
+             "isInputParameter": True, "value": 0.4}))
+    assert [p["name"] for p in load_global_parameters([path])] == ["grid"]
+
+
+def test_agreement_tolerance_handles_a_stored_zero():
+    """Relative error is undefined against 0, and a stored 0 beside a live formula
+    is exactly the shape a binary toggle produces."""
+    from fedefl_bw25.setup_uslci import _agrees
+    assert _agrees(0.0, 0.0)
+    assert not _agrees(0.0, 5.0)
+    assert _agrees(10.0, 10.0)
+    assert not _agrees(10.0, 11.0)

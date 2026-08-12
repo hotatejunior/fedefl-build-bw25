@@ -38,6 +38,7 @@ from pathlib import Path
 
 import bw2data as bd
 
+from fedefl_bw25 import olca_formula, olca_parameters
 from fedefl_bw25.allocation import allocation_for, causal_coproducts, coproduct_multipliers
 from fedefl_bw25.config import (PROJECT_NAME, BIOSPHERE_DB, CONV_TABLE_PATH,
                                 USLCI_DB as USLCI_BUNDLE_DB_NAME,
@@ -447,6 +448,164 @@ def load_sources(zip_files, log=_NOOP):
             f"differing versions — kept the highest dataset version / lastChange "
             f"(deterministic across machines).")
     return all_processes, all_flows, version_resolved
+
+
+# =============================================================================
+# PARAMETER EVALUATION
+# =============================================================================
+# Opt-in, and deliberately a PRE-PASS over the parsed processes rather than a
+# branch at the point each amount is read.
+#
+# Allocation factors are derived from exchange amounts (see plan_allocation), and
+# that runs before any activity is built. Evaluating at the read site would leave
+# allocation looking at unevaluated numbers while the inventory used evaluated
+# ones -- a split that produces a plausible database and wrong co-product shares.
+# Rewriting `amount` in the in-memory process dicts before allocation is planned
+# means every downstream consumer sees resolved numbers and none of them needed
+# changing. The dicts are re-parsed from the zip on every build, so this mutates
+# nothing on disk.
+@dataclass
+class ParameterEval:
+    """What evaluation did, for the build report."""
+    global_params: int = 0
+    local_params: int = 0
+    processes: int = 0                  # processes carrying parameters
+    evaluated: int = 0                  # exchange amounts computed from a formula
+    agreed: int = 0                     # ...that matched openLCA's stored amount
+    no_stored: int = 0                  # ...that had no stored amount to compare
+    was_zero: int = 0                   # ...stored as 0, now a real number
+    diverged_n: int = 0                 # ...that did NOT match a non-zero stored amount
+    diverged: list = field(default_factory=list)   # (proc, stored, computed), capped
+
+    @property
+    def checked(self) -> int:
+        """Exchanges with a usable stored amount to compare against."""
+        return self.evaluated - self.no_stored - self.was_zero
+
+
+# Relative agreement threshold against openLCA's own stored amount. Tight on
+# purpose: this is not absorbing float noise, it is catching a systematically
+# different reading of the formula.
+PARAM_AGREEMENT_TOL = 1e-9
+
+
+def _agrees(stored, computed) -> bool:
+    """Whether a computed amount matches the one openLCA stored.
+
+    Relative, falling back to absolute when the stored value is 0 -- which is the
+    case that matters most here, since a stored 0 beside a live formula is exactly
+    the shape a binary toggle produces.
+    """
+    if stored == computed:
+        return True
+    if stored == 0:
+        return abs(computed) <= PARAM_AGREEMENT_TOL
+    return abs(computed - stored) / abs(stored) <= PARAM_AGREEMENT_TOL
+
+
+def load_global_parameters(zip_files, log=_NOOP) -> list:
+    """Standalone Parameter documents from `parameters/*.json`, across all zips.
+
+    Separate from `load_sources` rather than a fourth return value: the files are
+    only read when evaluation is switched on, so the USLCI path pays nothing and
+    the existing signature keeps its callers.
+    """
+    params = []
+    for zpath in zip_files:
+        with zipfile.ZipFile(zpath) as z:
+            for name in z.namelist():
+                if name.startswith("parameters/") and name.endswith(".json"):
+                    params.extend(olca_parameters.collect_parameters(
+                        json.loads(z.read(name))))
+    if params:
+        log(f"  {len(params)} global parameter(s) found.")
+    return params
+
+
+def apply_parameter_evaluation(all_processes, global_params, log=_NOOP) -> ParameterEval:
+    """Replace every formula-valued exchange amount with its computed value.
+
+    Mutates `all_processes` in place and returns what it did. Any formula this
+    build cannot evaluate, any unresolvable scope, and any cycle raises before a
+    single amount is rewritten for that process -- a half-evaluated process would
+    be the worst of both worlds.
+
+    openLCA's stored `amount` is not used to build once evaluation is on, but it
+    is compared against: a divergence means this evaluator and openLCA read the
+    same formula differently, which the caller needs to see rather than inherit.
+    """
+    ev = ParameterEval()
+    globals_ = olca_parameters.resolve(
+        global_params, where="the global parameter scope")
+    ev.global_params = len(globals_.values)
+
+    for proc_uuid, proc in all_processes.items():
+        local = olca_parameters.collect_parameters(proc)
+        scope = olca_parameters.process_scope(proc, globals_)
+        if local:
+            ev.processes += 1
+            ev.local_params += len(local)
+
+        pending = []            # (exchange, computed) — applied only if all parse
+        for exc in proc.get("exchanges", []):
+            formula = next((exc[k] for k in FORMULA_KEYS if k in exc and exc[k]), None)
+            if formula is None:
+                continue
+            try:
+                computed = float(olca_formula.evaluate(formula, scope.values))
+            except olca_formula.FormulaError as err:
+                raise RuntimeError(
+                    f"Cannot evaluate a parameterized exchange in process "
+                    f"'{proc.get('name', proc_uuid)}':\n  {err}\n"
+                    f"  Evaluation was requested (evaluate_formulas=True), so this "
+                    f"is a hard stop: falling back to the stored `amount` would "
+                    f"silently mix evaluated and unevaluated numbers in one build."
+                ) from None
+            pending.append((exc, computed))
+
+        for exc, computed in pending:
+            stored = exc.get("amount")
+            ev.evaluated += 1
+            if stored is None:
+                ev.no_stored += 1
+            elif _agrees(float(stored), computed):
+                ev.agreed += 1
+            elif float(stored) == 0:
+                # A stored 0 beside a live formula is the shape evaluation exists
+                # to resolve — an export that never evaluated, or a toggle openLCA
+                # last saw switched off. Computing something else is the expected
+                # outcome, not a sign the formula is being misread, so it is
+                # counted apart from a genuine divergence.
+                ev.was_zero += 1
+            else:
+                ev.diverged_n += 1
+                if len(ev.diverged) < MAX_EXAMPLES:
+                    ev.diverged.append(
+                        (proc.get("name", proc_uuid), float(stored), computed))
+            exc["amount"] = computed
+
+    log(f"  Parameters: {ev.global_params} global, {ev.local_params} process-local "
+        f"across {ev.processes} process(es).")
+    log(f"  Evaluated {ev.evaluated} formula-valued exchange amount(s).")
+    if ev.checked:
+        log(f"    {ev.agreed}/{ev.checked} match the amount openLCA stored "
+            f"(within {PARAM_AGREEMENT_TOL:g} relative).")
+    if ev.no_stored or ev.was_zero:
+        log(f"    {ev.no_stored + ev.was_zero} had no usable stored amount "
+            f"({ev.no_stored} with no `amount` field, {ev.was_zero} stored as 0) — "
+            f"these contribute nothing without evaluation, and are what it adds.")
+    if ev.diverged_n:
+        # Not fatal: a stale export is a legitimate reason for openLCA's stored
+        # amount to be out of date, and re-deriving it is the point. But a
+        # divergence can equally mean this evaluator read the formula differently
+        # from openLCA, and that is not something to discover from a result.
+        log(f"    WARNING: {ev.diverged_n} DIVERGED from the stored amount. Either "
+            f"the export is stale, or the formula is being read differently here.")
+        for name, stored, computed in ev.diverged:
+            log(f"      {name}: stored {stored!r} -> evaluated {computed!r}")
+        log(f"      Run tools/verify_olca_formulas.py on this zip before trusting "
+            f"the build.")
+    return ev
 
 
 # =============================================================================
@@ -1503,7 +1662,7 @@ def report_contents(log, *, db_name, db_data, roots) -> None:
 
 
 def report_build(log, *, db_name, tally, plan, normalize, all_flows,
-                 allow_unit_passthrough) -> None:
+                 allow_unit_passthrough, param_eval=None) -> None:
     """The console summary. Notes first, then each diagnostic that has anything to say."""
     if tally.bio_unmatched:
         log("\n  Note: unmatched biosphere flows are elementary flows whose UUIDs are not")
@@ -1527,11 +1686,17 @@ def report_build(log, *, db_name, tally, plan, normalize, all_flows,
             f"defaultProvider — likely a missing isInput. Examples:")
         for ex in tally.provider_on_output_examples[:MAX_EXAMPLES]:
             log(f"    {ex}")
-    if tally.exc_formula:
+    if tally.exc_formula and param_eval is not None:
+        log(f"\n  Note: {tally.exc_formula} exchange(s) carry a parameter formula, and "
+            f"every one was EVALUATED — the computed value is what reached the matrix, "
+            f"not the `amount` in the file. Change a parameter and re-import to move "
+            f"the result; no re-export through openLCA is needed.")
+    elif tally.exc_formula:
         log(f"\n  Note: {tally.exc_formula} exchange(s) carry a parameter formula. This "
             f"pipeline does not evaluate parameters — the literal `amount` is what reaches "
             f"the matrix, and the formula is carried as provenance only. The amounts are a "
-            f"snapshot, so re-parameterising upstream needs a re-export to land here.")
+            f"snapshot, so re-parameterising upstream needs a re-export to land here. "
+            f"Pass --evaluate-formulas to compute them instead.")
         if tally.exc_formula_zero:
             log(f"    Of those, {tally.exc_formula_zero} carry NO numeric amount and "
                 f"therefore contribute nothing:")
@@ -1651,6 +1816,7 @@ def import_uslci(*, full_db=False, bundle_dir=None, allow_unit_passthrough=False
 
 def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=False,
                   allow_unhinted_links=False, allow_unevaluated_formulas=False,
+                  evaluate_formulas=False,
                   overwrite=False, confirm=None, project=PROJECT_NAME, log=_NOOP):
     """Import your own olca-schema JSON-LD zip into `db_name`. Returns a `UslciBuild`.
 
@@ -1663,6 +1829,15 @@ def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=Fals
     `flows/`, both of JSON files. Everything else an openLCA export carries
     (`openlca.json`, `flow_properties/`, `unit_groups/`, `categories/`, …) is
     ignored, so a generated dataset only has to produce the two.
+
+    `evaluate_formulas=True` additionally reads `parameters/` and computes every
+    formula-valued amount instead of trusting the `amount` openLCA last wrote.
+    The dataset then no longer has to be re-exported through openLCA for a
+    parameter change to reach a result. It is off by default because the literal
+    amounts are what the validated USLCI replication is measured against, and
+    because a formula the evaluator cannot handle is a hard stop rather than a
+    silent fallback — see `fedefl_bw25.olca_formula` for the supported subset and
+    `tools/verify_olca_formulas.py` to check a dataset before switching it on.
 
     `background` is an ORDERED list of already-built brightway databases that
     technosphere links resolve against — normally a USLCI build plus the
@@ -1723,6 +1898,7 @@ def import_jsonld(source, *, db_name, background=(), allow_unit_passthrough=Fals
         enforce_background_links=not allow_unhinted_links,
         enforce_uuid_collisions=True, enforce_exchange_shape=True,
         allow_unevaluated_formulas=allow_unevaluated_formulas,
+        evaluate_formulas=evaluate_formulas,
         overwrite=overwrite, confirm=confirm, project=project, log=log,
     )
 
@@ -1791,7 +1967,8 @@ def supplement_conversions(flow_conv, zip_path) -> tuple:
 def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db,
                    allow_unit_passthrough, enforce_background_links,
                    enforce_uuid_collisions, enforce_exchange_shape=False,
-                   allow_unevaluated_formulas=False, overwrite, confirm, project, log):
+                   allow_unevaluated_formulas=False, evaluate_formulas=False,
+                   overwrite, confirm, project, log):
     """Parse olca-schema JSON-LD into a brightway database. The shared core.
 
     Both entry points land here. Everything USLCI-specific — which zips, which
@@ -1804,6 +1981,15 @@ def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db
     log(f"  Source identity: {source['mode']}, {len(source['zips'])} zip(s)")
 
     all_processes, all_flows, _resolved = load_sources(zip_files, log=log)
+
+    # Before allocation: rewrites formula-valued amounts in place, so the factors
+    # plan_allocation derives are computed from the same numbers the inventory
+    # will carry. Off by default — the USLCI path's validated replication depends
+    # on the literal amounts openLCA exported.
+    param_eval = None
+    if evaluate_formulas:
+        param_eval = apply_parameter_evaluation(
+            all_processes, load_global_parameters(zip_files, log=log), log=log)
     log()
 
     flow_to_process = index_reference_flows(all_processes)
@@ -1838,8 +2024,12 @@ def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db
     # and its message explains a database that would otherwise look fine.
     check_untyped_exchanges(tally, db_name, enforce_exchange_shape)
     check_provider_on_output(tally, db_name, enforce_exchange_shape)
+    # With evaluation on, an amount of 0 is a COMPUTED result (a binary toggle in
+    # the off position, say), not the "nothing ever evaluated this" the guard
+    # exists to catch. Enforcing it there would reject correct builds.
     check_formula_exchanges(tally, db_name,
-                            enforce_exchange_shape and not allow_unevaluated_formulas)
+                            enforce_exchange_shape and not allow_unevaluated_formulas
+                            and not evaluate_formulas)
     check_background_links(tally, db_name, enforce_background_links)
     check_unknown_units(normalize, all_flows, db_name, allow_unit_passthrough)
 
@@ -1898,7 +2088,8 @@ def _import_jsonld(*, zip_files, db_name, flow_conv, source, background, full_db
     log(f"  Provenance sidecar: {prov_path} ({len(proc_provenance)} processes)")
 
     report_build(log, db_name=db_name, tally=tally, plan=plan, normalize=normalize,
-                 all_flows=all_flows, allow_unit_passthrough=allow_unit_passthrough)
+                 all_flows=all_flows, allow_unit_passthrough=allow_unit_passthrough,
+                 param_eval=param_eval)
 
     report_contents(log, db_name=db_name, db_data=db_data, roots=roots)
 
