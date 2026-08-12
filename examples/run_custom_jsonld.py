@@ -26,7 +26,20 @@ import sys
 from fedefl_bw25.run import run_lca, write_results_csv
 from fedefl_bw25.setup_uslci import import_jsonld
 
-args = [a for a in sys.argv[1:] if not a.startswith("--")]
+FLAGS = {"--foreground-only"}
+
+# Reject an unrecognised flag rather than ignoring it. A silently dropped
+# --foreground-only produces a FULL run that the operator believes is a
+# foreground one -- the two differ by more than half, and nothing in the output
+# contradicts the belief.
+unknown = [a for a in sys.argv[1:] if a.startswith("-") and a not in FLAGS]
+if unknown:
+    sys.exit(f"unknown option(s): {' '.join(unknown)}\n"
+             f"  usage: {sys.argv[0]} <zip> <db-name> [--foreground-only]\n"
+             f"  (if --foreground-only is rejected here, your checkout predates it "
+             f"— git pull)")
+
+args = [a for a in sys.argv[1:] if not a.startswith("-")]
 FOREGROUND_ONLY = "--foreground-only" in sys.argv
 
 ZIP = args[0] if args else "source_data/my_study.zip"
