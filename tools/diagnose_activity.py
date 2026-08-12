@@ -85,7 +85,64 @@ def source_amounts(zip_path):
     return out
 
 
-def report(act, database, src=None):
+def source_processes(zip_path):
+    """proc uuid -> the raw process dict, for shape questions the built DB cannot answer."""
+    out = {}
+    with zipfile.ZipFile(zip_path) as z:
+        for n in z.namelist():
+            if n.startswith("processes/") and n.endswith(".json"):
+                d = json.loads(z.read(n))
+                out[d.get("@id")] = d
+    return out
+
+
+def allocation_evidence(proc, act, database):
+    """Compare each built biosphere amount to its evaluated source amount.
+
+    The ratio between them IS the allocation factor -- allocation is applied to
+    every non-reference exchange on the way in, and nothing downstream records
+    what it was. A process that is multi-output by ACCIDENT (a product input
+    missing `isInput: true` reads as a co-product) gets its whole inventory scaled
+    by the reference product's share, which looks exactly like a correct build
+    returning a wrong number.
+    """
+    from fedefl_bw25 import olca_formula, olca_parameters
+
+    try:
+        scope = olca_parameters.process_scope(proc, olca_parameters.resolve([]))
+    except olca_parameters.ParameterError as exc:
+        return None, f"source parameters do not resolve: {str(exc).splitlines()[0]}"
+
+    src_by_flow = {}
+    product_outputs = []
+    for e in proc.get("exchanges") or []:
+        flow = e.get("flow") or {}
+        ftype = flow.get("flowType") or ""
+        if not e.get("isInput") and ftype == "PRODUCT_FLOW":
+            product_outputs.append(flow.get("name") or flow.get("@id"))
+        if ftype != "ELEMENTARY_FLOW":
+            continue
+        formula = e.get("amountFormula") or e.get("formula")
+        amount = e.get("amount")
+        if formula:
+            try:
+                amount = float(olca_formula.evaluate(formula, scope.values))
+            except olca_formula.FormulaError:
+                continue
+        if amount:
+            src_by_flow[flow.get("@id")] = amount
+
+    ratios = []
+    for e in act.exchanges():
+        if e["type"] != "biosphere":
+            continue
+        src = src_by_flow.get(e.input["code"])
+        if src:
+            ratios.append((e.input["name"], e["amount"], src, e["amount"] / src))
+    return (ratios, product_outputs), None
+
+
+def report(act, database, src=None, procs=None):
     cfs, method = gwp_factors()
     exchanges = list(act.exchanges())
     prod = [e for e in exchanges if e["type"] == "production"]
@@ -168,6 +225,51 @@ def report(act, database, src=None):
             n_formula = sum(1 for a, f, r in rows.values() if f)
             print(f"    {n_formula} of {len(rows)} exchange(s) carry a formula.")
 
+    if procs is not None:
+        proc = procs.get(act["code"])
+        if proc is not None:
+            print("\n  ALLOCATION (built amount vs evaluated source amount)")
+            evidence, err = allocation_evidence(proc, act, database)
+            if err:
+                print(f"    could not compare: {err}")
+            else:
+                ratios, product_outputs = evidence
+                if len(product_outputs) > 1:
+                    print(f"    !! {len(product_outputs)} PRODUCT OUTPUTS — this process "
+                          f"is multi-output, so every non-reference")
+                    print(f"       exchange is scaled by the reference product's "
+                          f"allocation share:")
+                    for name in product_outputs[:8]:
+                        print(f"         {name}")
+                    print(f"       If only one of these is a real co-product, the rest "
+                          f"are inputs missing")
+                    print(f"       `isInput: true` — which also explains unresolved "
+                          f"providers, since a")
+                    print(f"       mis-flagged input is never linked.")
+                elif product_outputs:
+                    print(f"    single product output — no allocation applied.")
+                if not ratios:
+                    print("    no biosphere exchange could be matched to the source.")
+                else:
+                    distinct = {round(r, 9) for _n, _b, _s, r in ratios}
+                    for name, built, src, r in ratios[:8]:
+                        print(f"    {name[:38]:38} built {built:>11.5g}  "
+                              f"source {src:>11.5g}  x{r:<.6g}")
+                    if len(distinct) == 1:
+                        factor = next(iter(distinct))
+                        if abs(factor - 1.0) < 1e-9:
+                            print("    -> ratio is 1.0 throughout: no scaling was "
+                                  "applied. Amounts are as authored.")
+                        else:
+                            print(f"    -> EVERY flow scaled by {factor:.6g}. That is an "
+                                  f"allocation factor, and it is")
+                            print(f"       dividing this process's whole inventory by "
+                                  f"{1/factor:.6g}.")
+                    else:
+                        print(f"    -> {len(distinct)} distinct ratios — causal "
+                              f"allocation (per-exchange factors), or a unit "
+                              f"conversion on some flows.")
+
     print(f"\n  Method: {' / '.join(method)}")
     print("=" * 72)
     return direct
@@ -190,8 +292,9 @@ def main(argv=None):
                          f"{sorted(bd.databases)}")
 
     src = source_amounts(args.against) if args.against else None
+    procs = source_processes(args.against) if args.against else None
     act = find_activity(args.database, args.uuid, args.search)
-    direct = report(act, args.database, src)
+    direct = report(act, args.database, src, procs)
 
     from fedefl_bw25.run import run_lca
     run = run_lca(uuid=act["code"], database=args.database, smoke_test=False,
