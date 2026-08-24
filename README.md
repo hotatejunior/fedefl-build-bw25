@@ -71,6 +71,25 @@ Nothing in the package prints or prompts, and results come back as objects rathe
 makes the repetitive work cheap: run a list of processes into one comparison table, re-run a study
 with a single amount changed, or rebuild a database and re-check a result, all from one script.
 
+## Documentation
+
+| File | Purpose |
+|------|---------|
+| [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here. Getting your first results from scratch |
+| [`HOWTO.md`](docs/HOWTO.md) | Task guides: functional units, foreground CSVs, choosing the background, scripting |
+| [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every error the pipeline raises, what it means, and the fix |
+| [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split, and what USLCI actually contains |
+| [`SCHEMA_CROSSWALK.md`](docs/SCHEMA_CROSSWALK.md) | USLCI openLCA JSON-LD → the brightway schema, field by field |
+| [`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md) | The openLCA parity write-up, with the technical appendix |
+| [`validation/`](validation/) | The harness, locked result CSVs, and the chronological validation log |
+| [`DEVLOG.md`](docs/DEVLOG.md) | Design decisions, the bugs fixed to reach validation, and the release-plan record |
+| [`ROADMAP.md`](docs/ROADMAP.md) | What is open, and what has been ruled out |
+
+`setup/` builds the databases once per machine, `general/` runs studies, `validation/` reproduces
+the parity claim, and `fedefl_bw25/` is the package the numbered scripts front. Pinned versions are
+in [`environment.yml`](environment.yml); engine design decisions in
+[`docs/DEVLOG.md`](docs/DEVLOG.md).
+
 ## Validation of pipeline results
 
 On identical inputs this pipeline reproduces the numbers openLCA computes. That is a check on the
@@ -94,8 +113,7 @@ reproduces them is in [`validation/`](validation/).
 
 ## How this was built
 
-Most of the implementation was written by Claude (Anthropic) under close human direction, and the
-trust case deliberately does not rest on who typed it.
+Most of the implementation was written by Claude (Anthropic) under close human direction. The workflow was designed to ensure the final product is trustworthy and testable against pinned references: 
 
 - **Human accountability.** A human expert made the method decisions, ran every openLCA reference
   session by hand, directed the debugging, and audited each script against a fixed
@@ -109,24 +127,6 @@ trust case deliberately does not rest on who typed it.
 - **The evidence chain is checkable without trusting any of the above:** pinned inputs, a
   reproducible harness, locked outputs. Re-run it from [`validation/`](validation/) and compare.
 
-## Documentation
-
-| File | Purpose |
-|------|---------|
-| [`TUTORIAL.md`](docs/TUTORIAL.md) | Start here. Getting your first results from scratch |
-| [`HOWTO.md`](docs/HOWTO.md) | Task guides: functional units, foreground CSVs, choosing the background, scripting |
-| [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every error the pipeline raises, what it means, and the fix |
-| [`ALLOCATION.md`](docs/ALLOCATION.md) | How multi-output processes are split, and what USLCI actually contains |
-| [`SCHEMA_CROSSWALK.md`](docs/SCHEMA_CROSSWALK.md) | USLCI openLCA JSON-LD → the brightway schema, field by field |
-| [`VALIDATION_REPORT.md`](docs/VALIDATION_REPORT.md) | The openLCA parity write-up, with the technical appendix |
-| [`validation/`](validation/) | The harness, locked result CSVs, and the chronological validation log |
-| [`DEVLOG.md`](docs/DEVLOG.md) | Design decisions, the bugs fixed to reach validation, and the release-plan record |
-| [`ROADMAP.md`](docs/ROADMAP.md) | What is open, and what has been ruled out |
-
-`setup/` builds the databases once per machine, `general/` runs studies, `validation/` reproduces
-the parity claim, and `fedefl_bw25/` is the package the numbered scripts front. Pinned versions are
-in [`environment.yml`](environment.yml); engine design decisions in
-[`docs/DEVLOG.md`](docs/DEVLOG.md).
 
 ## What's next
 
